@@ -1,0 +1,44 @@
+# Shared template for Operations API sync steps
+# Copies common.py + the target script from sync/ into a flat working
+# directory so that "from common import ..." works without path hacks.
+# This eliminates the need for duplicate script copies in devops/.
+
+parameters:
+  - name: scriptPath
+    type: string
+    # Relative to sync/, e.g. "servers/sync_server_list.py"
+  - name: displayName
+    type: string
+  - name: extraArgs
+    type: string
+    default: '--verbose'
+
+steps:
+  - task: UsePythonVersion@0
+    inputs:
+      versionSpec: '3.11'
+    displayName: 'Use Python 3.11'
+
+  - script: |
+      REPO_ROOT="$(Build.SourcesDirectory)/operations-api"
+      WORK_DIR="$(Build.StagingDirectory)/sync_run"
+      mkdir -p "$WORK_DIR"
+      cp "$REPO_ROOT/sync/common.py" "$WORK_DIR/"
+      cp "$REPO_ROOT/sync/${{ parameters.scriptPath }}" "$WORK_DIR/"
+      pip install -r "$REPO_ROOT/sync/requirements.txt"
+    displayName: 'Prepare sync environment'
+
+  - script: |
+      cd "$(Build.StagingDirectory)/sync_run"
+      SCRIPT_NAME="${{ parameters.scriptPath }}"
+      python "${SCRIPT_NAME##*/}" ${{ parameters.extraArgs }}
+    displayName: ${{ parameters.displayName }}
+    env:
+      OPS_DB_HOST: $(OPS_DB_HOST)
+      OPS_DB_PORT: $(OPS_DB_PORT)
+      OPS_DB_NAME: $(OPS_DB_NAME)
+      OPS_DB_USER: $(OPS_DB_USER)
+      OPS_DB_PASSWORD: $(OPS_DB_PASSWORD)
+      DATABRICKS_HOST: $(DATABRICKS_HOST)
+      DATABRICKS_TOKEN: $(DATABRICKS_TOKEN)
+      DATABRICKS_WAREHOUSE_ID: $(DATABRICKS_WAREHOUSE_ID)

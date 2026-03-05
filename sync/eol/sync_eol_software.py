@@ -3,73 +3,27 @@
 
 import os
 import sys
-import requests
 from psycopg2.extras import execute_values
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from common import (
-    setup_logging, validate_env_vars, create_argument_parser,
-    configure_verbosity, SyncContext
+    setup_logging, create_argument_parser,
+    configure_verbosity, SyncContext, query_databricks
 )
 
 logger = setup_logging('sync_eol_software')
 
-# Databricks source table - adjust catalog/schema if needed
-EOL_QUERY = os.environ.get(
-    'DATABRICKS_EOL_QUERY',
-    """
-    SELECT
-        eol_product,
-        eol_product_version,
-        eol_end_of_life,
-        eol_end_of_extended_support,
-        eol_end_of_support,
-        asset,
-        tag
-    FROM gold_asset_inventory.end_of_life_software
-    """
-)
-
-
-def fetch_from_databricks(ctx) -> list:
-    """Fetch EOL software data from Databricks SQL endpoint."""
-    validate_env_vars(['DATABRICKS_HOST', 'DATABRICKS_TOKEN', 'DATABRICKS_WAREHOUSE_ID'])
-
-    url = f"https://{os.environ['DATABRICKS_HOST']}/api/2.0/sql/statements"
-    headers = {
-        "Authorization": f"Bearer {os.environ['DATABRICKS_TOKEN']}",
-        "Content-Type": "application/json"
-    }
-
-    response = requests.post(
-        url,
-        headers=headers,
-        json={
-            "warehouse_id": os.environ['DATABRICKS_WAREHOUSE_ID'],
-            "statement": EOL_QUERY,
-            "wait_timeout": "120s"
-        },
-        timeout=180
-    )
-    response.raise_for_status()
-    result = response.json()
-
-    state = result.get('status', {}).get('state')
-    if state != 'SUCCEEDED':
-        error_msg = result.get('status', {}).get('error', {}).get('message', 'Unknown error')
-        raise Exception(f"Databricks query failed: {error_msg}")
-
-    columns = [
-        col['name'].lower()
-        for col in result.get('manifest', {}).get('schema', {}).get('columns', [])
-    ]
-
-    rows = []
-    for chunk in result.get('result', {}).get('data_array', []):
-        rows.append(dict(zip(columns, chunk)))
-
-    logger.info(f"Fetched {len(rows)} EOL software records from Databricks")
-    return rows
+EOL_QUERY = """\
+SELECT
+    eol_product,
+    eol_product_version,
+    eol_end_of_life,
+    eol_end_of_extended_support,
+    eol_end_of_support,
+    asset,
+    tag
+FROM gold_asset_inventory.end_of_life_software
+"""
 
 
 def sync_eol_software(ctx, records: list):
@@ -141,7 +95,7 @@ def sync_eol_software(ctx, records: list):
                 CURRENT_TIMESTAMP,
                 TRUE
             FROM tmp_eol_software t
-            ON CONFLICT (eol_product, eol_product_version, asset) DO UPDATE SET
+            ON CONFLICT (eol_product, eol_product_version, COALESCE(asset, '')) DO UPDATE SET
                 eol_end_of_life = EXCLUDED.eol_end_of_life,
                 eol_end_of_extended_support = EXCLUDED.eol_end_of_extended_support,
                 eol_end_of_support = EXCLUDED.eol_end_of_support,
@@ -181,7 +135,7 @@ def main():
     configure_verbosity(args.verbose)
 
     with SyncContext("databricks_eol", "Databricks EOL Software Sync", dry_run=args.dry_run) as ctx:
-        records = fetch_from_databricks(ctx)
+        records = query_databricks(EOL_QUERY, env_var_override='DATABRICKS_EOL_QUERY')
         sync_eol_software(ctx, records)
 
 

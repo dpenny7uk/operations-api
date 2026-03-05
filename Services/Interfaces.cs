@@ -24,15 +24,15 @@ public interface IServerService
     Task<ServerMatch?> ResolveServerNameAsync(string name);
     Task<IEnumerable<UnmatchedServer>> GetUnmatchedServersAsync(string? source, int limit);
     Task CreateAliasAsync(string canonical, string alias, string? source);
-    Task ResolveUnmatchedServerAsync(string raw, int serverId);
-    Task IgnoreUnmatchedServerAsync(string raw);
+    Task ResolveUnmatchedServerAsync(string raw, int serverId, string? sourceSystem = null);
+    Task IgnoreUnmatchedServerAsync(string raw, string? sourceSystem = null);
 }
 
 public interface IPatchingService
 {
     Task<NextPatchingSummary?> GetNextPatchingSummaryAsync();
     Task<IEnumerable<PatchCycle>> ListPatchCyclesAsync(bool upcomingOnly, int limit);
-    Task<IEnumerable<PatchScheduleItem>> GetCycleServersAsync(int cycleId, string? patchGroup, bool? hasIssues);
+    Task<PagedResult<PatchScheduleItem>> GetCycleServersAsync(int cycleId, string? patchGroup, bool? hasIssues, int limit = 100, int offset = 0);
     Task<IEnumerable<KnownIssue>> ListKnownIssuesAsync(string? severity, string? app, string? patchType, bool activeOnly);
     Task<KnownIssueDetail?> GetKnownIssueByIdAsync(int id);
     Task<IEnumerable<PatchWindow>> GetPatchWindowsAsync();
@@ -43,7 +43,7 @@ public interface ICertificateService
     Task<CertificateSummary> GetSummaryAsync();
     Task<IEnumerable<Certificate>> ListCertificatesAsync(string? alertLevel, string? server, int? daysUntil, int limit);
     Task<CertificateDetail?> GetByIdAsync(int id);
-    Task<IEnumerable<Certificate>> GetByServerAsync(string server);
+    Task<IEnumerable<Certificate>> GetByServerAsync(string server, int limit = 500);
 }
 
 public interface IEolService
@@ -51,5 +51,5 @@ public interface IEolService
     Task<EolSummary> GetSummaryAsync();
     Task<IEnumerable<EolSoftware>> ListEolSoftwareAsync(string? alertLevel, string? product, int limit);
     Task<EolSoftwareDetail?> GetByProductVersionAsync(string product, string version);
-    Task<IEnumerable<EolSoftware>> GetByServerAsync(string serverName);
+    Task<IEnumerable<EolSoftware>> GetByServerAsync(string serverName, int limit = 500);
 }

@@ -64,28 +64,18 @@ def parse_cycle_date(filename: str) -> datetime:
     raise ValueError(f"Cannot parse date from filename: {filename}")
 
 
-def read_schedule_file(filepath: Path) -> tuple:
-    """Read Excel or CSV file, return (onprem_servers, azure_servers)."""
+def read_schedule_file(filepath: Path) -> list:
+    """Read Excel or CSV file, return list of on-prem server records."""
     import pandas as pd
-    
+
     suffix = filepath.suffix.lower()
-    
+
     if suffix in ('.xlsx', '.xls'):
-        xlsx = pd.ExcelFile(filepath)
-        sheet_names = xlsx.sheet_names
-        
-        # First sheet = on-prem, second sheet = Azure
-        onprem = pd.read_excel(xlsx, sheet_name=0).to_dict('records') if len(sheet_names) > 0 else []
-        azure = pd.read_excel(xlsx, sheet_name=1).to_dict('records') if len(sheet_names) > 1 else []
-        
+        return pd.read_excel(filepath, sheet_name=0).to_dict('records')
     elif suffix == '.csv':
-        onprem = pd.read_csv(filepath).to_dict('records')
-        azure = []
-        
+        return pd.read_csv(filepath).to_dict('records')
     else:
         raise ValueError(f"Unsupported file type: {suffix}")
-    
-    return onprem, azure
 
 
 def normalize_column(name: str) -> str:
@@ -93,7 +83,7 @@ def normalize_column(name: str) -> str:
     return re.sub(r'[^a-z0-9]+', '_', name.lower()).strip('_')
 
 
-def process_servers(ctx, cycle_id: int, servers: list, server_type: str):
+def process_servers(ctx, cycle_id: int, servers: list):
     """Process server list into patch_schedule table."""
     with ctx.conn.cursor() as cur:
         for server in servers:
@@ -105,7 +95,7 @@ def process_servers(ctx, cycle_id: int, servers: list, server_type: str):
                 
                 if mapped_key:
                     # Clean value
-                    str_val = str(value) if value else ''
+                    str_val = str(value) if value is not None else ''
                     if str_val.lower() in ('nan', 'none', ''):
                         normalized[mapped_key] = None
                     else:
@@ -135,6 +125,7 @@ def process_servers(ctx, cycle_id: int, servers: list, server_type: str):
             
             # Insert/update schedule
             try:
+                cur.execute("SAVEPOINT srv")
                 cur.execute("""
                     INSERT INTO patching.patch_schedule (
                         cycle_id, server_name, server_type, server_id,
@@ -151,7 +142,7 @@ def process_servers(ctx, cycle_id: int, servers: list, server_type: str):
                 """, (
                     cycle_id,
                     server_name,
-                    server_type,
+                    'onprem',
                     server_id,
                     normalized.get('domain'),
                     normalized.get('app'),
@@ -167,9 +158,11 @@ def process_servers(ctx, cycle_id: int, servers: list, server_type: str):
                     normalized.get('subscription'),
                     normalized.get('os')
                 ))
+                cur.execute("RELEASE SAVEPOINT srv")
                 ctx.stats.inserted += 1
-                
+
             except Exception as e:
+                cur.execute("ROLLBACK TO SAVEPOINT srv")
                 ctx.stats.add_error(f"Failed {server_name}: {e}")
 
 
@@ -192,7 +185,8 @@ def main():
         cycle_date = parse_cycle_date(filepath.name)
 
     with SyncContext("ivanti_patching", "Ivanti Patching Schedule", dry_run=args.dry_run) as ctx:
-        assert ctx.conn is not None
+        if ctx.conn is None:
+            raise RuntimeError("Failed to establish database connection")
         # Create or get patch cycle
         with ctx.conn.cursor() as cur:
             cur.execute("""
@@ -204,7 +198,8 @@ def main():
                 RETURNING cycle_id
             """, (cycle_date.date(), filepath.name))
             row = cur.fetchone()
-            assert row is not None
+            if row is None:
+                raise RuntimeError("Failed to create/get patch cycle — INSERT RETURNING returned no row")
             cycle_id = row['cycle_id']  # type: ignore[index]  # RealDictCursor returns dict rows
 
             # Clear existing schedule for this cycle
@@ -214,20 +209,18 @@ def main():
             )
 
         # Read and process file
-        onprem, azure = read_schedule_file(filepath)
-        logger.info(f"Processing {len(onprem)} on-prem, {len(azure)} Azure servers for {cycle_date.date()}")
+        servers = read_schedule_file(filepath)
+        logger.info(f"Processing {len(servers)} on-prem servers for {cycle_date.date()}")
 
-        process_servers(ctx, cycle_id, onprem, 'onprem')
-        process_servers(ctx, cycle_id, azure, 'azure')
+        process_servers(ctx, cycle_id, servers)
 
         # Update cycle counts
         with ctx.conn.cursor() as cur:
             cur.execute("""
                 UPDATE patching.patch_cycles SET
-                    servers_onprem = %s,
-                    servers_azure = %s
+                    servers_onprem = %s
                 WHERE cycle_id = %s
-            """, (len(onprem), len(azure), cycle_id))
+            """, (ctx.stats.inserted, cycle_id))
 
         if not ctx.dry_run:
             ctx.conn.commit()

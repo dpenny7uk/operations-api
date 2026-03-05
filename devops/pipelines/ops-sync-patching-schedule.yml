@@ -1,0 +1,24 @@
+# Operations API - Patching Schedule Sync from HTML
+# Runs daily at 06:30 UTC (after server sync at 05:00)
+
+trigger: none
+
+schedules:
+  - cron: "30 6 * * *"
+    displayName: "Daily patching schedule sync at 06:30"
+    branches:
+      include:
+        - main
+    always: true
+
+pool:
+  name: 'Default'
+
+variables:
+  - group: operations-sync-secrets
+
+steps:
+  - template: templates/ops-sync-steps.yml
+    parameters:
+      scriptPath: patching/sync_patching_schedule.py
+      displayName: 'Sync Patching Schedule from HTML'

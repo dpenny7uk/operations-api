@@ -1,0 +1,45 @@
+# Operations API - Run unit tests on every push/PR
+# Gates deployments: if tests fail, nothing deploys.
+
+trigger:
+  branches:
+    include:
+      - main
+      - feature/*
+  paths:
+    include:
+      - sync/**
+
+pr:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - sync/**
+
+pool:
+  name: 'Default'
+
+steps:
+  - task: UsePythonVersion@0
+    inputs:
+      versionSpec: '3.11'
+    displayName: 'Use Python 3.11'
+
+  - script: |
+      pip install -r "$(Build.SourcesDirectory)/operations-api/sync/requirements.txt"
+    displayName: 'Install dependencies'
+
+  - script: |
+      cd "$(Build.SourcesDirectory)/operations-api/sync"
+      python -m pytest tests/ -v --tb=short --junitxml=$(Build.StagingDirectory)/test-results.xml
+    displayName: 'Run unit tests'
+
+  - task: PublishTestResults@2
+    inputs:
+      testResultsFormat: 'JUnit'
+      testResultsFiles: '$(Build.StagingDirectory)/test-results.xml'
+      testRunTitle: 'Sync Script Unit Tests'
+    condition: always()
+    displayName: 'Publish test results'

@@ -19,6 +19,12 @@ public abstract class BaseService<TService> where TService : class
     }
 
     /// <summary>
+    /// Escape PostgreSQL LIKE/ILIKE metacharacters in user input.
+    /// </summary>
+    protected static string EscapeLike(string value)
+        => value.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_");
+
+    /// <summary>
     /// Add ILIKE filter with wildcards for partial matching.
     /// </summary>
     protected static void AddILikeFilter(
@@ -34,7 +40,8 @@ public abstract class BaseService<TService> where TService : class
             return;
 
         sql += $" AND {column} ILIKE @{paramName}";
-        var pattern = (prefix ? "%" : "") + value + (suffix ? "%" : "");
+        var escaped = EscapeLike(value);
+        var pattern = (prefix ? "%" : "") + escaped + (suffix ? "%" : "");
         p.Add(paramName, pattern);
     }
 
@@ -77,27 +84,10 @@ public abstract class BaseService<TService> where TService : class
             p.Add("Offset", offset);
         }
     }
-
-    /// <summary>
-    /// Get count and last update time for freshness checks.
-    /// </summary>
-    protected async Task<(int Count, DateTime? LastUpdated)> GetTableFreshnessAsync(
-        string table,
-        string timestampColumn = "updated_at",
-        string? whereClause = null)
-    {
-        var sql = $"SELECT COUNT(*) AS Count, MAX({timestampColumn}) AS LastUpdated FROM {table}";
-        
-        if (!string.IsNullOrEmpty(whereClause))
-            sql += $" WHERE {whereClause}";
-
-        var result = await Db.QueryFirstOrDefaultAsync<dynamic>(sql);
-        return (result?.Count ?? 0, result?.LastUpdated as DateTime?);
-    }
 }
 
 /// <summary>
-/// SQL table names and common clauses.
+/// SQL table name constants.
 /// </summary>
 public static class Sql
 {
@@ -115,7 +105,6 @@ public static class Sql
         public const string UnmatchedServers = "system.unmatched_servers";
         public const string ServerAliases = "system.server_aliases";
         public const string EolSoftware = "eol.end_of_life_software";
+        public const string ScanFailures = "system.scan_failures";
     }
-
-    public const string IsActive = "is_active = TRUE";
 }

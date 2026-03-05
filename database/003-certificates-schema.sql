@@ -99,9 +99,10 @@ DECLARE
 BEGIN
     UPDATE certificates.inventory
     SET 
-        days_until_expiry = EXTRACT(DAY FROM (valid_to - CURRENT_TIMESTAMP))::INTEGER,
+        days_until_expiry = CEIL(EXTRACT(EPOCH FROM (valid_to - CURRENT_TIMESTAMP)) / 86400)::INTEGER,
         is_expired = (valid_to < CURRENT_TIMESTAMP),
-        alert_level = CASE 
+        alert_level = CASE
+            WHEN valid_to < CURRENT_TIMESTAMP THEN 'CRITICAL'
             WHEN valid_to < CURRENT_TIMESTAMP + INTERVAL '14 days' THEN 'CRITICAL'
             WHEN valid_to < CURRENT_TIMESTAMP + INTERVAL '30 days' THEN 'WARNING'
             ELSE 'OK'

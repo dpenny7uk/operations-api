@@ -13,14 +13,13 @@ public class CertificateService : BaseService<CertificateService>, ICertificateS
     public async Task<CertificateSummary> GetSummaryAsync()
     {
         return await Db.QueryFirstAsync<CertificateSummary>($@"
-            SELECT 
-                COUNT(*) FILTER (WHERE days_until_expiry <= 14) AS CriticalCount,
-                COUNT(*) FILTER (WHERE days_until_expiry > 14 AND days_until_expiry <= 30) AS WarningCount,
-                COUNT(*) FILTER (WHERE days_until_expiry > 30 AND days_until_expiry <= 60) AS UpcomingCount,
-                COUNT(*) FILTER (WHERE days_until_expiry > 60) AS OkCount,
+            SELECT
+                COUNT(*) FILTER (WHERE alert_level = 'CRITICAL' OR is_expired) AS CriticalCount,
+                COUNT(*) FILTER (WHERE alert_level = 'WARNING' AND NOT is_expired) AS WarningCount,
+                COUNT(*) FILTER (WHERE alert_level = 'OK' AND NOT is_expired) AS OkCount,
                 COUNT(*) AS TotalCount
             FROM {Sql.Tables.Certificates}
-            WHERE {Sql.IsActive} AND is_expired = FALSE
+            WHERE is_active = TRUE
         ");
     }
 
@@ -39,7 +38,7 @@ public class CertificateService : BaseService<CertificateService>, ICertificateS
                 days_until_expiry AS DaysUntilExpiry,
                 alert_level AS AlertLevel
             FROM {Sql.Tables.Certificates}
-            WHERE {Sql.IsActive}";
+            WHERE is_active = TRUE";
 
         var p = new DynamicParameters();
 
@@ -52,7 +51,7 @@ public class CertificateService : BaseService<CertificateService>, ICertificateS
         if (!string.IsNullOrEmpty(server))
         {
             sql += " AND server_name ILIKE @Server";
-            p.Add("Server", $"%{server}%");
+            p.Add("Server", $"%{EscapeLike(server)}%");
         }
 
         if (!string.IsNullOrEmpty(alertLevel))
@@ -89,10 +88,10 @@ public class CertificateService : BaseService<CertificateService>, ICertificateS
         ", new { Id = id });
     }
 
-    public async Task<IEnumerable<Certificate>> GetByServerAsync(string server)
+    public async Task<IEnumerable<Certificate>> GetByServerAsync(string server, int limit = 500)
     {
         return await Db.QueryAsync<Certificate>($@"
-            SELECT 
+            SELECT
                 certificate_id AS CertId,
                 subject_cn AS SubjectCn,
                 server_name AS ServerName,
@@ -100,8 +99,9 @@ public class CertificateService : BaseService<CertificateService>, ICertificateS
                 days_until_expiry AS DaysUntilExpiry,
                 alert_level AS AlertLevel
             FROM {Sql.Tables.Certificates}
-            WHERE {Sql.IsActive} AND server_name ILIKE @Server
+            WHERE is_active = TRUE AND server_name ILIKE @Server
             ORDER BY valid_to
-        ", new { Server = $"%{server}%" });
+            LIMIT @Limit
+        ", new { Server = $"%{EscapeLike(server)}%", Limit = limit });
     }
 }

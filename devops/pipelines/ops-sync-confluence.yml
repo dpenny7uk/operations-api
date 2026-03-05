@@ -1,0 +1,48 @@
+# Operations API - Confluence Known Issues Sync
+# Syncs patching issue pages from Confluence to PostgreSQL
+# Runs daily at 04:00 UTC (before patching syncs that reference known issues)
+
+trigger: none
+
+schedules:
+  - cron: "0 4 * * *"
+    displayName: "Daily Confluence sync at 04:00"
+    branches:
+      include:
+        - main
+    always: true
+
+pool:
+  name: 'Default'
+
+variables:
+  - group: operations-sync-secrets
+
+steps:
+  - task: UsePythonVersion@0
+    inputs:
+      versionSpec: '3.11'
+    displayName: 'Use Python 3.11'
+
+  - script: |
+      REPO_ROOT="$(Build.SourcesDirectory)/operations-api"
+      WORK_DIR="$(Build.StagingDirectory)/sync_run"
+      mkdir -p "$WORK_DIR"
+      cp "$REPO_ROOT/sync/common.py" "$WORK_DIR/"
+      cp "$REPO_ROOT/sync/confluence/sync_confluence_issues.py" "$WORK_DIR/"
+      pip install -r "$REPO_ROOT/sync/requirements.txt"
+    displayName: 'Prepare sync environment'
+
+  - script: |
+      cd "$(Build.StagingDirectory)/sync_run"
+      python sync_confluence_issues.py --verbose
+    displayName: 'Sync Confluence Known Issues'
+    env:
+      OPS_DB_HOST: $(OPS_DB_HOST)
+      OPS_DB_PORT: $(OPS_DB_PORT)
+      OPS_DB_NAME: $(OPS_DB_NAME)
+      OPS_DB_USER: $(OPS_DB_USER)
+      OPS_DB_PASSWORD: $(OPS_DB_PASSWORD)
+      CONFLUENCE_URL: $(CONFLUENCE_URL)
+      CONFLUENCE_TOKEN: $(CONFLUENCE_TOKEN)
+      CONFLUENCE_PARENT_PAGE_ID: $(CONFLUENCE_PARENT_PAGE_ID)

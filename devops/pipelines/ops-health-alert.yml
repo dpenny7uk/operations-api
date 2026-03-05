@@ -1,0 +1,42 @@
+# Operations API - Health Check & Teams Alert
+# Runs after all daily syncs to detect stale/failed jobs.
+# Schedule: 08:00 UTC (servers 05:00, EOL 05:30, certs 06:00, patching 06:30)
+
+trigger: none
+
+schedules:
+  - cron: "0 8 * * *"
+    displayName: "Daily health check at 08:00"
+    branches:
+      include:
+        - main
+    always: true
+
+pool:
+  name: 'Default'
+
+variables:
+  - group: operations-sync-secrets
+
+steps:
+  - task: UsePythonVersion@0
+    inputs:
+      versionSpec: '3.11'
+    displayName: 'Use Python 3.11'
+
+  - script: |
+      REPO_ROOT="$(Build.SourcesDirectory)/operations-api"
+      WORK_DIR="$(Build.StagingDirectory)/sync_run"
+      mkdir -p "$WORK_DIR"
+      cp "$REPO_ROOT/sync/common.py" "$WORK_DIR/"
+      cp "$REPO_ROOT/sync/alerts/sync_health_alert.py" "$WORK_DIR/"
+      pip install -r "$REPO_ROOT/sync/requirements.txt"
+    displayName: 'Prepare sync environment'
+
+  - script: |
+      cd "$(Build.StagingDirectory)/sync_run"
+      python sync_health_alert.py --verbose
+    displayName: 'Check health and alert Teams'
+    env:
+      OPS_API_URL: $(OPS_API_URL)
+      TEAMS_WEBHOOK_URL: $(TEAMS_WEBHOOK_URL)

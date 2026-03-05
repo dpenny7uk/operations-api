@@ -14,11 +14,10 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
     {
         // Get next active cycle
         var cycle = await Db.QueryFirstOrDefaultAsync<dynamic>($@"
-            SELECT 
+            SELECT
                 cycle_id,
                 cycle_date,
                 servers_onprem,
-                servers_azure,
                 status,
                 cycle_date - CURRENT_DATE AS days_until
             FROM {Sql.Tables.PatchCycles}
@@ -54,17 +53,16 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
             {
                 CycleId = cycle.cycle_id,
                 CycleDate = cycle.cycle_date,
-                ServersOnprem = cycle.servers_onprem,
-                ServersAzure = cycle.servers_azure,
+                ServerCount = cycle.servers_onprem,
                 Status = cycle.status
             },
             DaysUntil = cycle.days_until,
             ServersByGroup = groups.ToDictionary(
-                g => (string)g.patch_group,
+                g => (string?)g.patch_group ?? "Unassigned",
                 g => (int)g.count
             ),
             IssuesBySeverity = issues.ToDictionary(
-                i => (string)i.severity,
+                i => (string?)i.severity ?? "Unknown",
                 i => (int)i.server_count
             ),
             TotalIssuesAffectingServers = issues.Sum(i => (int)i.server_count)
@@ -74,11 +72,10 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
     public async Task<IEnumerable<PatchCycle>> ListPatchCyclesAsync(bool upcomingOnly, int limit)
     {
         var sql = $@"
-            SELECT 
+            SELECT
                 cycle_id AS CycleId,
                 cycle_date AS CycleDate,
-                servers_onprem AS ServersOnprem,
-                servers_azure AS ServersAzure,
+                servers_onprem AS ServerCount,
                 status AS Status
             FROM {Sql.Tables.PatchCycles}";
 
@@ -90,51 +87,75 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
         return await Db.QueryAsync<PatchCycle>(sql, new { Limit = limit });
     }
 
-    public async Task<IEnumerable<PatchScheduleItem>> GetCycleServersAsync(
+    public async Task<PagedResult<PatchScheduleItem>> GetCycleServersAsync(
         int cycleId,
         string? patchGroup,
-        bool? hasIssues)
+        bool? hasIssues,
+        int limit = 100,
+        int offset = 0)
     {
-        var sql = $@"
-            SELECT 
-                ps.schedule_id AS ScheduleId,
-                ps.server_name AS ServerName,
-                ps.server_type AS ServerType,
-                ps.patch_group AS PatchGroup,
-                pw.scheduled_time AS ScheduledTime,
-                ps.app AS Application,
-                CASE WHEN COUNT(ki.issue_id) > 0 THEN TRUE ELSE FALSE END AS HasKnownIssue,
-                COUNT(ki.issue_id) AS IssueCount
-            FROM {Sql.Tables.PatchSchedule} ps
-            LEFT JOIN {Sql.Tables.PatchWindows} pw 
-                ON pw.patch_group = ps.patch_group AND pw.window_type = ps.server_type
-            LEFT JOIN {Sql.Tables.KnownIssues} ki 
-                ON ki.is_active AND (ps.app = ANY(ki.affected_apps) OR ps.service = ANY(ki.affected_services))
-            WHERE ps.cycle_id = @CycleId";
-
+        var where = $"WHERE ps.cycle_id = @CycleId";
         var p = new DynamicParameters();
         p.Add("CycleId", cycleId);
 
         if (!string.IsNullOrEmpty(patchGroup))
         {
-            sql += " AND ps.patch_group = @PatchGroup";
+            where += " AND ps.patch_group = @PatchGroup";
             p.Add("PatchGroup", patchGroup);
         }
 
-        sql += @"
-            GROUP BY ps.schedule_id, ps.server_name, ps.server_type, 
-                     ps.patch_group, pw.scheduled_time, ps.app";
-
+        var having = "";
         if (hasIssues.HasValue)
         {
-            sql += hasIssues.Value
+            having = hasIssues.Value
                 ? " HAVING COUNT(ki.issue_id) > 0"
                 : " HAVING COUNT(ki.issue_id) = 0";
         }
 
-        sql += " ORDER BY ps.patch_group, ps.server_name";
+        var joins = $@"
+            FROM {Sql.Tables.PatchSchedule} ps
+            LEFT JOIN {Sql.Tables.PatchWindows} pw
+                ON pw.patch_group = ps.patch_group AND pw.window_type = 'onprem'
+            LEFT JOIN {Sql.Tables.KnownIssues} ki
+                ON ki.is_active AND (ps.app = ANY(ki.affected_apps) OR ps.service = ANY(ki.affected_services))
+            {where}";
 
-        return await Db.QueryAsync<PatchScheduleItem>(sql, p);
+        var groupBy = @"
+            GROUP BY ps.schedule_id, ps.server_name,
+                     ps.patch_group, pw.scheduled_time, ps.app";
+
+        // Total count
+        var countSql = $"SELECT COUNT(*) FROM (SELECT ps.schedule_id {joins} {groupBy} {having}) sub";
+        var totalCount = await Db.ExecuteScalarAsync<int>(countSql, p);
+
+        // Paginated data
+        var dataSql = $@"
+            SELECT
+                ps.schedule_id AS ScheduleId,
+                ps.server_name AS ServerName,
+                ps.patch_group AS PatchGroup,
+                pw.scheduled_time AS ScheduledTime,
+                ps.app AS Application,
+                CASE WHEN COUNT(ki.issue_id) > 0 THEN TRUE ELSE FALSE END AS HasKnownIssue,
+                COUNT(ki.issue_id) AS IssueCount
+            {joins}
+            {groupBy}
+            {having}
+            ORDER BY ps.patch_group, ps.server_name
+            LIMIT @Limit OFFSET @Offset";
+
+        p.Add("Limit", limit);
+        p.Add("Offset", offset);
+
+        var items = await Db.QueryAsync<PatchScheduleItem>(dataSql, p);
+
+        return new PagedResult<PatchScheduleItem>
+        {
+            Items = items,
+            TotalCount = totalCount,
+            Limit = limit,
+            Offset = offset
+        };
     }
 
     public async Task<IEnumerable<KnownIssue>> ListKnownIssuesAsync(
@@ -170,7 +191,7 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
         if (!string.IsNullOrEmpty(app))
         {
             sql += " AND application ILIKE @App";
-            p.Add("App", $"%{app}%");
+            p.Add("App", $"%{EscapeLike(app)}%");
         }
 
         if (!string.IsNullOrEmpty(patchType))
@@ -185,12 +206,13 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
         }
 
         sql += @"
-            ORDER BY CASE severity 
-                WHEN 'CRITICAL' THEN 1 
-                WHEN 'HIGH' THEN 2 
-                WHEN 'MEDIUM' THEN 3 
-                ELSE 4 
-            END";
+            ORDER BY CASE severity
+                WHEN 'CRITICAL' THEN 1
+                WHEN 'HIGH' THEN 2
+                WHEN 'MEDIUM' THEN 3
+                ELSE 4
+            END
+            LIMIT 500";
 
         return await Db.QueryAsync<KnownIssue>(sql, p);
     }
@@ -225,7 +247,9 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
                 patch_group AS PatchGroup,
                 window_type AS WindowType,
                 scheduled_time AS ScheduledTime,
-                COALESCE(EXTRACT(EPOCH FROM (end_time - start_time)) / 60, 90)::INTEGER AS DurationMinutes
+                CASE WHEN start_time IS NOT NULL AND end_time IS NOT NULL
+                     THEN EXTRACT(EPOCH FROM (end_time - start_time)) / 60
+                END::INTEGER AS DurationMinutes
             FROM {Sql.Tables.PatchWindows}
             ORDER BY patch_group, window_type
         ");

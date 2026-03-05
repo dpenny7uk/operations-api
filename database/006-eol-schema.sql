@@ -30,10 +30,11 @@ CREATE TABLE IF NOT EXISTS eol.end_of_life_software (
     -- Timestamps
     created_at                  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at                  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    synced_at                   TIMESTAMP,
-
-    CONSTRAINT uq_eol_product_asset UNIQUE (eol_product, eol_product_version, asset)
+    synced_at                   TIMESTAMP
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_eol_product_asset
+    ON eol.end_of_life_software (eol_product, eol_product_version, COALESCE(asset, ''));
 
 CREATE INDEX IF NOT EXISTS idx_eol_product ON eol.end_of_life_software(eol_product);
 CREATE INDEX IF NOT EXISTS idx_eol_version ON eol.end_of_life_software(eol_product, eol_product_version);

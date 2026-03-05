@@ -1,0 +1,7 @@
+# Certificate scan server list
+# One hostname per line. Blank lines and lines starting with # are ignored.
+#
+# Examples:
+# SERVER01
+# SERVER02.domain.local
+# WEBSERVER-PROD

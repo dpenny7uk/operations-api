@@ -1,6 +1,18 @@
 namespace OperationsApi.Models;
 
 // ============================================
+// SHARED
+// ============================================
+
+public class PagedResult<T>
+{
+    public IEnumerable<T> Items { get; set; } = [];
+    public int TotalCount { get; set; }
+    public int Limit { get; set; }
+    public int Offset { get; set; }
+}
+
+// ============================================
 // HEALTH MODELS
 // ============================================
 
@@ -9,6 +21,7 @@ public class HealthSummary
     public string OverallStatus { get; set; } = "";
     public List<SyncStatus> SyncStatuses { get; set; } = new();
     public int UnmatchedServersCount { get; set; }
+    public int UnreachableServersCount { get; set; }
     public DateTime LastUpdated { get; set; }
 }
 
@@ -96,8 +109,7 @@ public class PatchCycle
 {
     public int CycleId { get; set; }
     public DateTime CycleDate { get; set; }
-    public int ServersOnprem { get; set; }
-    public int ServersAzure { get; set; }
+    public int ServerCount { get; set; }
     public string Status { get; set; } = "";
 }
 
@@ -114,7 +126,6 @@ public class PatchScheduleItem
 {
     public int ScheduleId { get; set; }
     public string ServerName { get; set; } = "";
-    public string ServerType { get; set; } = "";
     public string? PatchGroup { get; set; }
     public string? ScheduledTime { get; set; }
     public string? Application { get; set; }
@@ -149,7 +160,7 @@ public class PatchWindow
     public string PatchGroup { get; set; } = "";
     public string WindowType { get; set; } = "";
     public string? ScheduledTime { get; set; }
-    public int DurationMinutes { get; set; }
+    public int? DurationMinutes { get; set; }
 }
 
 // ============================================
@@ -160,7 +171,6 @@ public class CertificateSummary
 {
     public int CriticalCount { get; set; }
     public int WarningCount { get; set; }
-    public int UpcomingCount { get; set; }
     public int OkCount { get; set; }
     public int TotalCount { get; set; }
 }

@@ -20,6 +20,7 @@ public class EolService : BaseService<EolService>, IEolService
                 COUNT(*) AS TotalCount,
                 COUNT(DISTINCT asset) FILTER (WHERE eol_end_of_life <= NOW() + INTERVAL '6 months') AS AffectedServers
             FROM {Sql.Tables.EolSoftware}
+            WHERE is_active = TRUE
         ");
     }
 
@@ -42,14 +43,14 @@ public class EolService : BaseService<EolService>, IEolService
                 END AS AlertLevel,
                 COUNT(DISTINCT asset) AS AffectedAssets
             FROM {Sql.Tables.EolSoftware}
-            WHERE 1=1";
+            WHERE is_active = TRUE";
 
         var p = new DynamicParameters();
 
         if (!string.IsNullOrEmpty(product))
         {
             sql += " AND eol_product ILIKE @Product";
-            p.Add("Product", $"%{product}%");
+            p.Add("Product", $"%{EscapeLike(product)}%");
         }
 
         if (!string.IsNullOrEmpty(alertLevel))
@@ -87,7 +88,7 @@ public class EolService : BaseService<EolService>, IEolService
                 END AS AlertLevel,
                 COUNT(DISTINCT asset) AS AffectedAssets
             FROM {Sql.Tables.EolSoftware}
-            WHERE eol_product = @Product AND eol_product_version = @Version
+            WHERE eol_product = @Product AND eol_product_version = @Version AND is_active = TRUE
             GROUP BY eol_product, eol_product_version, eol_end_of_life, eol_end_of_extended_support, eol_end_of_support, tag
         ", new { Product = product, Version = version });
 
@@ -96,7 +97,7 @@ public class EolService : BaseService<EolService>, IEolService
             var assets = await Db.QueryAsync<string>($@"
                 SELECT DISTINCT asset
                 FROM {Sql.Tables.EolSoftware}
-                WHERE eol_product = @Product AND eol_product_version = @Version
+                WHERE eol_product = @Product AND eol_product_version = @Version AND is_active = TRUE
                 ORDER BY asset
             ", new { Product = product, Version = version });
             detail.Assets = assets.ToList();
@@ -105,7 +106,7 @@ public class EolService : BaseService<EolService>, IEolService
         return detail;
     }
 
-    public async Task<IEnumerable<EolSoftware>> GetByServerAsync(string serverName)
+    public async Task<IEnumerable<EolSoftware>> GetByServerAsync(string serverName, int limit = 500)
     {
         return await Db.QueryAsync<EolSoftware>($@"
             SELECT
@@ -121,8 +122,9 @@ public class EolService : BaseService<EolService>, IEolService
                 END AS AlertLevel,
                 1 AS AffectedAssets
             FROM {Sql.Tables.EolSoftware}
-            WHERE asset ILIKE @Server
+            WHERE asset ILIKE @Server AND is_active = TRUE
             ORDER BY eol_end_of_life NULLS LAST
-        ", new { Server = $"%{serverName}%" });
+            LIMIT @Limit
+        ", new { Server = $"%{EscapeLike(serverName)}%", Limit = limit });
     }
 }

@@ -63,8 +63,8 @@ VALUES
     ('8b',  'azure',  NULL, NULL, NULL, 'Azure 8b'),
     ('9a',  'azure',  NULL, NULL, NULL, 'Azure 9a'),
     ('9b',  'azure',  NULL, NULL, NULL, 'Azure 9b'),
-    ('US a','azure',  NULL, NULL, NULL, 'Azure US a'),
-    ('US b','azure',  NULL, NULL, NULL, 'Azure US b')
+    ('usa', 'azure',  NULL, NULL, NULL, 'Azure US a'),
+    ('usb', 'azure',  NULL, NULL, NULL, 'Azure US b')
 ON CONFLICT (patch_group, window_type) DO UPDATE SET
     scheduled_time = EXCLUDED.scheduled_time,
     start_time = EXCLUDED.start_time,
@@ -118,6 +118,7 @@ CREATE TABLE IF NOT EXISTS patching.patch_schedule (
 CREATE INDEX IF NOT EXISTS idx_sched_cycle ON patching.patch_schedule(cycle_id);
 CREATE INDEX IF NOT EXISTS idx_sched_server ON patching.patch_schedule(server_name);
 CREATE INDEX IF NOT EXISTS idx_sched_group ON patching.patch_schedule(patch_group);
+CREATE INDEX IF NOT EXISTS idx_sched_server_id ON patching.patch_schedule(server_id) WHERE server_id IS NOT NULL;
 
 -- ===========================================
 -- KNOWN ISSUES (from Confluence)

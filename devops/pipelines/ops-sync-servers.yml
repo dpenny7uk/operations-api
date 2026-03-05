@@ -1,0 +1,24 @@
+# Operations API - Server List Sync from Databricks
+# Runs daily at 05:00 UTC
+
+trigger: none
+
+schedules:
+  - cron: "0 5 * * *"
+    displayName: "Daily server sync at 05:00"
+    branches:
+      include:
+        - main
+    always: true
+
+pool:
+  name: 'Default'
+
+variables:
+  - group: operations-sync-secrets
+
+steps:
+  - template: templates/ops-sync-steps.yml
+    parameters:
+      scriptPath: servers/sync_server_list.py
+      displayName: 'Sync Server List from Databricks'

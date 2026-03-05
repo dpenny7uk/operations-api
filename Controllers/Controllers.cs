@@ -12,11 +12,13 @@ public class HealthController : ControllerBase
     public HealthController(IHealthService svc) => _svc = svc;
 
     [HttpGet]
-    public async Task<IActionResult> GetSummary() 
+    [ResponseCache(Duration = 60)]
+    public async Task<IActionResult> GetSummary()
         => Ok(await _svc.GetHealthSummaryAsync());
 
     [HttpGet("syncs")]
-    public async Task<IActionResult> GetSyncStatuses() 
+    [ResponseCache(Duration = 30)]
+    public async Task<IActionResult> GetSyncStatuses()
         => Ok(await _svc.GetSyncStatusesAsync());
 
     [HttpGet("syncs/{syncName}/history")]
@@ -60,6 +62,8 @@ public class ServersController : ControllerBase
     [HttpGet("resolve/{name}")]
     public async Task<IActionResult> Resolve(string name)
     {
+        if (string.IsNullOrWhiteSpace(name))
+            return BadRequest("Server name is required.");
         var match = await _svc.ResolveServerNameAsync(name);
         return match == null ? NotFound() : Ok(match);
     }
@@ -75,26 +79,46 @@ public class ServersController : ControllerBase
     [HttpPost("aliases")]
     public async Task<IActionResult> CreateAlias([FromBody] AliasRequest req)
     {
-        await _svc.CreateAliasAsync(req.CanonicalName, req.AliasName, req.SourceSystem);
+        if (string.IsNullOrWhiteSpace(req.CanonicalName) || req.CanonicalName.Length > 255)
+            return BadRequest("CanonicalName is required and must be 255 characters or less.");
+        if (string.IsNullOrWhiteSpace(req.AliasName) || req.AliasName.Length > 255)
+            return BadRequest("AliasName is required and must be 255 characters or less.");
+        if (req.SourceSystem?.Length > 100)
+            return BadRequest("SourceSystem must be 100 characters or less.");
+
+        await _svc.CreateAliasAsync(req.CanonicalName.Trim(), req.AliasName.Trim(), req.SourceSystem?.Trim());
         return Ok();
     }
 
     [HttpPost("unmatched/{serverNameRaw}/resolve")]
     public async Task<IActionResult> ResolveUnmatched(string serverNameRaw, [FromBody] ResolveRequest req)
     {
-        await _svc.ResolveUnmatchedServerAsync(serverNameRaw, req.ServerId);
+        if (string.IsNullOrWhiteSpace(serverNameRaw) || serverNameRaw.Length > 500)
+            return BadRequest("Invalid server name.");
+        if (req.ServerId <= 0)
+            return BadRequest("ServerId must be a positive integer.");
+        if (req.SourceSystem?.Length > 100)
+            return BadRequest("SourceSystem must be 100 characters or less.");
+
+        await _svc.ResolveUnmatchedServerAsync(serverNameRaw, req.ServerId, req.SourceSystem?.Trim());
         return Ok();
     }
 
     [HttpPost("unmatched/{serverNameRaw}/ignore")]
-    public async Task<IActionResult> IgnoreUnmatched(string serverNameRaw)
+    public async Task<IActionResult> IgnoreUnmatched(string serverNameRaw, [FromBody] IgnoreRequest? req = null)
     {
-        await _svc.IgnoreUnmatchedServerAsync(serverNameRaw);
+        if (string.IsNullOrWhiteSpace(serverNameRaw) || serverNameRaw.Length > 500)
+            return BadRequest("Invalid server name.");
+        if (req?.SourceSystem?.Length > 100)
+            return BadRequest("SourceSystem must be 100 characters or less.");
+
+        await _svc.IgnoreUnmatchedServerAsync(serverNameRaw, req?.SourceSystem?.Trim());
         return Ok();
     }
 
     public record AliasRequest(string CanonicalName, string AliasName, string? SourceSystem);
-    public record ResolveRequest(int ServerId);
+    public record ResolveRequest(int ServerId, string? SourceSystem = null);
+    public record IgnoreRequest(string? SourceSystem = null);
 }
 
 [ApiController]
@@ -106,6 +130,7 @@ public class PatchingController : ControllerBase
     public PatchingController(IPatchingService svc) => _svc = svc;
 
     [HttpGet("next")]
+    [ResponseCache(Duration = 60)]
     public async Task<IActionResult> GetNextSummary()
     {
         var summary = await _svc.GetNextPatchingSummaryAsync();
@@ -124,9 +149,12 @@ public class PatchingController : ControllerBase
     public async Task<IActionResult> GetCycleServers(
         int cycleId,
         [FromQuery] string? patchGroup,
-        [FromQuery] bool? hasIssues)
+        [FromQuery] bool? hasIssues,
+        [FromQuery] int limit = 100,
+        [FromQuery] int offset = 0)
     {
-        return Ok(await _svc.GetCycleServersAsync(cycleId, patchGroup, hasIssues));
+        return Ok(await _svc.GetCycleServersAsync(cycleId, patchGroup, hasIssues,
+            Math.Clamp(limit, 1, 500), Math.Max(offset, 0)));
     }
 
     [HttpGet("issues")]
@@ -147,7 +175,8 @@ public class PatchingController : ControllerBase
     }
 
     [HttpGet("windows")]
-    public async Task<IActionResult> GetWindows() 
+    [ResponseCache(Duration = 300)]
+    public async Task<IActionResult> GetWindows()
         => Ok(await _svc.GetPatchWindowsAsync());
 }
 
@@ -160,7 +189,8 @@ public class CertificatesController : ControllerBase
     public CertificatesController(ICertificateService svc) => _svc = svc;
 
     [HttpGet("summary")]
-    public async Task<IActionResult> GetSummary() 
+    [ResponseCache(Duration = 60)]
+    public async Task<IActionResult> GetSummary()
         => Ok(await _svc.GetSummaryAsync());
 
     [HttpGet]
@@ -182,7 +212,11 @@ public class CertificatesController : ControllerBase
 
     [HttpGet("server/{serverName}")]
     public async Task<IActionResult> GetByServer(string serverName)
-        => Ok(await _svc.GetByServerAsync(serverName));
+    {
+        if (string.IsNullOrWhiteSpace(serverName))
+            return BadRequest("Server name is required.");
+        return Ok(await _svc.GetByServerAsync(serverName));
+    }
 }
 
 [ApiController]
@@ -194,6 +228,7 @@ public class EolController : ControllerBase
     public EolController(IEolService svc) => _svc = svc;
 
     [HttpGet("summary")]
+    [ResponseCache(Duration = 60)]
     public async Task<IActionResult> GetSummary()
         => Ok(await _svc.GetSummaryAsync());
 
@@ -209,11 +244,17 @@ public class EolController : ControllerBase
     [HttpGet("{product}/{version}")]
     public async Task<IActionResult> GetByProductVersion(string product, string version)
     {
+        if (string.IsNullOrWhiteSpace(product) || string.IsNullOrWhiteSpace(version))
+            return BadRequest("Product and version are required.");
         var detail = await _svc.GetByProductVersionAsync(product, version);
         return detail == null ? NotFound() : Ok(detail);
     }
 
     [HttpGet("server/{serverName}")]
     public async Task<IActionResult> GetByServer(string serverName)
-        => Ok(await _svc.GetByServerAsync(serverName));
+    {
+        if (string.IsNullOrWhiteSpace(serverName))
+            return BadRequest("Server name is required.");
+        return Ok(await _svc.GetByServerAsync(serverName));
+    }
 }

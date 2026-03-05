@@ -1,0 +1,8 @@
+Name,URL
+# External and non-IIS endpoints to scan for SSL certificates.
+# Each row needs a friendly Name and the full URL.
+#
+# Examples:
+# AnalyticsPlatform-Prod,https://analytics.contoso.com
+# FileTransfer-Prod,https://eft.contoso.com
+# InternalAPI,https://api.internal.contoso.com:8443

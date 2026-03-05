@@ -39,10 +39,12 @@ CREATE TABLE IF NOT EXISTS system.sync_status (
 -- Seed sync status entries
 INSERT INTO system.sync_status (sync_name, sync_type, expected_schedule, max_age_hours, min_expected_records)
 VALUES 
-    ('databricks_servers', 'scheduled', 'Daily 5:00 AM', 24, 50),
-    ('confluence_issues',  'scheduled', 'Daily 4:00 AM', 24, 1),
-    ('certificate_scan',   'scheduled', 'Daily 6:00 AM', 24, 10),
-    ('ivanti_patching',    'triggered', 'Weekly Thursday', 168, 50)
+    ('databricks_servers',        'scheduled', 'Daily 5:00 AM',  24, 50),
+    ('databricks_eol',            'scheduled', 'Daily 5:30 AM',  24, 10),
+    ('confluence_issues',         'scheduled', 'Daily 4:00 AM',  24, 1),
+    ('certificate_scan',          'scheduled', 'Daily 6:00 AM',  24, 10),
+    ('ivanti_patching',           'triggered', 'Weekly Thursday', 168, 50),
+    ('patching_schedule_html',    'scheduled', 'Daily 6:30 AM',  48, 50)
 ON CONFLICT (sync_name) DO NOTHING;
 
 -- ===========================================

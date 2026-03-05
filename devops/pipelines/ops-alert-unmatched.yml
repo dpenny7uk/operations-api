@@ -1,0 +1,46 @@
+# Operations API - Unmatched Server Spike Alert
+# Runs after all syncs that record unmatched servers (patching is last at 06:30)
+# Alerts Teams if more than 5 new unmatched servers appear in a 25h window
+
+trigger: none
+
+schedules:
+  - cron: "0 7 * * *"
+    displayName: "Unmatched server spike check at 07:00"
+    branches:
+      include:
+        - main
+    always: true
+
+pool:
+  name: 'Default'
+
+variables:
+  - group: operations-sync-secrets
+
+steps:
+  - task: UsePythonVersion@0
+    inputs:
+      versionSpec: '3.11'
+    displayName: 'Use Python 3.11'
+
+  - script: |
+      REPO_ROOT="$(Build.SourcesDirectory)/operations-api"
+      WORK_DIR="$(Build.StagingDirectory)/sync_run"
+      mkdir -p "$WORK_DIR"
+      cp "$REPO_ROOT/sync/common.py" "$WORK_DIR/"
+      cp "$REPO_ROOT/sync/alerts/alert_unmatched_spike.py" "$WORK_DIR/"
+      pip install -r "$REPO_ROOT/sync/requirements.txt"
+    displayName: 'Prepare sync environment'
+
+  - script: |
+      cd "$(Build.StagingDirectory)/sync_run"
+      python alert_unmatched_spike.py --threshold 5 --hours 25 --verbose
+    displayName: 'Check for unmatched server spike'
+    env:
+      OPS_DB_HOST: $(OPS_DB_HOST)
+      OPS_DB_PORT: $(OPS_DB_PORT)
+      OPS_DB_NAME: $(OPS_DB_NAME)
+      OPS_DB_USER: $(OPS_DB_USER)
+      OPS_DB_PASSWORD: $(OPS_DB_PASSWORD)
+      TEAMS_WEBHOOK_URL: $(TEAMS_WEBHOOK_URL)

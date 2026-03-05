@@ -85,17 +85,26 @@ public class HealthService : BaseService<HealthService>, IHealthService
 
     public async Task<IEnumerable<ValidationRunResult>> RunValidationAsync(string? ruleName)
     {
+        Logger.LogInformation("Running validation rules (filter: {RuleName})", ruleName ?? "all");
+
         var results = await Db.QueryAsync<dynamic>(
             "SELECT * FROM system.run_validation(@RuleName)",
             new { RuleName = ruleName }
         );
 
-        return results.Select(r => new ValidationRunResult
+        var mapped = results.Select(r => new ValidationRunResult
         {
             RuleName = r.rule_name,
             Result = r.result,
             ViolationCount = r.violation_count,
             ExecutionTimeMs = r.execution_time_ms
-        });
+        }).ToList();
+
+        var failures = mapped.Where(r => r.Result == "fail").ToList();
+        if (failures.Count > 0)
+            Logger.LogWarning("Validation found {Count} failing rule(s): {Rules}",
+                failures.Count, string.Join(", ", failures.Select(f => f.RuleName)));
+
+        return mapped;
     }
 }

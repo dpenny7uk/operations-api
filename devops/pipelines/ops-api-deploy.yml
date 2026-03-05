@@ -1,0 +1,276 @@
+# Operations API - Deploy Pipeline (CD)
+# Deploys a build artifact to IIS with DB migrations, backup, and health check
+# Manual trigger only — uses environment approval gates
+
+trigger: none
+
+parameters:
+  - name: buildPipelineRunId
+    displayName: 'Build pipeline run ID (leave empty for latest)'
+    type: string
+    default: ''
+  - name: skipMigrations
+    displayName: 'Skip database migrations'
+    type: boolean
+    default: false
+
+pool:
+  name: 'Default'
+
+variables:
+  - group: operations-api-prod
+  - name: iisSiteName
+    value: 'OperationsApi'
+  - name: iisAppPoolName
+    value: 'OperationsApi'
+  - name: deployPath
+    value: 'C:\inetpub\operations-api'
+
+stages:
+  - stage: Deploy
+    displayName: 'Deploy to Production'
+    jobs:
+      - deployment: DeployApi
+        displayName: 'Deploy Operations API'
+        environment: 'operations-api-prod'
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                # ── Download build artifact ──────────────────────────────
+                - task: DownloadBuildArtifacts@1
+                  inputs:
+                    buildType: 'specific'
+                    project: '$(System.TeamProjectId)'
+                    pipeline: 'ops-api-build'
+                    ${{ if eq(parameters.buildPipelineRunId, '') }}:
+                      buildVersionToDownload: 'latest'
+                    ${{ else }}:
+                      buildVersionToDownload: 'specific'
+                      runId: '${{ parameters.buildPipelineRunId }}'
+                    downloadType: 'single'
+                    artifactName: 'operations-api'
+                    downloadPath: '$(Pipeline.Workspace)/artifact'
+                  displayName: 'Download build artifact'
+
+                # ── Database migrations ──────────────────────────────────
+                - task: PowerShell@2
+                  condition: and(succeeded(), eq('${{ parameters.skipMigrations }}', false))
+                  displayName: 'Run database migrations'
+                  inputs:
+                    targetType: inline
+                    script: |
+                      $sqlDir = Get-ChildItem "$(Pipeline.Workspace)/artifact" -Recurse -Directory -Filter "database" | Select-Object -First 1
+                      if (-not $sqlDir) {
+                          Write-Error "No database directory found in artifact"
+                          exit 1
+                      }
+
+                      # Locate psql
+                      $psqlCmd = Get-Command psql -ErrorAction SilentlyContinue
+                      if ($psqlCmd) {
+                          $psql = $psqlCmd.Source
+                      } else {
+                          $psql = (Get-ChildItem "C:\Program Files\PostgreSQL\*\bin\psql.exe" -ErrorAction SilentlyContinue |
+                                   Sort-Object FullName | Select-Object -Last 1).FullName
+                          if (-not $psql) {
+                              Write-Error "psql.exe not found. Is PostgreSQL installed?"
+                              exit 1
+                          }
+                      }
+                      Write-Host "Using psql: $psql"
+
+                      $env:PGPASSWORD = $env:OPS_DB_PASSWORD
+
+                      # Run scripts 001+ in order (skip 000-extensions.sql — requires superuser)
+                      $scripts = Get-ChildItem "$($sqlDir.FullName)\*.sql" |
+                          Where-Object { $_.Name -notmatch '^000' } |
+                          Sort-Object Name
+
+                      Write-Host "Found $($scripts.Count) migration scripts"
+
+                      foreach ($script in $scripts) {
+                          Write-Host "Running: $($script.Name)"
+                          & $psql -h "$(OPS_DB_HOST)" -p "$(OPS_DB_PORT)" -d "$(OPS_DB_NAME)" `
+                                  -U "$(OPS_DB_MIGRATE_USER)" -f $script.FullName -v ON_ERROR_STOP=1
+                          if ($LASTEXITCODE -ne 0) {
+                              Write-Error "Migration failed on $($script.Name)"
+                              exit 1
+                          }
+                          Write-Host "  OK"
+                      }
+                      Write-Host "All migrations complete"
+                  env:
+                    OPS_DB_PASSWORD: $(OPS_DB_PASSWORD)
+
+                # ── Stop IIS app pool ────────────────────────────────────
+                - task: PowerShell@2
+                  displayName: 'Stop IIS app pool'
+                  inputs:
+                    targetType: inline
+                    script: |
+                      Import-Module WebAdministration
+                      $pool = "$(iisAppPoolName)"
+
+                      if ((Get-WebAppPoolState -Name $pool).Value -eq 'Started') {
+                          Stop-WebAppPool -Name $pool
+                          Write-Host "Stopping app pool: $pool"
+
+                          $timeout = 30
+                          $elapsed = 0
+                          while ((Get-WebAppPoolState -Name $pool).Value -ne 'Stopped' -and $elapsed -lt $timeout) {
+                              Start-Sleep -Seconds 2
+                              $elapsed += 2
+                          }
+
+                          if ((Get-WebAppPoolState -Name $pool).Value -ne 'Stopped') {
+                              Write-Warning "App pool did not stop within ${timeout}s — proceeding anyway"
+                          } else {
+                              Write-Host "App pool stopped"
+                          }
+                      } else {
+                          Write-Host "App pool already stopped"
+                      }
+
+                # ── Backup current deployment ────────────────────────────
+                - task: PowerShell@2
+                  displayName: 'Backup current deployment'
+                  inputs:
+                    targetType: inline
+                    script: |
+                      $deployPath = "$(deployPath)"
+
+                      if (Test-Path $deployPath) {
+                          $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
+                          $backupPath = "${deployPath}.backup.${timestamp}"
+                          Write-Host "Backing up to: $backupPath"
+                          Copy-Item -Path $deployPath -Destination $backupPath -Recurse
+                          Write-Host "Backup complete"
+
+                          # Keep last 3 backups, remove older ones
+                          $backups = Get-ChildItem "${deployPath}.backup.*" -Directory |
+                              Sort-Object Name -Descending |
+                              Select-Object -Skip 3
+                          foreach ($old in $backups) {
+                              Write-Host "Removing old backup: $($old.Name)"
+                              Remove-Item $old.FullName -Recurse -Force
+                          }
+                      } else {
+                          Write-Host "No existing deployment to back up (first deploy)"
+                          New-Item -ItemType Directory -Path $deployPath | Out-Null
+                      }
+
+                # ── Deploy API files ─────────────────────────────────────
+                - task: PowerShell@2
+                  displayName: 'Deploy API to IIS'
+                  inputs:
+                    targetType: inline
+                    script: |
+                      $deployPath = "$(deployPath)"
+                      $artifactApi = Get-ChildItem "$(Pipeline.Workspace)/artifact" -Recurse -Directory -Filter "api" | Select-Object -First 1
+
+                      if (-not $artifactApi) {
+                          Write-Error "No api directory found in artifact"
+                          exit 1
+                      }
+
+                      Write-Host "Deploying from: $($artifactApi.FullName)"
+                      Write-Host "Deploying to:   $deployPath"
+                      Copy-Item -Path "$($artifactApi.FullName)\*" -Destination $deployPath -Recurse -Force
+                      Write-Host "API files deployed"
+
+                # ── Write production config ──────────────────────────────
+                - task: PowerShell@2
+                  displayName: 'Write appsettings.Production.json'
+                  inputs:
+                    targetType: inline
+                    script: |
+                      $origins = "$(OPS_CORS_ORIGINS)".Split(",", [System.StringSplitOptions]::RemoveEmptyEntries) |
+                          ForEach-Object { $_.Trim() }
+
+                      $settings = @{
+                          ConnectionStrings = @{
+                              OperationsDb = $env:OPS_CONNECTIONSTRING
+                          }
+                          Authentication = @{
+                              Mode = "Windows"
+                          }
+                          Cors = @{
+                              AllowedOrigins = $origins
+                          }
+                      } | ConvertTo-Json -Depth 3
+
+                      $settingsPath = "$(deployPath)\appsettings.Production.json"
+                      $settings | Out-File -FilePath $settingsPath -Encoding utf8
+                      Write-Host "Wrote $settingsPath"
+                  env:
+                    OPS_CONNECTIONSTRING: $(OPS_CONNECTIONSTRING)
+
+                # ── Deploy frontend ──────────────────────────────────────
+                - task: PowerShell@2
+                  displayName: 'Deploy frontend'
+                  inputs:
+                    targetType: inline
+                    script: |
+                      $wwwroot = "$(deployPath)\wwwroot"
+                      if (-not (Test-Path $wwwroot)) {
+                          New-Item -ItemType Directory -Path $wwwroot | Out-Null
+                      }
+
+                      $frontendSrc = Get-ChildItem "$(Pipeline.Workspace)/artifact" -Recurse -Filter "index.html" | Select-Object -First 1
+                      if ($frontendSrc) {
+                          Copy-Item $frontendSrc.FullName "$wwwroot\index.html" -Force
+                          Write-Host "Frontend deployed to $wwwroot\index.html"
+                      } else {
+                          Write-Host "##[warning]No frontend found in artifact - skipping"
+                      }
+
+                # ── Start IIS app pool ───────────────────────────────────
+                - task: PowerShell@2
+                  displayName: 'Start IIS app pool'
+                  inputs:
+                    targetType: inline
+                    script: |
+                      Import-Module WebAdministration
+                      $pool = "$(iisAppPoolName)"
+                      Start-WebAppPool -Name $pool
+                      Write-Host "Started app pool: $pool"
+                      # Give the app a moment to initialize
+                      Start-Sleep -Seconds 5
+
+                # ── Health check gate ────────────────────────────────────
+                - task: PowerShell@2
+                  displayName: 'Health check'
+                  inputs:
+                    targetType: inline
+                    script: |
+                      $url = "http://localhost/healthz"
+                      $maxRetries = 3
+                      $retryDelay = 10
+
+                      for ($i = 1; $i -le $maxRetries; $i++) {
+                          Write-Host "Health check attempt $i of ${maxRetries}..."
+                          try {
+                              $response = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 15
+                              if ($response.StatusCode -eq 200) {
+                                  $body = $response.Content
+                                  Write-Host "Response: $body"
+                                  if ($body -match "Healthy") {
+                                      Write-Host "##[section]Deployment verified - API is healthy"
+                                      exit 0
+                                  } else {
+                                      Write-Warning "Status 200 but response was: $body"
+                                  }
+                              }
+                          } catch {
+                              Write-Warning "Attempt $i failed: $($_.Exception.Message)"
+                          }
+
+                          if ($i -lt $maxRetries) {
+                              Write-Host "Waiting $retryDelay seconds..."
+                              Start-Sleep -Seconds $retryDelay
+                          }
+                      }
+
+                      Write-Error "Health check failed after $maxRetries attempts. Check app pool and connection string."
+                      exit 1

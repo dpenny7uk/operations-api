@@ -40,7 +40,7 @@ public class ServerService : BaseService<ServerService>, IServerService
         if (!string.IsNullOrEmpty(search))
         {
             sql += " AND (s.server_name ILIKE @Search OR s.fqdn ILIKE @Search)";
-            p.Add("Search", $"%{search}%");
+            p.Add("Search", $"%{EscapeLike(search)}%");
         }
 
         AddPagination(ref sql, p, limit, offset, "s.server_name");
@@ -115,6 +115,7 @@ public class ServerService : BaseService<ServerService>, IServerService
 
     public async Task CreateAliasAsync(string canonical, string alias, string? source)
     {
+        Logger.LogInformation("Creating server alias: {Alias} -> {Canonical} (source: {Source})", alias, canonical, source);
         await Db.ExecuteAsync($@"
             INSERT INTO {Sql.Tables.ServerAliases} 
                 (canonical_name, alias_name, source_system, created_by)
@@ -124,24 +125,47 @@ public class ServerService : BaseService<ServerService>, IServerService
         ", new { Canonical = canonical, Alias = alias, Source = source });
     }
 
-    public async Task ResolveUnmatchedServerAsync(string raw, int serverId)
+    public async Task ResolveUnmatchedServerAsync(string raw, int serverId, string? sourceSystem = null)
     {
-        await Db.ExecuteAsync($@"
-            UPDATE {Sql.Tables.UnmatchedServers} SET 
+        Logger.LogInformation("Resolving unmatched server {ServerName} to ID {ServerId}", raw, serverId);
+        var sql = $@"
+            UPDATE {Sql.Tables.UnmatchedServers} SET
                 status = 'resolved',
                 resolved_to_server_id = @ServerId,
                 resolved_at = CURRENT_TIMESTAMP
-            WHERE server_name_raw = @Raw
-        ", new { Raw = raw, ServerId = serverId });
+            WHERE server_name_raw = @Raw";
+
+        var p = new DynamicParameters();
+        p.Add("Raw", raw);
+        p.Add("ServerId", serverId);
+
+        if (!string.IsNullOrEmpty(sourceSystem))
+        {
+            sql += " AND source_system = @Source";
+            p.Add("Source", sourceSystem);
+        }
+
+        await Db.ExecuteAsync(sql, p);
     }
 
-    public async Task IgnoreUnmatchedServerAsync(string raw)
+    public async Task IgnoreUnmatchedServerAsync(string raw, string? sourceSystem = null)
     {
-        await Db.ExecuteAsync($@"
-            UPDATE {Sql.Tables.UnmatchedServers} SET 
+        Logger.LogInformation("Ignoring unmatched server {ServerName}", raw);
+        var sql = $@"
+            UPDATE {Sql.Tables.UnmatchedServers} SET
                 status = 'ignored',
                 resolved_at = CURRENT_TIMESTAMP
-            WHERE server_name_raw = @Raw
-        ", new { Raw = raw });
+            WHERE server_name_raw = @Raw";
+
+        var p = new DynamicParameters();
+        p.Add("Raw", raw);
+
+        if (!string.IsNullOrEmpty(sourceSystem))
+        {
+            sql += " AND source_system = @Source";
+            p.Add("Source", sourceSystem);
+        }
+
+        await Db.ExecuteAsync(sql, p);
     }
 }

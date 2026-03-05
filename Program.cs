@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authentication.Negotiate;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Diagnostics;
 using Npgsql;
 using Scalar.AspNetCore;
 using System.Data;
@@ -10,18 +11,27 @@ var config = builder.Configuration;
 
 // Authentication
 var authMode = config.GetValue<string>("Authentication:Mode") ?? "Windows";
-if (authMode.ToLower() != "none")
+var authEnabled = !authMode.Equals("none", StringComparison.OrdinalIgnoreCase);
+if (!authEnabled && !builder.Environment.IsDevelopment())
+{
+    Console.WriteLine("WARNING: Authentication is disabled (Authentication:Mode=none) in a non-development environment!");
+}
+if (authEnabled)
 {
     builder.Services
         .AddAuthentication(NegotiateDefaults.AuthenticationScheme)
         .AddNegotiate();
+    builder.Services.AddAuthorization(options =>
+    {
+        options.FallbackPolicy = new AuthorizationPolicyBuilder()
+            .RequireAuthenticatedUser()
+            .Build();
+    });
 }
-builder.Services.AddAuthorization(options =>
+else
 {
-    options.FallbackPolicy = new AuthorizationPolicyBuilder()
-        .RequireAuthenticatedUser()
-        .Build();
-});
+    builder.Services.AddAuthorization();
+}
 
 // Database connection
 builder.Services.AddScoped<IDbConnection>(sp =>
@@ -29,9 +39,7 @@ builder.Services.AddScoped<IDbConnection>(sp =>
     var connString = config.GetConnectionString("OperationsDb")
         ?? throw new InvalidOperationException("Connection string 'OperationsDb' not found");
 
-    var conn = new NpgsqlConnection(connString);
-    conn.Open();
-    return conn;
+    return new NpgsqlConnection(connString);
 });
 
 // Services
@@ -66,11 +74,31 @@ if (!string.IsNullOrEmpty(connStr))
 
 var app = builder.Build();
 
+if (allowedOrigins.Length == 0)
+{
+    app.Logger.LogWarning("No CORS origins configured in Cors:AllowedOrigins — cross-origin requests will be blocked");
+}
+
 // Middleware pipeline
+app.UseExceptionHandler(error => error.Run(async context =>
+{
+    var ex = context.Features.Get<IExceptionHandlerFeature>()?.Error;
+    var logger = context.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("ExceptionHandler");
+    logger.LogError(ex, "Unhandled exception on {Method} {Path}", context.Request.Method, context.Request.Path);
+
+    context.Response.StatusCode = 500;
+    context.Response.ContentType = "application/json";
+    await context.Response.WriteAsJsonAsync(new { error = "An internal server error occurred." });
+}));
+
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHsts();
+}
 app.UseHttpsRedirection();
 app.UseCors();
 
-if (authMode.ToLower() != "none")
+if (authEnabled)
 {
     app.UseAuthentication();
 }

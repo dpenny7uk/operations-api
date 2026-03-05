@@ -134,8 +134,11 @@ def sync_certificates(ctx, records: list):
         alert_level, is_expired = map_alert_level(status)
         source = r.get('Source') or ''
 
-        days_str = r.get('DaysRemaining') or ''
-        days_until = int(days_str) if days_str.lstrip('-').isdigit() else None
+        days_str = (r.get('DaysRemaining') or '').strip()
+        try:
+            days_until = int(days_str) if days_str else None
+        except ValueError:
+            days_until = None
 
         cert_rows.append((
             thumbprint[:64],
@@ -232,13 +235,14 @@ def sync_certificates(ctx, records: list):
         """)
         ctx.stats.updated = cur.rowcount
 
-        # Deactivate certs not seen in this scan
+        # Deactivate certs not seen in this scan — only on servers that were scanned
         cur.execute("""
             UPDATE certificates.inventory SET
                 is_active = FALSE,
                 updated_at = CURRENT_TIMESTAMP
             WHERE scan_source IN ('powershell', 'powershell_https')
               AND is_active = TRUE
+              AND server_name IN (SELECT DISTINCT server_name FROM tmp_certificates)
               AND (server_name, thumbprint, COALESCE(store_name, '')) NOT IN (
                   SELECT server_name, thumbprint, COALESCE(store_name, '')
                   FROM tmp_certificates
