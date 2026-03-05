@@ -178,6 +178,97 @@ CREATE TABLE IF NOT EXISTS system.unmatched_servers (
 CREATE INDEX IF NOT EXISTS idx_unmatched_status ON system.unmatched_servers(status);
 
 -- ===========================================
+-- SCAN FAILURES (unreachable servers)
+-- ===========================================
+
+CREATE TABLE IF NOT EXISTS system.scan_failures (
+    failure_id          SERIAL PRIMARY KEY,
+    server_name         VARCHAR(255) NOT NULL,
+    scan_type           VARCHAR(50) NOT NULL,      -- 'certificate', 'patching', etc.
+    error_message       TEXT,
+    error_category      VARCHAR(50) DEFAULT 'unknown'
+                        CHECK (error_category IN ('unreachable', 'access_denied', 'timeout', 'winrm', 'unknown')),
+
+    -- Tracking
+    first_failure_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_failure_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    failure_count       INTEGER DEFAULT 1,
+    last_success_at     TIMESTAMP,                 -- NULL if never succeeded
+    is_resolved         BOOLEAN DEFAULT FALSE,
+    resolved_at         TIMESTAMP,
+    resolved_by         VARCHAR(100),
+
+    CONSTRAINT uq_scan_failure UNIQUE (server_name, scan_type)
+);
+
+CREATE INDEX IF NOT EXISTS idx_scan_failures_unresolved
+    ON system.scan_failures(scan_type) WHERE NOT is_resolved;
+
+-- Record or increment a scan failure
+CREATE OR REPLACE FUNCTION system.record_scan_failure(
+    p_server VARCHAR(255),
+    p_scan_type VARCHAR(50),
+    p_error TEXT DEFAULT NULL,
+    p_category VARCHAR(50) DEFAULT 'unknown'
+)
+RETURNS INTEGER AS $$
+DECLARE
+    v_id INTEGER;
+BEGIN
+    INSERT INTO system.scan_failures
+        (server_name, scan_type, error_message, error_category)
+    VALUES
+        (p_server, p_scan_type, p_error, p_category)
+    ON CONFLICT (server_name, scan_type) DO UPDATE SET
+        last_failure_at = CURRENT_TIMESTAMP,
+        failure_count = system.scan_failures.failure_count + 1,
+        error_message = COALESCE(EXCLUDED.error_message, system.scan_failures.error_message),
+        error_category = EXCLUDED.error_category,
+        is_resolved = FALSE
+    RETURNING failure_id INTO v_id;
+
+    RETURN v_id;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Clear failure when a scan succeeds
+CREATE OR REPLACE FUNCTION system.clear_scan_failure(
+    p_server VARCHAR(255),
+    p_scan_type VARCHAR(50)
+)
+RETURNS VOID AS $$
+BEGIN
+    UPDATE system.scan_failures SET
+        is_resolved = TRUE,
+        resolved_at = CURRENT_TIMESTAMP,
+        last_success_at = CURRENT_TIMESTAMP
+    WHERE server_name = p_server
+      AND scan_type = p_scan_type
+      AND NOT is_resolved;
+END;
+$$ LANGUAGE plpgsql;
+
+-- View: current unreachable servers with counts
+CREATE OR REPLACE VIEW system.v_unreachable_servers AS
+SELECT
+    sf.server_name,
+    sf.scan_type,
+    sf.error_category,
+    sf.error_message,
+    sf.failure_count,
+    sf.first_failure_at,
+    sf.last_failure_at,
+    sf.last_success_at,
+    s.environment,
+    s.business_unit,
+    a.application_name
+FROM system.scan_failures sf
+LEFT JOIN shared.servers s ON UPPER(sf.server_name) = UPPER(s.server_name) AND s.is_active
+LEFT JOIN shared.applications a ON s.primary_application_id = a.application_id
+WHERE NOT sf.is_resolved
+ORDER BY sf.failure_count DESC;
+
+-- ===========================================
 -- FUNCTIONS
 -- ===========================================
 

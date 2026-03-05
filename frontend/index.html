@@ -397,6 +397,7 @@ const DEMO = {
       { syncName: 'certificate-scan', status: 'success', lastSuccessAt: new Date(Date.now() - 14400000).toISOString(), hoursSinceSuccess: 4.0, freshnessStatus: 'Fresh', recordsProcessed: 89, consecutiveFailures: 0, expectedSchedule: 'Daily' },
     ],
     unmatchedServersCount: 7,
+    unreachableServersCount: 4,
     lastUpdated: new Date().toISOString()
   },
   servers: [
@@ -538,6 +539,7 @@ function renderHealth(data) {
     <div class="card"><h3>Overall Status</h3><div class="value" style="color:var(--${overallColor})">${data.overallStatus}</div></div>
     <div class="card"><h3>Active Syncs</h3><div class="value">${syncs.length}</div><div class="sub">${syncs.filter(s=>s.freshnessStatus==='Fresh').length} fresh</div></div>
     <div class="card"><h3>Unmatched Servers</h3><div class="value">${data.unmatchedServersCount}</div><div class="sub">Need resolution</div></div>
+    <div class="card"><h3>Unreachable Servers</h3><div class="value" style="color:${data.unreachableServersCount?'var(--orange)':'var(--green)'}">${data.unreachableServersCount || 0}</div><div class="sub">Scan failures</div></div>
     <div class="card"><h3>Sync Failures</h3><div class="value" style="color:${failCount?'var(--red)':'var(--green)'}">${failCount}</div><div class="sub">Consecutive failures</div></div>
   `;
 

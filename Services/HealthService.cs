@@ -18,6 +18,10 @@ public class HealthService : BaseService<HealthService>, IHealthService
             $"SELECT COUNT(*) FROM {Sql.Tables.UnmatchedServers} WHERE status = 'pending'"
         );
 
+        var unreachable = await Db.ExecuteScalarAsync<int>(
+            $"SELECT COUNT(*) FROM {Sql.Tables.ScanFailures} WHERE NOT is_resolved"
+        );
+
         var hasError = syncs.Any(s => s.Status == "error" || s.FreshnessStatus == "error");
         var hasWarning = syncs.Any(s => s.Status == "warning" || s.FreshnessStatus == "stale");
 
@@ -26,6 +30,7 @@ public class HealthService : BaseService<HealthService>, IHealthService
             OverallStatus = hasError ? "error" : hasWarning ? "warning" : "healthy",
             SyncStatuses = syncs.ToList(),
             UnmatchedServersCount = unmatched,
+            UnreachableServersCount = unreachable,
             LastUpdated = DateTime.UtcNow
         };
     }
