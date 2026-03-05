@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Authentication.Negotiate;
+using Microsoft.AspNetCore.Authorization;
 using Npgsql;
+using Scalar.AspNetCore;
 using System.Data;
 using OperationsApi.Services;
 
@@ -14,14 +16,19 @@ if (authMode.ToLower() != "none")
         .AddAuthentication(NegotiateDefaults.AuthenticationScheme)
         .AddNegotiate();
 }
-builder.Services.AddAuthorization();
+builder.Services.AddAuthorization(options =>
+{
+    options.FallbackPolicy = new AuthorizationPolicyBuilder()
+        .RequireAuthenticatedUser()
+        .Build();
+});
 
 // Database connection
 builder.Services.AddScoped<IDbConnection>(sp =>
 {
     var connString = config.GetConnectionString("OperationsDb")
         ?? throw new InvalidOperationException("Connection string 'OperationsDb' not found");
-    
+
     var conn = new NpgsqlConnection(connString);
     conn.Open();
     return conn;
@@ -32,18 +39,21 @@ builder.Services.AddScoped<IHealthService, HealthService>();
 builder.Services.AddScoped<IServerService, ServerService>();
 builder.Services.AddScoped<IPatchingService, PatchingService>();
 builder.Services.AddScoped<ICertificateService, CertificateService>();
+builder.Services.AddScoped<IEolService, EolService>();
 
 // API configuration
 builder.Services.AddControllers();
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddOpenApi();
+
+var allowedOrigins = config.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
 builder.Services.AddCors(options =>
 {
     options.AddDefaultPolicy(policy =>
     {
-        policy.AllowAnyOrigin()
+        policy.WithOrigins(allowedOrigins)
               .AllowAnyMethod()
-              .AllowAnyHeader();
+              .AllowAnyHeader()
+              .AllowCredentials();
     });
 });
 
@@ -57,8 +67,7 @@ if (!string.IsNullOrEmpty(connStr))
 var app = builder.Build();
 
 // Middleware pipeline
-app.UseSwagger();
-app.UseSwaggerUI();
+app.UseHttpsRedirection();
 app.UseCors();
 
 if (authMode.ToLower() != "none")
@@ -67,9 +76,15 @@ if (authMode.ToLower() != "none")
 }
 app.UseAuthorization();
 
+if (app.Environment.IsDevelopment())
+{
+    app.MapOpenApi();
+    app.MapScalarApiReference();
+    app.MapGet("/", () => Results.Redirect("/scalar/v1"));
+}
+
 // Endpoints
-app.MapHealthChecks("/healthz");
+app.MapHealthChecks("/healthz").AllowAnonymous();
 app.MapControllers();
-app.MapGet("/", () => Results.Redirect("/swagger"));
 
 app.Run();

@@ -114,6 +114,7 @@ public static class Sql
         public const string SyncHistory = "system.sync_history";
         public const string UnmatchedServers = "system.unmatched_servers";
         public const string ServerAliases = "system.server_aliases";
+        public const string EolSoftware = "eol.end_of_life_software";
     }
 
     public const string IsActive = "is_active = TRUE";

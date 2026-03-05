@@ -192,6 +192,7 @@ def main():
         cycle_date = parse_cycle_date(filepath.name)
 
     with SyncContext("ivanti_patching", "Ivanti Patching Schedule", dry_run=args.dry_run) as ctx:
+        assert ctx.conn is not None
         # Create or get patch cycle
         with ctx.conn.cursor() as cur:
             cur.execute("""
@@ -202,8 +203,10 @@ def main():
                     updated_at = CURRENT_TIMESTAMP
                 RETURNING cycle_id
             """, (cycle_date.date(), filepath.name))
-            cycle_id = cur.fetchone()['cycle_id']
-            
+            row = cur.fetchone()
+            assert row is not None
+            cycle_id = row['cycle_id']  # type: ignore[index]  # RealDictCursor returns dict rows
+
             # Clear existing schedule for this cycle
             cur.execute(
                 "DELETE FROM patching.patch_schedule WHERE cycle_id = %s",

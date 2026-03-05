@@ -45,3 +45,11 @@ public interface ICertificateService
     Task<CertificateDetail?> GetByIdAsync(int id);
     Task<IEnumerable<Certificate>> GetByServerAsync(string server);
 }
+
+public interface IEolService
+{
+    Task<EolSummary> GetSummaryAsync();
+    Task<IEnumerable<EolSoftware>> ListEolSoftwareAsync(string? alertLevel, string? product, int limit);
+    Task<EolSoftwareDetail?> GetByProductVersionAsync(string product, string version);
+    Task<IEnumerable<EolSoftware>> GetByServerAsync(string serverName);
+}

@@ -20,8 +20,8 @@ public class HealthController : ControllerBase
         => Ok(await _svc.GetSyncStatusesAsync());
 
     [HttpGet("syncs/{syncName}/history")]
-    public async Task<IActionResult> GetSyncHistory(string syncName, [FromQuery] int limit = 20) 
-        => Ok(await _svc.GetSyncHistoryAsync(syncName, limit));
+    public async Task<IActionResult> GetSyncHistory(string syncName, [FromQuery] int limit = 20)
+        => Ok(await _svc.GetSyncHistoryAsync(syncName, Math.Clamp(limit, 1, 100)));
 
     [HttpPost("validation/run")]
     public async Task<IActionResult> RunValidation([FromQuery] string? ruleName = null) 
@@ -45,7 +45,8 @@ public class ServersController : ControllerBase
         [FromQuery] int limit = 100,
         [FromQuery] int offset = 0)
     {
-        var servers = await _svc.ListServersAsync(environment, application, patchGroup, search, limit, offset);
+        var servers = await _svc.ListServersAsync(environment, application, patchGroup, search,
+            Math.Clamp(limit, 1, 1000), Math.Max(offset, 0));
         return Ok(servers);
     }
 
@@ -68,7 +69,7 @@ public class ServersController : ControllerBase
         [FromQuery] string? sourceSystem,
         [FromQuery] int limit = 50)
     {
-        return Ok(await _svc.GetUnmatchedServersAsync(sourceSystem, limit));
+        return Ok(await _svc.GetUnmatchedServersAsync(sourceSystem, Math.Clamp(limit, 1, 500)));
     }
 
     [HttpPost("aliases")]
@@ -116,7 +117,7 @@ public class PatchingController : ControllerBase
         [FromQuery] bool upcomingOnly = true,
         [FromQuery] int limit = 10)
     {
-        return Ok(await _svc.ListPatchCyclesAsync(upcomingOnly, limit));
+        return Ok(await _svc.ListPatchCyclesAsync(upcomingOnly, Math.Clamp(limit, 1, 100)));
     }
 
     [HttpGet("cycles/{cycleId}/servers")]
@@ -169,7 +170,7 @@ public class CertificatesController : ControllerBase
         [FromQuery] int? daysUntilExpiry,
         [FromQuery] int limit = 100)
     {
-        return Ok(await _svc.ListCertificatesAsync(alertLevel, serverName, daysUntilExpiry, limit));
+        return Ok(await _svc.ListCertificatesAsync(alertLevel, serverName, daysUntilExpiry, Math.Clamp(limit, 1, 1000)));
     }
 
     [HttpGet("{id}")]
@@ -180,6 +181,39 @@ public class CertificatesController : ControllerBase
     }
 
     [HttpGet("server/{serverName}")]
-    public async Task<IActionResult> GetByServer(string serverName) 
+    public async Task<IActionResult> GetByServer(string serverName)
+        => Ok(await _svc.GetByServerAsync(serverName));
+}
+
+[ApiController]
+[Route("api/[controller]")]
+public class EolController : ControllerBase
+{
+    private readonly IEolService _svc;
+
+    public EolController(IEolService svc) => _svc = svc;
+
+    [HttpGet("summary")]
+    public async Task<IActionResult> GetSummary()
+        => Ok(await _svc.GetSummaryAsync());
+
+    [HttpGet]
+    public async Task<IActionResult> List(
+        [FromQuery] string? alertLevel,
+        [FromQuery] string? product,
+        [FromQuery] int limit = 100)
+    {
+        return Ok(await _svc.ListEolSoftwareAsync(alertLevel, product, Math.Clamp(limit, 1, 1000)));
+    }
+
+    [HttpGet("{product}/{version}")]
+    public async Task<IActionResult> GetByProductVersion(string product, string version)
+    {
+        var detail = await _svc.GetByProductVersionAsync(product, version);
+        return detail == null ? NotFound() : Ok(detail);
+    }
+
+    [HttpGet("server/{serverName}")]
+    public async Task<IActionResult> GetByServer(string serverName)
         => Ok(await _svc.GetByServerAsync(serverName));
 }
