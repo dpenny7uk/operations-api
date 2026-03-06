@@ -1,8 +1,8 @@
 """Check Operations Platform health and alert Teams when degraded.
 
-Queries the /api/health endpoint and posts an Adaptive Card to a Teams
-webhook when any sync is unhealthy or stale. Designed to run after all
-daily syncs have completed.
+Queries the database directly for sync status and posts an Adaptive Card
+to a Teams webhook when any sync is unhealthy or stale. Designed to run
+after all daily syncs have completed.
 """
 
 import os
@@ -10,7 +10,7 @@ import logging
 
 from common import (
     setup_logging, create_argument_parser, configure_verbosity,
-    validate_env_vars, http_request
+    validate_env_vars, http_request, get_database_connection
 )
 
 logger = setup_logging('health_alert')
@@ -81,6 +81,60 @@ def build_adaptive_card(summary: dict) -> dict:
     }
 
 
+def query_health_summary() -> dict:
+    """Query sync health directly from the database."""
+    conn = get_database_connection(app_name='health_alert')
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT
+                    sync_name AS "syncName",
+                    status,
+                    last_success_at,
+                    EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - last_success_at)) / 3600
+                        AS "hoursSinceSuccess",
+                    CASE
+                        WHEN last_success_at IS NULL THEN 'error'
+                        WHEN EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - last_success_at)) / 3600 > max_age_hours THEN 'stale'
+                        WHEN consecutive_failures > 0 THEN 'warning'
+                        ELSE 'healthy'
+                    END AS "freshnessStatus",
+                    records_processed AS "recordsProcessed",
+                    consecutive_failures AS "consecutiveFailures",
+                    last_error_message AS "lastErrorMessage",
+                    expected_schedule AS "expectedSchedule"
+                FROM system.sync_status
+                ORDER BY CASE status
+                    WHEN 'error' THEN 1
+                    WHEN 'warning' THEN 2
+                    ELSE 3
+                END
+            """)
+            syncs = [dict(row) for row in cur.fetchall()]
+
+            cur.execute(
+                "SELECT COUNT(*) AS cnt FROM system.unmatched_servers WHERE status = 'pending'"
+            )
+            unmatched = cur.fetchone()['cnt']
+
+            cur.execute(
+                "SELECT COUNT(*) AS cnt FROM system.scan_failures WHERE NOT is_resolved"
+            )
+            unreachable = cur.fetchone()['cnt']
+
+        has_error = any(s['status'] == 'error' or s['freshnessStatus'] == 'error' for s in syncs)
+        has_warning = any(s['status'] == 'warning' or s['freshnessStatus'] == 'stale' for s in syncs)
+
+        return {
+            'overallStatus': 'error' if has_error else 'warning' if has_warning else 'healthy',
+            'syncStatuses': syncs,
+            'unmatchedServersCount': unmatched,
+            'unreachableServersCount': unreachable,
+        }
+    finally:
+        conn.close()
+
+
 def main():
     parser = create_argument_parser(
         'Check sync health and alert Teams when degraded',
@@ -89,13 +143,11 @@ def main():
     args = parser.parse_args()
     configure_verbosity(args.verbose)
 
-    validate_env_vars(['TEAMS_WEBHOOK_URL', 'OPS_API_URL'])
+    validate_env_vars(['TEAMS_WEBHOOK_URL'])
     webhook_url = os.environ['TEAMS_WEBHOOK_URL']
-    health_url = os.environ['OPS_API_URL'].rstrip('/') + '/api/health'
 
-    logger.info(f"Querying health endpoint: {health_url}")
-    resp = http_request('GET', health_url, retries=2, timeout=30)
-    summary = resp.json()
+    logger.info("Querying database for sync health")
+    summary = query_health_summary()
 
     overall = summary.get('overallStatus', 'unknown')
     logger.info(f"Overall status: {overall}")

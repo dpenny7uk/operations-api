@@ -128,7 +128,7 @@ ON CONFLICT (rule_name) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS system.validation_results (
     result_id           SERIAL PRIMARY KEY,
-    rule_id             INTEGER REFERENCES system.validation_rules(rule_id),
+    rule_id             INTEGER REFERENCES system.validation_rules(rule_id) ON DELETE CASCADE,
     run_at              TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     result              VARCHAR(20) NOT NULL,
     violation_count     INTEGER DEFAULT 0,
@@ -136,13 +136,15 @@ CREATE TABLE IF NOT EXISTS system.validation_results (
     execution_time_ms   INTEGER
 );
 
+CREATE INDEX IF NOT EXISTS idx_valresults_rule_id ON system.validation_results(rule_id);
+
 -- ===========================================
 -- SERVER ALIASES (manual mappings)
 -- ===========================================
 
 CREATE TABLE IF NOT EXISTS system.server_aliases (
     alias_id            SERIAL PRIMARY KEY,
-    canonical_name      VARCHAR(255) NOT NULL,
+    canonical_name      VARCHAR(255) NOT NULL REFERENCES shared.servers(server_name),
     alias_name          VARCHAR(255) NOT NULL UNIQUE,
     source_system       VARCHAR(100),
     created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -178,6 +180,7 @@ CREATE TABLE IF NOT EXISTS system.unmatched_servers (
 );
 
 CREATE INDEX IF NOT EXISTS idx_unmatched_status ON system.unmatched_servers(status);
+CREATE INDEX IF NOT EXISTS idx_unmatched_resolved_server ON system.unmatched_servers(resolved_to_server_id) WHERE resolved_to_server_id IS NOT NULL;
 
 -- ===========================================
 -- SCAN FAILURES (unreachable servers)
@@ -314,17 +317,18 @@ BEGIN
     
     -- Fuzzy match (Levenshtein distance <= 2)
     RETURN QUERY
-    SELECT s.server_id, s.server_name, 'fuzzy'::VARCHAR(20)
-    FROM shared.servers s
-    WHERE s.is_active
-      AND levenshtein(
-          system.normalize_server_name(s.server_name),
-          system.normalize_server_name(input_name)
-      ) <= 2
-    ORDER BY levenshtein(
-        system.normalize_server_name(s.server_name),
-        system.normalize_server_name(input_name)
-    )
+    SELECT sub.server_id, sub.server_name, 'fuzzy'::VARCHAR(20)
+    FROM (
+        SELECT s.server_id, s.server_name,
+               levenshtein(
+                   system.normalize_server_name(s.server_name),
+                   system.normalize_server_name(input_name)
+               ) AS dist
+        FROM shared.servers s
+        WHERE s.is_active
+    ) sub
+    WHERE sub.dist <= 2
+    ORDER BY sub.dist
     LIMIT 1;
 END;
 $$ LANGUAGE plpgsql;
@@ -372,19 +376,29 @@ BEGIN
     LOOP
         v_start := clock_timestamp();
         
+        -- Validate query is read-only (SELECT only, no DDL/DML/semicolons)
+        IF v_rule.validation_query !~* '^\s*SELECT\s'
+           OR v_rule.validation_query ~*  '\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|GRANT|REVOKE|COPY|EXECUTE)\b'
+           OR v_rule.validation_query ~ ';' THEN
+            v_count := -1;
+            v_sample := '[]'::jsonb;
+            RAISE WARNING 'Validation rule % has unsafe query — skipped', v_rule.rule_name;
+            CONTINUE;
+        END IF;
+
         -- Execute validation query
         BEGIN
-            EXECUTE 'SELECT COUNT(*) FROM (' || v_rule.validation_query || ') sq' 
+            EXECUTE 'SELECT COUNT(*) FROM (' || v_rule.validation_query || ') sq'
             INTO v_count;
         EXCEPTION WHEN OTHERS THEN
             v_count := -1;
         END;
-        
+
         -- Get sample violations
         IF v_count > 0 THEN
             BEGIN
-                EXECUTE 'SELECT jsonb_agg(sq) FROM (SELECT * FROM (' || 
-                        v_rule.validation_query || ') sq LIMIT 10) sq2' 
+                EXECUTE 'SELECT jsonb_agg(sq) FROM (SELECT * FROM (' ||
+                        v_rule.validation_query || ') sq LIMIT 10) sq2'
                 INTO v_sample;
             EXCEPTION WHEN OTHERS THEN
                 v_sample := '[]'::jsonb;

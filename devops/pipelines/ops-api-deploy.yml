@@ -217,10 +217,10 @@ stages:
                           New-Item -ItemType Directory -Path $wwwroot | Out-Null
                       }
 
-                      $frontendSrc = Get-ChildItem "$(Pipeline.Workspace)/artifact" -Recurse -Filter "index.html" | Select-Object -First 1
-                      if ($frontendSrc) {
-                          Copy-Item $frontendSrc.FullName "$wwwroot\index.html" -Force
-                          Write-Host "Frontend deployed to $wwwroot\index.html"
+                      $frontendDir = Get-ChildItem "$(Pipeline.Workspace)/artifact" -Recurse -Directory -Filter "frontend" | Select-Object -First 1
+                      if ($frontendDir) {
+                          Copy-Item "$($frontendDir.FullName)\*" $wwwroot -Force
+                          Write-Host "Frontend deployed to $wwwroot ($(Get-ChildItem $wwwroot | Measure-Object).Count files)"
                       } else {
                           Write-Host "##[warning]No frontend found in artifact - skipping"
                       }

@@ -50,7 +50,7 @@ public class CertificateService : BaseService<CertificateService>, ICertificateS
 
         if (!string.IsNullOrEmpty(server))
         {
-            sql += " AND server_name ILIKE @Server";
+            sql += " AND server_name ILIKE @Server ESCAPE '\\'";
             p.Add("Server", $"%{EscapeLike(server)}%");
         }
 
@@ -99,9 +99,9 @@ public class CertificateService : BaseService<CertificateService>, ICertificateS
                 days_until_expiry AS DaysUntilExpiry,
                 alert_level AS AlertLevel
             FROM {Sql.Tables.Certificates}
-            WHERE is_active = TRUE AND server_name ILIKE @Server
+            WHERE is_active = TRUE AND UPPER(server_name) = UPPER(@Server)
             ORDER BY valid_to
             LIMIT @Limit
-        ", new { Server = $"%{EscapeLike(server)}%", Limit = limit });
+        ", new { Server = server, Limit = limit });
     }
 }

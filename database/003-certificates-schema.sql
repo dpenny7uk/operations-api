@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS certificates.inventory (
     valid_to            TIMESTAMP,
     days_until_expiry   INTEGER,
     is_expired          BOOLEAN DEFAULT FALSE,
-    alert_level         VARCHAR(20),  -- CRITICAL, WARNING, OK
+    alert_level         VARCHAR(20) CHECK (alert_level IN ('CRITICAL', 'WARNING', 'OK')),
     
     -- Location
     server_id           INTEGER REFERENCES shared.servers(server_id),
@@ -68,9 +68,9 @@ CREATE INDEX IF NOT EXISTS idx_cert_alert ON certificates.inventory(alert_level)
 
 CREATE TABLE IF NOT EXISTS certificates.alerts (
     alert_id            SERIAL PRIMARY KEY,
-    certificate_id      INTEGER REFERENCES certificates.inventory(certificate_id),
+    certificate_id      INTEGER REFERENCES certificates.inventory(certificate_id) ON DELETE CASCADE,
     alert_type          VARCHAR(50) NOT NULL,
-    alert_level         VARCHAR(20) NOT NULL,
+    alert_level         VARCHAR(20) NOT NULL CHECK (alert_level IN ('CRITICAL', 'WARNING', 'OK')),
     alert_message       TEXT,
     days_until_expiry   INTEGER,
     
@@ -88,6 +88,8 @@ CREATE TABLE IF NOT EXISTS certificates.alerts (
     created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE INDEX IF NOT EXISTS idx_alert_cert_id ON certificates.alerts(certificate_id);
+
 -- ===========================================
 -- FUNCTIONS
 -- ===========================================
@@ -102,7 +104,6 @@ BEGIN
         days_until_expiry = CEIL(EXTRACT(EPOCH FROM (valid_to - CURRENT_TIMESTAMP)) / 86400)::INTEGER,
         is_expired = (valid_to < CURRENT_TIMESTAMP),
         alert_level = CASE
-            WHEN valid_to < CURRENT_TIMESTAMP THEN 'CRITICAL'
             WHEN valid_to < CURRENT_TIMESTAMP + INTERVAL '14 days' THEN 'CRITICAL'
             WHEN valid_to < CURRENT_TIMESTAMP + INTERVAL '30 days' THEN 'WARNING'
             ELSE 'OK'

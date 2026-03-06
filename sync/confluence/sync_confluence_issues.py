@@ -20,7 +20,7 @@ from html.parser import HTMLParser
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from common import (
     setup_logging, validate_env_vars, create_argument_parser,
-    configure_verbosity, SyncContext, http_request
+    configure_verbosity, SyncContext, http_request, savepoint
 )
 
 logger = setup_logging('sync_confluence_issues')
@@ -170,7 +170,7 @@ def parse_issue_page(page: dict) -> dict:
     parser.close()
 
     issue = {
-        'confluence_page_id': page['id'],
+        'confluence_page_id': page.get('id'),
         'confluence_url': page.get('_links', {}).get('webui', ''),
         'title': page.get('title', '')[:500],
         'trigger_description': None,
@@ -339,48 +339,51 @@ def sync_issues(ctx, issues: list):
             ctx.stats.processed += 1
 
             try:
-                cur.execute("SAVEPOINT issue")
-                cur.execute("""
-                    INSERT INTO patching.known_issues (
-                        title, application, category, status, severity, is_active,
-                        trigger_description, signature, fix, category_notes,
-                        patch_types, applies_to_windows, applies_to_sql, applies_to_other,
-                        affected_apps, affected_services,
-                        confluence_page_id, confluence_url, last_synced_at
-                    )
-                    VALUES (
-                        %(title)s, %(application)s, %(category)s, %(status)s,
-                        %(severity)s, %(is_active)s, %(trigger_description)s,
-                        %(signature)s, %(fix)s, %(category_notes)s,
-                        %(patch_types)s, %(applies_to_windows)s, %(applies_to_sql)s,
-                        %(applies_to_other)s,
-                        %(affected_apps)s, %(affected_services)s,
-                        %(confluence_page_id)s, %(confluence_url)s, CURRENT_TIMESTAMP
-                    )
-                    ON CONFLICT (confluence_page_id) DO UPDATE SET
-                        title = EXCLUDED.title,
-                        application = EXCLUDED.application,
-                        category = EXCLUDED.category,
-                        status = EXCLUDED.status,
-                        severity = EXCLUDED.severity,
-                        is_active = EXCLUDED.is_active,
-                        trigger_description = EXCLUDED.trigger_description,
-                        signature = EXCLUDED.signature,
-                        fix = EXCLUDED.fix,
-                        category_notes = EXCLUDED.category_notes,
-                        patch_types = EXCLUDED.patch_types,
-                        applies_to_windows = EXCLUDED.applies_to_windows,
-                        applies_to_sql = EXCLUDED.applies_to_sql,
-                        applies_to_other = EXCLUDED.applies_to_other,
-                        affected_apps = EXCLUDED.affected_apps,
-                        affected_services = EXCLUDED.affected_services,
-                        last_synced_at = CURRENT_TIMESTAMP
-                """, issue)
-                cur.execute("RELEASE SAVEPOINT issue")
-                ctx.stats.updated += 1
+                with savepoint(cur, 'issue'):
+                    cur.execute("""
+                        INSERT INTO patching.known_issues (
+                            title, application, category, status, severity, is_active,
+                            trigger_description, signature, fix, category_notes,
+                            patch_types, applies_to_windows, applies_to_sql, applies_to_other,
+                            affected_apps, affected_services,
+                            confluence_page_id, confluence_url, last_synced_at
+                        )
+                        VALUES (
+                            %(title)s, %(application)s, %(category)s, %(status)s,
+                            %(severity)s, %(is_active)s, %(trigger_description)s,
+                            %(signature)s, %(fix)s, %(category_notes)s,
+                            %(patch_types)s, %(applies_to_windows)s, %(applies_to_sql)s,
+                            %(applies_to_other)s,
+                            %(affected_apps)s, %(affected_services)s,
+                            %(confluence_page_id)s, %(confluence_url)s, CURRENT_TIMESTAMP
+                        )
+                        ON CONFLICT (confluence_page_id) DO UPDATE SET
+                            title = EXCLUDED.title,
+                            application = EXCLUDED.application,
+                            category = EXCLUDED.category,
+                            status = EXCLUDED.status,
+                            severity = EXCLUDED.severity,
+                            is_active = EXCLUDED.is_active,
+                            trigger_description = EXCLUDED.trigger_description,
+                            signature = EXCLUDED.signature,
+                            fix = EXCLUDED.fix,
+                            category_notes = EXCLUDED.category_notes,
+                            patch_types = EXCLUDED.patch_types,
+                            applies_to_windows = EXCLUDED.applies_to_windows,
+                            applies_to_sql = EXCLUDED.applies_to_sql,
+                            applies_to_other = EXCLUDED.applies_to_other,
+                            affected_apps = EXCLUDED.affected_apps,
+                            affected_services = EXCLUDED.affected_services,
+                            last_synced_at = CURRENT_TIMESTAMP
+                        RETURNING (xmax = 0) AS is_insert
+                    """, issue)
+                    row = cur.fetchone()
+                    if row and row['is_insert']:
+                        ctx.stats.inserted += 1
+                    else:
+                        ctx.stats.updated += 1
 
             except Exception as e:
-                cur.execute("ROLLBACK TO SAVEPOINT issue")
                 ctx.stats.add_error(f"Failed to sync {issue.get('title', '?')}: {e}")
                 logger.error(f"Error syncing issue: {e}")
 

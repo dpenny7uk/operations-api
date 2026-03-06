@@ -16,8 +16,8 @@ parameters:
 steps:
   - task: UsePythonVersion@0
     inputs:
-      versionSpec: '3.11'
-    displayName: 'Use Python 3.11'
+      versionSpec: '3.13'
+    displayName: 'Use Python 3.13'
 
   - script: |
       REPO_ROOT="$(Build.SourcesDirectory)/operations-api"
@@ -31,9 +31,10 @@ steps:
   - script: |
       cd "$(Build.StagingDirectory)/sync_run"
       SCRIPT_NAME="${{ parameters.scriptPath }}"
-      python "${SCRIPT_NAME##*/}" ${{ parameters.extraArgs }}
+      python "${SCRIPT_NAME##*/}" $EXTRA_ARGS
     displayName: ${{ parameters.displayName }}
     env:
+      EXTRA_ARGS: ${{ parameters.extraArgs }}
       OPS_DB_HOST: $(OPS_DB_HOST)
       OPS_DB_PORT: $(OPS_DB_PORT)
       OPS_DB_NAME: $(OPS_DB_NAME)

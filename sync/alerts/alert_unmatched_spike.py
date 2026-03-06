@@ -28,15 +28,16 @@ SPIKE_QUERY = """
             SELECT s.server_name
             FROM shared.servers s
             WHERE s.is_active
+              AND similarity(system.normalize_server_name(s.server_name), um.server_name_normalized) > 0.3
             ORDER BY similarity(
                 system.normalize_server_name(s.server_name),
                 um.server_name_normalized
-            ) DESC
+            ) DESC, s.server_name
             LIMIT 1
         ) AS suggested_match
     FROM system.unmatched_servers um
     WHERE um.status = 'pending'
-      AND um.first_seen_at >= CURRENT_TIMESTAMP - INTERVAL '%s hours'
+      AND um.first_seen_at >= CURRENT_TIMESTAMP - INTERVAL '1 hour' * %s
     ORDER BY um.first_seen_at DESC
 """
 

@@ -7,6 +7,14 @@ namespace OperationsApi.Services;
 
 public class EolService : BaseService<EolService>, IEolService
 {
+    private const string AlertLevelCase = @"
+        CASE
+            WHEN eol_end_of_life IS NULL THEN 'unknown'
+            WHEN eol_end_of_life <= NOW() THEN 'eol'
+            WHEN eol_end_of_life <= NOW() + INTERVAL '6 months' THEN 'approaching'
+            ELSE 'supported'
+        END";
+
     public EolService(IDbConnection db, ILogger<EolService> logger)
         : base(db, logger) { }
 
@@ -16,7 +24,7 @@ public class EolService : BaseService<EolService>, IEolService
             SELECT
                 COUNT(*) FILTER (WHERE eol_end_of_life <= NOW()) AS EolCount,
                 COUNT(*) FILTER (WHERE eol_end_of_life > NOW() AND eol_end_of_life <= NOW() + INTERVAL '6 months') AS ApproachingCount,
-                COUNT(*) FILTER (WHERE eol_end_of_life > NOW() + INTERVAL '6 months' OR eol_end_of_life IS NULL) AS SupportedCount,
+                COUNT(*) FILTER (WHERE eol_end_of_life > NOW() + INTERVAL '6 months') AS SupportedCount,
                 COUNT(*) AS TotalCount,
                 COUNT(DISTINCT asset) FILTER (WHERE eol_end_of_life <= NOW() + INTERVAL '6 months') AS AffectedServers
             FROM {Sql.Tables.EolSoftware}
@@ -36,11 +44,7 @@ public class EolService : BaseService<EolService>, IEolService
                 eol_end_of_life AS EndOfLife,
                 eol_end_of_extended_support AS EndOfExtendedSupport,
                 eol_end_of_support AS EndOfSupport,
-                CASE
-                    WHEN eol_end_of_life <= NOW() THEN 'eol'
-                    WHEN eol_end_of_life <= NOW() + INTERVAL '6 months' THEN 'approaching'
-                    ELSE 'supported'
-                END AS AlertLevel,
+                {AlertLevelCase} AS AlertLevel,
                 COUNT(DISTINCT asset) AS AffectedAssets
             FROM {Sql.Tables.EolSoftware}
             WHERE is_active = TRUE";
@@ -49,19 +53,23 @@ public class EolService : BaseService<EolService>, IEolService
 
         if (!string.IsNullOrEmpty(product))
         {
-            sql += " AND eol_product ILIKE @Product";
+            sql += " AND eol_product ILIKE @Product ESCAPE '\\'";
             p.Add("Product", $"%{EscapeLike(product)}%");
         }
 
         if (!string.IsNullOrEmpty(alertLevel))
         {
-            sql += alertLevel.ToLower() switch
+            var alertFilter = alertLevel.ToLower() switch
             {
                 "eol" => " AND eol_end_of_life <= NOW()",
                 "approaching" => " AND eol_end_of_life > NOW() AND eol_end_of_life <= NOW() + INTERVAL '6 months'",
                 "supported" => " AND (eol_end_of_life > NOW() + INTERVAL '6 months' OR eol_end_of_life IS NULL)",
                 _ => ""
             };
+            if (alertFilter.Length == 0)
+                Logger.LogWarning("Unknown alertLevel filter ignored: {AlertLevel}", alertLevel);
+            else
+                sql += alertFilter;
         }
 
         sql += " GROUP BY eol_product, eol_product_version, eol_end_of_life, eol_end_of_extended_support, eol_end_of_support";
@@ -80,16 +88,12 @@ public class EolService : BaseService<EolService>, IEolService
                 eol_end_of_life AS EndOfLife,
                 eol_end_of_extended_support AS EndOfExtendedSupport,
                 eol_end_of_support AS EndOfSupport,
-                tag AS Tag,
-                CASE
-                    WHEN eol_end_of_life <= NOW() THEN 'eol'
-                    WHEN eol_end_of_life <= NOW() + INTERVAL '6 months' THEN 'approaching'
-                    ELSE 'supported'
-                END AS AlertLevel,
+                MAX(tag) AS Tag,
+                {AlertLevelCase} AS AlertLevel,
                 COUNT(DISTINCT asset) AS AffectedAssets
             FROM {Sql.Tables.EolSoftware}
             WHERE eol_product = @Product AND eol_product_version = @Version AND is_active = TRUE
-            GROUP BY eol_product, eol_product_version, eol_end_of_life, eol_end_of_extended_support, eol_end_of_support, tag
+            GROUP BY eol_product, eol_product_version, eol_end_of_life, eol_end_of_extended_support, eol_end_of_support
         ", new { Product = product, Version = version });
 
         if (detail != null)
@@ -110,21 +114,21 @@ public class EolService : BaseService<EolService>, IEolService
     {
         return await Db.QueryAsync<EolSoftware>($@"
             SELECT
-                eol_product AS Product,
-                eol_product_version AS Version,
-                eol_end_of_life AS EndOfLife,
-                eol_end_of_extended_support AS EndOfExtendedSupport,
-                eol_end_of_support AS EndOfSupport,
-                CASE
-                    WHEN eol_end_of_life <= NOW() THEN 'eol'
-                    WHEN eol_end_of_life <= NOW() + INTERVAL '6 months' THEN 'approaching'
-                    ELSE 'supported'
-                END AS AlertLevel,
-                1 AS AffectedAssets
-            FROM {Sql.Tables.EolSoftware}
-            WHERE asset ILIKE @Server AND is_active = TRUE
-            ORDER BY eol_end_of_life NULLS LAST
+                e.eol_product AS Product,
+                e.eol_product_version AS Version,
+                e.eol_end_of_life AS EndOfLife,
+                e.eol_end_of_extended_support AS EndOfExtendedSupport,
+                e.eol_end_of_support AS EndOfSupport,
+                {AlertLevelCase.Replace("eol_end_of_life", "e.eol_end_of_life")} AS AlertLevel,
+                (SELECT COUNT(DISTINCT e2.asset)::INT
+                 FROM {Sql.Tables.EolSoftware} e2
+                 WHERE e2.eol_product = e.eol_product
+                   AND e2.eol_product_version = e.eol_product_version
+                   AND e2.is_active = TRUE) AS AffectedAssets
+            FROM {Sql.Tables.EolSoftware} e
+            WHERE UPPER(e.asset) = UPPER(@Server) AND e.is_active = TRUE
+            ORDER BY e.eol_end_of_life NULLS LAST
             LIMIT @Limit
-        ", new { Server = $"%{EscapeLike(serverName)}%", Limit = limit });
+        ", new { Server = serverName, Limit = limit });
     }
 }

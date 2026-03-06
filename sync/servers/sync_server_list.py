@@ -8,7 +8,8 @@ from psycopg2.extras import execute_values
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from common import (
     setup_logging, create_argument_parser,
-    configure_verbosity, SyncContext, query_databricks
+    configure_verbosity, SyncContext, query_databricks,
+    count_upsert_results
 )
 
 logger = setup_logging('sync_server_list')
@@ -47,16 +48,16 @@ def sync_servers(ctx, servers: list):
                 continue
             values.append((
                 (s.get('server_name') or '')[:255],
-                (s.get('fqdn') or '')[:500],
-                (s.get('ip_address') or '')[:50],
-                (s.get('operating_system') or '')[:255],
-                (s.get('environment') or '')[:50],
-                (s.get('location') or '')[:100],
-                (s.get('business_unit') or '')[:100],
-                (s.get('combined_service') or '')[:255],
-                (s.get('primary_contact') or '')[:255],
-                (s.get('patch_group') or '')[:100],
-                (s.get('cmdb_id') or '')[:100]
+                (s.get('fqdn') or '').strip()[:500] or None,
+                (s.get('ip_address') or '').strip()[:50] or None,
+                (s.get('operating_system') or '').strip()[:255] or None,
+                (s.get('environment') or '').strip()[:50] or None,
+                (s.get('location') or '').strip()[:100] or None,
+                (s.get('business_unit') or '').strip()[:100] or None,
+                (s.get('combined_service') or '').strip()[:255] or None,
+                (s.get('primary_contact') or '').strip()[:255] or None,
+                (s.get('patch_group') or '').strip()[:100] or None,
+                (s.get('cmdb_id') or '').strip()[:100] or None
             ))
         
         execute_values(cur, "INSERT INTO tmp_servers VALUES %s", values)
@@ -97,8 +98,10 @@ def sync_servers(ctx, servers: list):
                 cmdb_id = EXCLUDED.cmdb_id,
                 synced_at = CURRENT_TIMESTAMP,
                 is_active = TRUE
+            RETURNING (xmax = 0) AS is_insert
         """)
-        ctx.stats.updated = cur.rowcount
+        rows = cur.fetchall()
+        ctx.stats.inserted, ctx.stats.updated = count_upsert_results(rows)
 
         # Deactivate servers no longer in source
         cur.execute("""

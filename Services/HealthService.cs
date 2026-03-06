@@ -13,14 +13,12 @@ public class HealthService : BaseService<HealthService>, IHealthService
     public async Task<HealthSummary> GetHealthSummaryAsync()
     {
         var syncs = await GetSyncStatusesAsync();
-        
-        var unmatched = await Db.ExecuteScalarAsync<int>(
-            $"SELECT COUNT(*) FROM {Sql.Tables.UnmatchedServers} WHERE status = 'pending'"
-        );
 
-        var unreachable = await Db.ExecuteScalarAsync<int>(
-            $"SELECT COUNT(*) FROM {Sql.Tables.ScanFailures} WHERE NOT is_resolved"
-        );
+        var counts = await Db.QueryFirstAsync<HealthCounts>($@"
+            SELECT
+                (SELECT COUNT(*)::INT FROM {Sql.Tables.UnmatchedServers} WHERE status = 'pending') AS Unmatched,
+                (SELECT COUNT(*)::INT FROM {Sql.Tables.ScanFailures} WHERE NOT is_resolved) AS Unreachable
+        ");
 
         var hasError = syncs.Any(s => s.Status == "error" || s.FreshnessStatus == "error");
         var hasWarning = syncs.Any(s => s.Status == "warning" || s.FreshnessStatus == "stale");
@@ -29,8 +27,8 @@ public class HealthService : BaseService<HealthService>, IHealthService
         {
             OverallStatus = hasError ? "error" : hasWarning ? "warning" : "healthy",
             SyncStatuses = syncs.ToList(),
-            UnmatchedServersCount = unmatched,
-            UnreachableServersCount = unreachable,
+            UnmatchedServersCount = counts.Unmatched,
+            UnreachableServersCount = counts.Unreachable,
             LastUpdated = DateTime.UtcNow
         };
     }
@@ -51,7 +49,7 @@ public class HealthService : BaseService<HealthService>, IHealthService
                 END AS FreshnessStatus,
                 records_processed AS RecordsProcessed,
                 consecutive_failures AS ConsecutiveFailures,
-                last_error_message AS LastErrorMessage,
+                CASE WHEN last_error_message IS NOT NULL THEN 'Sync error occurred — check server logs' ELSE NULL END AS LastErrorMessage,
                 expected_schedule AS ExpectedSchedule
             FROM {Sql.Tables.SyncStatus}
             ORDER BY CASE status 
@@ -75,7 +73,7 @@ public class HealthService : BaseService<HealthService>, IHealthService
                 records_inserted AS RecordsInserted,
                 records_updated AS RecordsUpdated,
                 records_failed AS RecordsFailed,
-                error_message AS ErrorMessage
+                CASE WHEN error_message IS NOT NULL THEN 'Error occurred — check server logs' ELSE NULL END AS ErrorMessage
             FROM {Sql.Tables.SyncHistory}
             WHERE sync_name = @SyncName
             ORDER BY started_at DESC
@@ -87,18 +85,10 @@ public class HealthService : BaseService<HealthService>, IHealthService
     {
         Logger.LogInformation("Running validation rules (filter: {RuleName})", ruleName ?? "all");
 
-        var results = await Db.QueryAsync<dynamic>(
-            "SELECT * FROM system.run_validation(@RuleName)",
+        var mapped = (await Db.QueryAsync<ValidationRunResult>(
+            "SELECT rule_name AS RuleName, result AS Result, violation_count AS ViolationCount, execution_time_ms AS ExecutionTimeMs FROM system.run_validation(@RuleName)",
             new { RuleName = ruleName }
-        );
-
-        var mapped = results.Select(r => new ValidationRunResult
-        {
-            RuleName = r.rule_name,
-            Result = r.result,
-            ViolationCount = r.violation_count,
-            ExecutionTimeMs = r.execution_time_ms
-        }).ToList();
+        )).ToList();
 
         var failures = mapped.Where(r => r.Result == "fail").ToList();
         if (failures.Count > 0)
@@ -106,5 +96,11 @@ public class HealthService : BaseService<HealthService>, IHealthService
                 failures.Count, string.Join(", ", failures.Select(f => f.RuleName)));
 
         return mapped;
+    }
+
+    private class HealthCounts
+    {
+        public int Unmatched { get; set; }
+        public int Unreachable { get; set; }
     }
 }

@@ -40,8 +40,8 @@ steps:
   # Step 2: Sync CSV results to PostgreSQL
   - task: UsePythonVersion@0
     inputs:
-      versionSpec: '3.11'
-    displayName: 'Use Python 3.11'
+      versionSpec: '3.13'
+    displayName: 'Use Python 3.13'
 
   - script: |
       REPO_ROOT="$(Build.SourcesDirectory)/operations-api"

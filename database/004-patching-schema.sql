@@ -77,7 +77,7 @@ ON CONFLICT (patch_group, window_type) DO UPDATE SET
 
 CREATE TABLE IF NOT EXISTS patching.patch_schedule (
     schedule_id         SERIAL PRIMARY KEY,
-    cycle_id            INTEGER NOT NULL REFERENCES patching.patch_cycles(cycle_id),
+    cycle_id            INTEGER NOT NULL REFERENCES patching.patch_cycles(cycle_id) ON DELETE CASCADE,
     
     -- Server identification
     server_name         VARCHAR(255) NOT NULL,
@@ -240,8 +240,8 @@ SELECT
     ki.fix
 FROM patching.patch_schedule ps
 JOIN patching.patch_cycles pc ON pc.cycle_id = ps.cycle_id
-JOIN patching.known_issues ki ON ki.is_active 
-    AND (ps.app = ANY(ki.affected_apps) OR ps.service = ANY(ki.affected_services))
+JOIN patching.known_issues ki ON ki.is_active
+    AND (ps.app = ANY(COALESCE(ki.affected_apps, ARRAY[]::TEXT[])) OR ps.service = ANY(COALESCE(ki.affected_services, ARRAY[]::TEXT[])))
 WHERE pc.status = 'active'
 ORDER BY ki.severity, pc.cycle_date;
 

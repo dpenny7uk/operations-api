@@ -9,7 +9,8 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from common import (
-    setup_logging, create_argument_parser, configure_verbosity, SyncContext
+    setup_logging, create_argument_parser, configure_verbosity, SyncContext,
+    savepoint, resolve_server_name
 )
 
 logger = setup_logging('process_patching')
@@ -103,66 +104,60 @@ def process_servers(ctx, cycle_id: int, servers: list):
             
             # Skip if no server name
             if not normalized.get('server_name'):
+                logger.debug("Skipping row %d: no server_name", ctx.stats.processed + ctx.stats.failed + 1)
                 continue
             
             ctx.stats.processed += 1
             server_name = normalized['server_name']
             
             # Try to resolve server_id
-            cur.execute(
-                "SELECT server_id FROM system.resolve_server_name(%s) LIMIT 1",
-                (server_name,)
-            )
-            row = cur.fetchone()
-            server_id = row['server_id'] if row else None
-            
+            server_id = resolve_server_name(cur, server_name, 'ivanti', cycle_id)
             if not server_id:
                 ctx.stats.unmatched += 1
-                cur.execute(
-                    "SELECT system.record_unmatched_server(%s, 'ivanti', %s)",
-                    (server_name, str(cycle_id))
-                )
-            
+
             # Insert/update schedule
             try:
-                cur.execute("SAVEPOINT srv")
-                cur.execute("""
-                    INSERT INTO patching.patch_schedule (
-                        cycle_id, server_name, server_type, server_id,
-                        domain, app, service, support_team, business_unit,
-                        contact, patch_group, resource_group, location,
-                        environment, power_state, subscription, os
-                    )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (cycle_id, server_name, server_type) DO UPDATE SET
-                        server_id = EXCLUDED.server_id,
-                        app = EXCLUDED.app,
-                        service = EXCLUDED.service,
-                        patch_group = EXCLUDED.patch_group
-                """, (
-                    cycle_id,
-                    server_name,
-                    'onprem',
-                    server_id,
-                    normalized.get('domain'),
-                    normalized.get('app'),
-                    normalized.get('service'),
-                    normalized.get('support_team'),
-                    normalized.get('business_unit'),
-                    normalized.get('contact'),
-                    normalized.get('patch_group'),
-                    normalized.get('resource_group'),
-                    normalized.get('location'),
-                    normalized.get('environment'),
-                    normalized.get('power_state'),
-                    normalized.get('subscription'),
-                    normalized.get('os')
-                ))
-                cur.execute("RELEASE SAVEPOINT srv")
-                ctx.stats.inserted += 1
+                with savepoint(cur, 'srv'):
+                    cur.execute("""
+                        INSERT INTO patching.patch_schedule (
+                            cycle_id, server_name, server_type, server_id,
+                            domain, app, service, support_team, business_unit,
+                            contact, patch_group, resource_group, location,
+                            environment, power_state, subscription, os
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (cycle_id, server_name, server_type) DO UPDATE SET
+                            server_id = EXCLUDED.server_id,
+                            app = EXCLUDED.app,
+                            service = EXCLUDED.service,
+                            patch_group = EXCLUDED.patch_group
+                        RETURNING (xmax = 0) AS is_insert
+                    """, (
+                        cycle_id,
+                        server_name,
+                        'onprem',
+                        server_id,
+                        normalized.get('domain'),
+                        normalized.get('app'),
+                        normalized.get('service'),
+                        normalized.get('support_team'),
+                        normalized.get('business_unit'),
+                        normalized.get('contact'),
+                        normalized.get('patch_group'),
+                        normalized.get('resource_group'),
+                        normalized.get('location'),
+                        normalized.get('environment'),
+                        normalized.get('power_state'),
+                        normalized.get('subscription'),
+                        normalized.get('os')
+                    ))
+                    row = cur.fetchone()
+                    if row and row['is_insert']:
+                        ctx.stats.inserted += 1
+                    else:
+                        ctx.stats.updated += 1
 
             except Exception as e:
-                cur.execute("ROLLBACK TO SAVEPOINT srv")
                 ctx.stats.add_error(f"Failed {server_name}: {e}")
 
 
@@ -173,9 +168,12 @@ def main():
     args = parser.parse_args()
     configure_verbosity(args.verbose)
 
-    filepath = Path(args.file)
+    filepath = Path(args.file).resolve()
     if not filepath.exists():
         logger.error(f"File not found: {filepath}")
+        sys.exit(1)
+    if filepath.suffix.lower() not in {'.xlsx', '.csv', '.xls'}:
+        logger.error(f"Invalid file type: {filepath.suffix} — only .xlsx, .csv, .xls allowed")
         sys.exit(1)
 
     # Parse cycle date from filename or argument
@@ -220,7 +218,7 @@ def main():
                 UPDATE patching.patch_cycles SET
                     servers_onprem = %s
                 WHERE cycle_id = %s
-            """, (ctx.stats.inserted, cycle_id))
+            """, (ctx.stats.processed, cycle_id))
 
         if not ctx.dry_run:
             ctx.conn.commit()

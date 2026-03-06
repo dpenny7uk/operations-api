@@ -11,12 +11,12 @@ from bs4 import BeautifulSoup
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from common import (
     setup_logging, create_argument_parser, configure_verbosity, SyncContext,
-    http_request
+    http_request, savepoint, resolve_server_name
 )
 
 logger = setup_logging('sync_patching_html')
 
-DEFAULT_URL = 'http://contosodeployment.contoso.com/patching%20schedule.htm'
+DEFAULT_URL = 'https://contosodeployment.contoso.com/patching%20schedule.htm'
 
 # HTML table column -> DB schema mapping
 COLUMN_MAP = {
@@ -96,6 +96,7 @@ def parse_group_sections(soup: BeautifulSoup) -> list[dict]:
         for row in table.find_all('tr')[1:]:
             cells = row.find_all('td')
             if len(cells) != len(headers):
+                logger.debug("Skipping row: %d cells but %d headers", len(cells), len(headers))
                 continue
 
             record = {}
@@ -125,53 +126,46 @@ def process_servers(ctx, cycle_id: int, servers: list[dict]):
             ctx.stats.processed += 1
 
             # Resolve server_id
-            cur.execute(
-                "SELECT server_id FROM system.resolve_server_name(%s) LIMIT 1",
-                (server_name,)
-            )
-            row = cur.fetchone()
-            server_id = row['server_id'] if row else None
-
+            server_id = resolve_server_name(cur, server_name, 'patching_html', cycle_id)
             if not server_id:
                 ctx.stats.unmatched += 1
-                cur.execute(
-                    "SELECT system.record_unmatched_server(%s, 'patching_html', %s)",
-                    (server_name, str(cycle_id))
-                )
 
             try:
-                cur.execute("SAVEPOINT srv")
-                cur.execute("""
-                    INSERT INTO patching.patch_schedule (
-                        cycle_id, server_name, server_type, server_id,
-                        domain, app, service, support_team, business_unit,
-                        contact, patch_group, scheduled_time
-                    )
-                    VALUES (%s, %s, 'onprem', %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (cycle_id, server_name, server_type) DO UPDATE SET
-                        server_id = EXCLUDED.server_id,
-                        app = EXCLUDED.app,
-                        service = EXCLUDED.service,
-                        patch_group = EXCLUDED.patch_group,
-                        scheduled_time = EXCLUDED.scheduled_time
-                """, (
-                    cycle_id,
-                    server_name,
-                    server_id,
-                    server.get('domain'),
-                    server.get('app'),
-                    server.get('service'),
-                    server.get('support_team'),
-                    server.get('business_unit'),
-                    server.get('contact'),
-                    server.get('patch_group'),
-                    server.get('scheduled_time'),
-                ))
-                cur.execute("RELEASE SAVEPOINT srv")
-                ctx.stats.inserted += 1
+                with savepoint(cur, 'srv'):
+                    cur.execute("""
+                        INSERT INTO patching.patch_schedule (
+                            cycle_id, server_name, server_type, server_id,
+                            domain, app, service, support_team, business_unit,
+                            contact, patch_group, scheduled_time
+                        )
+                        VALUES (%s, %s, 'onprem', %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (cycle_id, server_name, server_type) DO UPDATE SET
+                            server_id = EXCLUDED.server_id,
+                            app = EXCLUDED.app,
+                            service = EXCLUDED.service,
+                            patch_group = EXCLUDED.patch_group,
+                            scheduled_time = EXCLUDED.scheduled_time
+                        RETURNING (xmax = 0) AS is_insert
+                    """, (
+                        cycle_id,
+                        server_name,
+                        server_id,
+                        server.get('domain'),
+                        server.get('app'),
+                        server.get('service'),
+                        server.get('support_team'),
+                        server.get('business_unit'),
+                        server.get('contact'),
+                        server.get('patch_group'),
+                        server.get('scheduled_time'),
+                    ))
+                    row = cur.fetchone()
+                    if row and row['is_insert']:
+                        ctx.stats.inserted += 1
+                    else:
+                        ctx.stats.updated += 1
 
             except Exception as e:
-                cur.execute("ROLLBACK TO SAVEPOINT srv")
                 ctx.stats.add_error(f"Failed {server_name}: {e}")
 
 
@@ -180,6 +174,17 @@ def main():
     parser.add_argument('--url', default=DEFAULT_URL, help='URL of the patching schedule page')
     args = parser.parse_args()
     configure_verbosity(args.verbose)
+
+    if not args.url.startswith('https://'):
+        logger.error(f"Invalid URL scheme: {args.url} — only https allowed")
+        sys.exit(1)
+
+    from urllib.parse import urlparse
+    parsed = urlparse(args.url)
+    blocked = {'localhost', '127.0.0.1', '169.254.169.254', '[::1]'}
+    if parsed.hostname and (parsed.hostname in blocked or parsed.hostname.startswith('10.') or parsed.hostname.startswith('192.168.')):
+        logger.error(f"URL targets a restricted address: {parsed.hostname}")
+        sys.exit(1)
 
     logger.info(f"Fetching patching schedule from {args.url}")
     html = fetch_page(args.url)
@@ -215,12 +220,6 @@ def main():
                 raise RuntimeError("Failed to create/get patch cycle — INSERT RETURNING returned no row")
             cycle_id = row['cycle_id']  # type: ignore[index]
 
-            # Clear existing schedule for this cycle
-            cur.execute(
-                "DELETE FROM patching.patch_schedule WHERE cycle_id = %s",
-                (cycle_id,)
-            )
-
         process_servers(ctx, cycle_id, servers)
 
         # Update cycle counts
@@ -229,7 +228,7 @@ def main():
                 UPDATE patching.patch_cycles SET
                     servers_onprem = %s
                 WHERE cycle_id = %s
-            """, (ctx.stats.inserted, cycle_id))
+            """, (ctx.stats.processed, cycle_id))
 
         if not ctx.dry_run:
             ctx.conn.commit()

@@ -8,7 +8,8 @@ from psycopg2.extras import execute_values
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from common import (
     setup_logging, create_argument_parser,
-    configure_verbosity, SyncContext, query_databricks
+    configure_verbosity, SyncContext, query_databricks,
+    count_upsert_results
 )
 
 logger = setup_logging('sync_eol_software')
@@ -102,8 +103,10 @@ def sync_eol_software(ctx, records: list):
                 tag = EXCLUDED.tag,
                 synced_at = CURRENT_TIMESTAMP,
                 is_active = TRUE
+            RETURNING (xmax = 0) AS is_insert
         """)
-        ctx.stats.updated = cur.rowcount
+        rows = cur.fetchall()
+        ctx.stats.inserted, ctx.stats.updated = count_upsert_results(rows)
 
         # Deactivate records no longer in source
         cur.execute("""

@@ -1,14 +1,13 @@
 <#
 .SYNOPSIS
-    Scans Windows servers and HTTPS endpoints for SSL/TLS certificates
-    and outputs a CSV report.
+    Scans HTTPS endpoints for SSL/TLS certificates and outputs a CSV report.
 
 .DESCRIPTION
-    Performs two types of certificate scanning:
+    Performs certificate scanning via direct TLS connection (no WinRM required):
 
     1. Server scans (from -ServerListPath):
-       - Windows Certificate Store (LocalMachine\My) via PowerShell Remoting (WinRM)
-       - HTTPS endpoints on specified ports via direct TLS connection
+       - Probes specified ports (default 443) via TLS handshake
+       - Extracts certificate details from the connection
 
     2. Endpoint scans (from -EndpointsPath):
        - Direct TLS connection to arbitrary URLs (for load balancers, external
@@ -108,25 +107,30 @@ if ($totalTargets -eq 0) {
 
 Write-Host "Scanning $($servers.Count) servers + $($endpoints.Count) endpoints (ThrottleLimit=$ThrottleLimit, Ports=$($Ports -join ','))"
 
+# ── Shared function definition (injected into runspace scriptblocks) ──────────
+
+$sharedFunctions = @'
+function Get-CertStatus {
+    param([datetime]$NotAfter, [int]$ThresholdDays, [int]$CriticalDays)
+    $daysRemaining = [math]::Floor(($NotAfter - (Get-Date)).TotalDays)
+    if ($daysRemaining -lt 0)              { return @{ Status = 'EXPIRED';  DaysRemaining = $daysRemaining } }
+    if ($daysRemaining -le $CriticalDays)  { return @{ Status = 'CRITICAL'; DaysRemaining = $daysRemaining } }
+    if ($daysRemaining -le $ThresholdDays) { return @{ Status = 'WARNING';  DaysRemaining = $daysRemaining } }
+    return @{ Status = 'OK'; DaysRemaining = $daysRemaining }
+}
+'@
+
 # ── Scriptblock for server scans (cert store + port probing) ─────────────────
 #    Must be self-contained — runspaces don't share the parent scope.
+#    Get-CertStatus is injected via $sharedFunctions + scriptblock concatenation.
 
-$serverScanBlock = {
+$serverScanBlock = [ScriptBlock]::Create($sharedFunctions + @'
     param(
         [string]$ServerName,
         [int[]]$Ports,
         [int]$ThresholdDays,
         [int]$CriticalDays
     )
-
-    function Get-CertStatus {
-        param([datetime]$NotAfter, [int]$ThresholdDays, [int]$CriticalDays)
-        $daysRemaining = [math]::Floor(($NotAfter - (Get-Date)).TotalDays)
-        if ($daysRemaining -lt 0)              { return @{ Status = 'EXPIRED';  DaysRemaining = $daysRemaining } }
-        if ($daysRemaining -le $CriticalDays)  { return @{ Status = 'CRITICAL'; DaysRemaining = $daysRemaining } }
-        if ($daysRemaining -le $ThresholdDays) { return @{ Status = 'WARNING';  DaysRemaining = $daysRemaining } }
-        return @{ Status = 'OK'; DaysRemaining = $daysRemaining }
-    }
 
     function New-ResultRow {
         param(
@@ -152,42 +156,7 @@ $serverScanBlock = {
 
     $results = @()
 
-    # ── 1. Windows Certificate Store via WinRM ───────────────────────────
-    try {
-        $certs = Invoke-Command -ComputerName $ServerName -ErrorAction Stop -ScriptBlock {
-            Get-ChildItem -Path Cert:\LocalMachine\My -ErrorAction SilentlyContinue |
-                Where-Object {
-                    # Include certs with private keys and recently expired (last 30 days)
-                    $_.HasPrivateKey -or $_.NotAfter -gt (Get-Date).AddDays(-30)
-                } |
-                Select-Object Thumbprint, Subject, Issuer,
-                    @{ N='NotBefore'; E={ $_.NotBefore.ToString('o') } },
-                    @{ N='NotAfter';  E={ $_.NotAfter.ToString('o')  } },
-                    @{ N='NotAfterDT'; E={ $_.NotAfter } }
-        }
-
-        foreach ($cert in $certs) {
-            $statusInfo = Get-CertStatus -NotAfter $cert.NotAfterDT `
-                -ThresholdDays $ThresholdDays -CriticalDays $CriticalDays
-
-            $results += New-ResultRow `
-                -Name $ServerName -Status $statusInfo.Status `
-                -Thumbprint $cert.Thumbprint -Subject $cert.Subject `
-                -Issuer $cert.Issuer -NotBefore $cert.NotBefore `
-                -NotAfter $cert.NotAfter -DaysRemaining $statusInfo.DaysRemaining `
-                -Source 'Cert Store' -URL 'LocalMachine\My' -ErrorMsg ''
-        }
-    }
-    catch {
-        $results += New-ResultRow `
-            -Name $ServerName -Status 'UNREACHABLE' `
-            -Thumbprint '' -Subject '' -Issuer '' `
-            -NotBefore '' -NotAfter '' -DaysRemaining '' `
-            -Source 'Cert Store' -URL 'LocalMachine\My' `
-            -ErrorMsg $_.Exception.Message
-    }
-
-    # ── 2. HTTPS Endpoints via TLS connection ────────────────────────────
+    # ── HTTPS Endpoints via TLS connection ───────────────────────────────
     foreach ($port in $Ports) {
         $tcpClient = $null
         $sslStream = $null
@@ -207,7 +176,10 @@ $serverScanBlock = {
                 $tcpClient.GetStream(), $false,
                 ([System.Net.Security.RemoteCertificateValidationCallback]{
                     param($sslSender, $certificate, $chain, $sslPolicyErrors)
-                    return $true
+                    if ($sslPolicyErrors -ne 'None') {
+                        Write-Verbose "TLS policy errors for ${ServerName}:${port}: $sslPolicyErrors (accepted for scanning)"
+                    }
+                    return $true  # Must accept to scan expired/self-signed certs
                 })
             )
             $sslStream.AuthenticateAsClient($ServerName)
@@ -229,7 +201,7 @@ $serverScanBlock = {
             }
         }
         catch {
-            # TLS handshake or connection failed — skip this port
+            Write-Verbose "TLS/connection error for ${ServerName}:${port}: $_"
         }
         finally {
             if ($sslStream) { $sslStream.Dispose() }
@@ -237,27 +209,28 @@ $serverScanBlock = {
         }
     }
 
+    # If no certs found on any port, report the server as unreachable
+    if ($results.Count -eq 0) {
+        $results += New-ResultRow `
+            -Name $ServerName -Status 'UNREACHABLE' `
+            -Thumbprint '' -Subject '' -Issuer '' `
+            -NotBefore '' -NotAfter '' -DaysRemaining '' `
+            -Source 'HTTPS Endpoint' -URL ($Ports -join ',') `
+            -ErrorMsg "No HTTPS certificate found on port(s): $($Ports -join ', ')"
+    }
+
     return $results
-}
+'@)
 
 # ── Scriptblock for standalone endpoint scans (URL-based) ────────────────────
 
-$endpointScanBlock = {
+$endpointScanBlock = [ScriptBlock]::Create($sharedFunctions + @'
     param(
         [string]$EndpointName,
         [string]$EndpointURL,
         [int]$ThresholdDays,
         [int]$CriticalDays
     )
-
-    function Get-CertStatus {
-        param([datetime]$NotAfter, [int]$ThresholdDays, [int]$CriticalDays)
-        $daysRemaining = [math]::Floor(($NotAfter - (Get-Date)).TotalDays)
-        if ($daysRemaining -lt 0)              { return @{ Status = 'EXPIRED';  DaysRemaining = $daysRemaining } }
-        if ($daysRemaining -le $CriticalDays)  { return @{ Status = 'CRITICAL'; DaysRemaining = $daysRemaining } }
-        if ($daysRemaining -le $ThresholdDays) { return @{ Status = 'WARNING';  DaysRemaining = $daysRemaining } }
-        return @{ Status = 'OK'; DaysRemaining = $daysRemaining }
-    }
 
     $tcpClient = $null
     $sslStream = $null
@@ -283,7 +256,7 @@ $endpointScanBlock = {
                 Name = $EndpointName; Status = 'ERROR'; Thumbprint = ''; Subject = ''
                 Issuer = ''; NotBefore = ''; NotAfter = ''; DaysRemaining = ''
                 Source = 'HTTPS Endpoint'; URL = $EndpointURL
-                Error = $connectTask.Exception.InnerException.Message
+                Error = if ($connectTask.Exception.InnerException) { $connectTask.Exception.InnerException.Message } else { $connectTask.Exception.Message }
             }
         }
 
@@ -291,7 +264,10 @@ $endpointScanBlock = {
             $tcpClient.GetStream(), $false,
             ([System.Net.Security.RemoteCertificateValidationCallback]{
                 param($sslSender, $certificate, $chain, $sslPolicyErrors)
-                return $true
+                if ($sslPolicyErrors -ne 'None') {
+                    Write-Verbose "TLS policy errors for ${EndpointURL}: $sslPolicyErrors (accepted for scanning)"
+                }
+                return $true  # Must accept to scan expired/self-signed certs
             })
         )
         $sslStream.AuthenticateAsClient($host_)
@@ -336,7 +312,7 @@ $endpointScanBlock = {
         if ($sslStream) { $sslStream.Dispose() }
         if ($tcpClient) { $tcpClient.Dispose() }
     }
-}
+'@)
 
 # ── Run all scans in parallel using RunspacePool ─────────────────────────────
 
@@ -393,6 +369,7 @@ foreach ($job in $jobs) {
         }
         else {
             Write-Warning "Scan timed out for $($job.Target)"
+            $job.PowerShell.Stop()
             $allResults += [PSCustomObject]@{
                 Name = $job.Target; Status = 'ERROR'; Thumbprint = ''; Subject = ''
                 Issuer = ''; NotBefore = ''; NotAfter = ''; DaysRemaining = ''

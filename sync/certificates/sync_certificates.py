@@ -202,49 +202,59 @@ def sync_certificates(ctx, records: list):
         ctx.stats.processed = len(cert_rows)
 
         # Resolve server_id from shared.servers
-        # Upsert into certificates.inventory
+        # Upsert into certificates.inventory, using xmax to distinguish inserts from updates
         cur.execute("""
-            INSERT INTO certificates.inventory (
-                thumbprint, subject, subject_cn, issuer, issuer_cn,
-                valid_from, valid_to, days_until_expiry, is_expired, alert_level,
-                server_id, server_name, store_name, scan_source,
-                last_seen_at, is_active
+            WITH upserted AS (
+                INSERT INTO certificates.inventory (
+                    thumbprint, subject, subject_cn, issuer, issuer_cn,
+                    valid_from, valid_to, days_until_expiry, is_expired, alert_level,
+                    server_id, server_name, store_name, scan_source,
+                    last_seen_at, is_active
+                )
+                SELECT
+                    t.thumbprint, t.subject, t.subject_cn, t.issuer, t.issuer_cn,
+                    t.valid_from, t.valid_to, t.days_until_expiry, t.is_expired, t.alert_level,
+                    s.server_id, t.server_name, t.store_name, t.scan_source,
+                    CURRENT_TIMESTAMP, TRUE
+                FROM tmp_certificates t
+                LEFT JOIN shared.servers s
+                    ON UPPER(s.server_name) = UPPER(t.server_name) AND s.is_active
+                ON CONFLICT (server_name, thumbprint, store_name) DO UPDATE SET
+                    subject = EXCLUDED.subject,
+                    subject_cn = EXCLUDED.subject_cn,
+                    issuer = EXCLUDED.issuer,
+                    issuer_cn = EXCLUDED.issuer_cn,
+                    valid_from = EXCLUDED.valid_from,
+                    valid_to = EXCLUDED.valid_to,
+                    days_until_expiry = EXCLUDED.days_until_expiry,
+                    is_expired = EXCLUDED.is_expired,
+                    alert_level = EXCLUDED.alert_level,
+                    server_id = EXCLUDED.server_id,
+                    scan_source = EXCLUDED.scan_source,
+                    last_seen_at = CURRENT_TIMESTAMP,
+                    is_active = TRUE
+                RETURNING (xmax = 0) AS is_insert
             )
             SELECT
-                t.thumbprint, t.subject, t.subject_cn, t.issuer, t.issuer_cn,
-                t.valid_from, t.valid_to, t.days_until_expiry, t.is_expired, t.alert_level,
-                s.server_id, t.server_name, t.store_name, t.scan_source,
-                CURRENT_TIMESTAMP, TRUE
-            FROM tmp_certificates t
-            LEFT JOIN shared.servers s
-                ON UPPER(s.server_name) = UPPER(t.server_name) AND s.is_active
-            ON CONFLICT (server_name, thumbprint, store_name) DO UPDATE SET
-                subject = EXCLUDED.subject,
-                subject_cn = EXCLUDED.subject_cn,
-                issuer = EXCLUDED.issuer,
-                issuer_cn = EXCLUDED.issuer_cn,
-                valid_from = EXCLUDED.valid_from,
-                valid_to = EXCLUDED.valid_to,
-                days_until_expiry = EXCLUDED.days_until_expiry,
-                is_expired = EXCLUDED.is_expired,
-                alert_level = EXCLUDED.alert_level,
-                server_id = EXCLUDED.server_id,
-                scan_source = EXCLUDED.scan_source,
-                last_seen_at = CURRENT_TIMESTAMP,
-                is_active = TRUE
+                COUNT(*) FILTER (WHERE is_insert) AS inserted,
+                COUNT(*) FILTER (WHERE NOT is_insert) AS updated
+            FROM upserted
         """)
-        ctx.stats.updated = cur.rowcount
+        row = cur.fetchone()
+        ctx.stats.inserted = row['inserted']
+        ctx.stats.updated = row['updated']
 
         # Deactivate certs not seen in this scan — only on servers that were scanned
+        # Use UPPER() to match case-insensitively (consistent with the INSERT join above)
         cur.execute("""
             UPDATE certificates.inventory SET
                 is_active = FALSE,
                 updated_at = CURRENT_TIMESTAMP
             WHERE scan_source IN ('powershell', 'powershell_https')
               AND is_active = TRUE
-              AND server_name IN (SELECT DISTINCT server_name FROM tmp_certificates)
-              AND (server_name, thumbprint, COALESCE(store_name, '')) NOT IN (
-                  SELECT server_name, thumbprint, COALESCE(store_name, '')
+              AND UPPER(server_name) IN (SELECT DISTINCT UPPER(server_name) FROM tmp_certificates)
+              AND (UPPER(server_name), thumbprint, COALESCE(store_name, '')) NOT IN (
+                  SELECT UPPER(server_name), thumbprint, COALESCE(store_name, '')
                   FROM tmp_certificates
               )
         """)
@@ -254,10 +264,10 @@ def sync_certificates(ctx, records: list):
             ctx.conn.commit()
 
         logger.info(
-            f"Synced {ctx.stats.processed} certificates, "
-            f"updated {ctx.stats.updated}, "
-            f"deactivated {ctx.stats.deactivated}, "
-            f"scan failures {len(failure_servers)}"
+            f"Synced {ctx.stats.processed} certificates: "
+            f"{ctx.stats.inserted} inserted, {ctx.stats.updated} updated, "
+            f"{ctx.stats.deactivated} deactivated, "
+            f"{len(failure_servers)} scan failures"
         )
 
 

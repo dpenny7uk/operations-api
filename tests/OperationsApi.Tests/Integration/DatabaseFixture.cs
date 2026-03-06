@@ -1,0 +1,240 @@
+using Npgsql;
+using Testcontainers.PostgreSql;
+using Xunit;
+
+namespace OperationsApi.Tests.Integration;
+
+/// <summary>
+/// Spins up a PostgreSQL container, runs all migration scripts, and seeds test data.
+/// Shared across all integration test classes via ICollectionFixture.
+/// Gracefully handles Docker not being available — tests will skip.
+/// </summary>
+public class DatabaseFixture : IAsyncLifetime
+{
+    private PostgreSqlContainer? _container;
+
+    public string? ConnectionString { get; private set; }
+    public bool IsAvailable { get; private set; }
+    public string? SkipReason { get; private set; }
+
+    public async Task InitializeAsync()
+    {
+        try
+        {
+            _container = new PostgreSqlBuilder()
+                .WithImage("postgres:17")
+                .Build();
+
+            await _container.StartAsync();
+            ConnectionString = _container.GetConnectionString();
+            await RunMigrations();
+            await SeedTestData();
+            IsAvailable = true;
+        }
+        catch (Exception ex)
+        {
+            SkipReason = $"Docker not available: {ex.Message}";
+            IsAvailable = false;
+        }
+    }
+
+    public async Task DisposeAsync()
+    {
+        if (_container != null)
+            await _container.DisposeAsync();
+    }
+
+    private async Task RunMigrations()
+    {
+        var scripts = new[]
+        {
+            "database/000-extensions.sql",
+            "database/001-common.sql",
+            "database/002-shared-schema.sql",
+            "database/003-certificates-schema.sql",
+            "database/004-patching-schema.sql",
+            "database/005-system-health-schema.sql",
+            "database/006-eol-schema.sql"
+        };
+
+        // Walk up from bin/Debug/net10.0 to find the project root
+        var dir = AppContext.BaseDirectory;
+        while (dir != null && !File.Exists(Path.Combine(dir, "OperationsApi.csproj")))
+            dir = Path.GetDirectoryName(dir);
+
+        if (dir == null)
+            throw new InvalidOperationException("Could not find project root from " + AppContext.BaseDirectory);
+
+        await using var conn = new NpgsqlConnection(ConnectionString);
+        await conn.OpenAsync();
+
+        foreach (var script in scripts)
+        {
+            var path = Path.Combine(dir, script);
+            var sql = await File.ReadAllTextAsync(path);
+            await using var cmd = new NpgsqlCommand(sql, conn);
+            await cmd.ExecuteNonQueryAsync();
+        }
+    }
+
+    private async Task SeedTestData()
+    {
+        await using var conn = new NpgsqlConnection(ConnectionString);
+        await conn.OpenAsync();
+        await using var cmd = new NpgsqlCommand(SeedSql, conn);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    private const string SeedSql = """
+        -- ═══ Applications ═══
+        INSERT INTO shared.applications (application_name, source_system, criticality)
+        VALUES
+            ('Portal', 'test', 'HIGH'),
+            ('API Gateway', 'test', 'CRITICAL'),
+            ('BackOffice', 'test', 'LOW');
+
+        -- ═══ Servers ═══
+        INSERT INTO shared.servers
+            (server_name, fqdn, ip_address, operating_system, environment, location,
+             business_unit, primary_application_id, primary_contact, patch_group, is_active, source_system)
+        VALUES
+            ('WEB01', 'web01.contoso.com', '10.0.0.1', 'Windows Server 2022', 'Production', 'DC1',
+             'Engineering', 1, 'ops@contoso.com', '8a', TRUE, 'test'),
+            ('WEB02', 'web02.contoso.com', '10.0.0.2', 'Windows Server 2022', 'Production', 'DC1',
+             'Engineering', 1, 'ops@contoso.com', '8b', TRUE, 'test'),
+            ('API01', 'api01.contoso.com', '10.0.1.1', 'Windows Server 2022', 'Production', 'DC2',
+             'Engineering', 2, 'api-team@contoso.com', '9a', TRUE, 'test'),
+            ('DEV01', 'dev01.contoso.com', '10.0.2.1', 'Windows Server 2022', 'Development', 'DC1',
+             'Engineering', 1, 'dev@contoso.com', '8a', TRUE, 'test'),
+            ('OLD01', 'old01.contoso.com', '10.0.3.1', 'Windows Server 2019', 'Production', 'DC1',
+             'Engineering', 3, 'ops@contoso.com', '9b', FALSE, 'test');
+
+        -- ═══ Certificates ═══
+        INSERT INTO certificates.inventory
+            (thumbprint, subject, subject_cn, issuer, issuer_cn, valid_from, valid_to,
+             days_until_expiry, is_expired, alert_level, server_name, server_id,
+             store_name, scan_source, is_active)
+        VALUES
+            ('AAA111', 'CN=web01.contoso.com', 'web01.contoso.com', 'CN=Contoso CA', 'Contoso CA',
+             '2024-01-01', NOW() + INTERVAL '7 days', 7, FALSE, 'CRITICAL',
+             'WEB01', 1, 'LocalMachine\My', 'powershell', TRUE),
+            ('BBB222', 'CN=web02.contoso.com', 'web02.contoso.com', 'CN=Contoso CA', 'Contoso CA',
+             '2024-01-01', NOW() + INTERVAL '90 days', 90, FALSE, 'OK',
+             'WEB02', 2, 'LocalMachine\My', 'powershell', TRUE),
+            ('CCC333', 'CN=api.contoso.com', 'api.contoso.com', 'CN=Contoso CA', 'Contoso CA',
+             '2024-01-01', NOW() + INTERVAL '25 days', 25, FALSE, 'WARNING',
+             'API01', 3, 'LocalMachine\My', 'powershell', TRUE),
+            ('DDD444', 'CN=expired.contoso.com', 'expired.contoso.com', 'CN=Contoso CA', 'Contoso CA',
+             '2023-01-01', NOW() - INTERVAL '10 days', -10, TRUE, 'CRITICAL',
+             'WEB01', 1, 'LocalMachine\My', 'powershell', TRUE),
+            ('EEE555', 'CN=inactive.contoso.com', 'inactive.contoso.com', 'CN=Contoso CA', 'Contoso CA',
+             '2024-01-01', NOW() + INTERVAL '60 days', 60, FALSE, 'OK',
+             'OLD01', 5, 'LocalMachine\My', 'powershell', FALSE);
+
+        -- ═══ Patch cycles ═══
+        INSERT INTO patching.patch_cycles (cycle_date, status, servers_onprem)
+        VALUES
+            (CURRENT_DATE + 7, 'active', 3),
+            (CURRENT_DATE - 30, 'completed', 2);
+
+        -- ═══ Patch schedule ═══
+        INSERT INTO patching.patch_schedule
+            (cycle_id, server_name, server_type, patch_group, app, service, server_id)
+        VALUES
+            (1, 'WEB01', 'onprem', '8a', 'Portal', 'IIS', 1),
+            (1, 'WEB02', 'onprem', '8b', 'Portal', 'IIS', 2),
+            (1, 'API01', 'onprem', '9a', 'API Gateway', 'ApiSvc', 3),
+            (2, 'WEB01', 'onprem', '8a', 'Portal', 'IIS', 1),
+            (2, 'DEV01', 'onprem', '8a', 'Portal', 'IIS', 4);
+
+        -- ═══ Known issues ═══
+        INSERT INTO patching.known_issues
+            (title, application, severity, is_active, applies_to_windows, applies_to_sql,
+             applies_to_other, affected_apps, affected_services, fix, trigger_description,
+             category, status, confluence_page_id)
+        VALUES
+            ('IIS pool crash after reboot', 'Portal', 'HIGH', TRUE, TRUE, FALSE, FALSE,
+             ARRAY['Portal'], ARRAY['IIS'], 'Restart IIS app pools', 'Server reboot',
+             'Windows O/S Patching', 'PUBLISHED', 'page-001'),
+            ('SQL Agent stops', NULL, 'CRITICAL', TRUE, FALSE, TRUE, FALSE,
+             ARRAY['API Gateway'], ARRAY['SQLAgent'], 'Restart SQL Agent', 'SQL patching',
+             'SQL Server Patching', 'PUBLISHED', 'page-002'),
+            ('Resolved old issue', 'BackOffice', 'LOW', FALSE, TRUE, FALSE, FALSE,
+             ARRAY['BackOffice'], ARRAY[]::TEXT[], 'N/A', 'N/A',
+             'Windows O/S Patching', 'WITHDRAWN', 'page-003');
+
+        -- ═══ EOL Software ═══
+        INSERT INTO eol.end_of_life_software
+            (eol_product, eol_product_version, eol_end_of_life, eol_end_of_support, asset, is_active)
+        VALUES
+            ('Windows Server', '2019', NOW() - INTERVAL '6 months', NOW() - INTERVAL '1 year', 'OLD01', TRUE),
+            ('Windows Server', '2019', NOW() - INTERVAL '6 months', NOW() - INTERVAL '1 year', 'DEV01', TRUE),
+            ('Windows Server', '2022', NOW() + INTERVAL '3 years', NOW() + INTERVAL '2 years', 'WEB01', TRUE),
+            ('Windows Server', '2022', NOW() + INTERVAL '3 years', NOW() + INTERVAL '2 years', 'WEB02', TRUE),
+            ('SQL Server', '2019', NOW() + INTERVAL '2 months', NOW() - INTERVAL '6 months', 'API01', TRUE),
+            ('Legacy App', '1.0', NOW() - INTERVAL '2 years', NOW() - INTERVAL '3 years', 'OLD01', FALSE);
+
+        -- ═══ Sync status ═══
+        UPDATE system.sync_status SET
+            status = 'healthy',
+            last_success_at = NOW() - INTERVAL '2 hours',
+            last_run_at = NOW() - INTERVAL '2 hours',
+            records_processed = 100,
+            consecutive_failures = 0
+        WHERE sync_name = 'databricks_servers';
+
+        UPDATE system.sync_status SET
+            status = 'warning',
+            last_success_at = NOW() - INTERVAL '30 hours',
+            last_run_at = NOW() - INTERVAL '1 hour',
+            records_processed = 0,
+            consecutive_failures = 3,
+            last_error_message = 'Connection timeout'
+        WHERE sync_name = 'certificate_scan';
+
+        -- ═══ Sync history ═══
+        INSERT INTO system.sync_history
+            (sync_name, started_at, completed_at, status, records_processed, records_inserted)
+        VALUES
+            ('databricks_servers', NOW() - INTERVAL '2 hours', NOW() - INTERVAL '2 hours' + INTERVAL '30 seconds', 'success', 100, 5),
+            ('databricks_servers', NOW() - INTERVAL '26 hours', NOW() - INTERVAL '26 hours' + INTERVAL '45 seconds', 'success', 98, 3);
+
+        -- ═══ Unmatched servers ═══
+        INSERT INTO system.unmatched_servers
+            (server_name_raw, server_name_normalized, source_system, status, occurrence_count)
+        VALUES
+            ('WEBSVR01', 'websvr01', 'patching_html', 'pending', 3),
+            ('UNKNOWN99', 'unknown99', 'ivanti', 'pending', 1),
+            ('RESOLVED01', 'resolved01', 'patching_html', 'resolved', 2);
+
+        -- ═══ Scan failures ═══
+        INSERT INTO system.scan_failures
+            (server_name, scan_type, error_category, error_message, failure_count, is_resolved)
+        VALUES
+            ('OFFLINE01', 'certificate', 'unreachable', 'No ping response', 5, FALSE),
+            ('LOCKED02', 'certificate', 'access_denied', 'Access denied', 2, FALSE),
+            ('FIXED03', 'certificate', 'timeout', 'Connection timeout', 1, TRUE);
+
+        -- ═══ Server aliases ═══
+        INSERT INTO system.server_aliases (canonical_name, alias_name, source_system, created_by)
+        VALUES ('WEB01', 'WEBSERVER01', 'patching_html', 'test');
+        """;
+}
+
+/// <summary>
+/// Base class for integration tests — skips all tests when Docker is unavailable.
+/// </summary>
+public abstract class IntegrationTestBase
+{
+    protected readonly DatabaseFixture Db;
+
+    protected IntegrationTestBase(DatabaseFixture db)
+    {
+        Db = db;
+        if (!db.IsAvailable)
+            throw new InvalidOperationException(db.SkipReason ?? "Docker not available");
+    }
+}
+
+[CollectionDefinition("Database")]
+public class DatabaseCollection : ICollectionFixture<DatabaseFixture> { }

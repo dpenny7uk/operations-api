@@ -6,3 +6,4 @@ Name,URL
 # AnalyticsPlatform-Prod,https://analytics.contoso.com
 # FileTransfer-Prod,https://eft.contoso.com
 # InternalAPI,https://api.internal.contoso.com:8443
+Tableau-Prod,https://tableau.contoso.com

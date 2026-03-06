@@ -5,6 +5,23 @@ using Microsoft.Extensions.Logging;
 namespace OperationsApi.Infrastructure;
 
 /// <summary>
+/// Dapper type handler for DateOnly (PostgreSQL DATE columns via Npgsql).
+/// </summary>
+public class DateOnlyTypeHandler : SqlMapper.TypeHandler<DateOnly>
+{
+    public override void SetValue(IDbDataParameter parameter, DateOnly value)
+        => parameter.Value = value;
+
+    public override DateOnly Parse(object value) => value switch
+    {
+        null or DBNull => default,
+        DateOnly d => d,
+        DateTime dt => DateOnly.FromDateTime(dt),
+        _ => DateOnly.FromDateTime(Convert.ToDateTime(value))
+    };
+}
+
+/// <summary>
 /// Base class for data services - provides common query building utilities.
 /// </summary>
 public abstract class BaseService<TService> where TService : class
@@ -39,7 +56,7 @@ public abstract class BaseService<TService> where TService : class
         if (string.IsNullOrEmpty(value))
             return;
 
-        sql += $" AND {column} ILIKE @{paramName}";
+        sql += $" AND {column} ILIKE @{paramName} ESCAPE '\\'";
         var escaped = EscapeLike(value);
         var pattern = (prefix ? "%" : "") + escaped + (suffix ? "%" : "");
         p.Add(paramName, pattern);
@@ -62,6 +79,11 @@ public abstract class BaseService<TService> where TService : class
         p.Add(paramName, value);
     }
 
+    private static readonly HashSet<string> AllowedOrderByColumns = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "s.server_name", "server_name", "valid_to", "cycle_date", "occurrence_count"
+    };
+
     /// <summary>
     /// Add LIMIT/OFFSET pagination.
     /// </summary>
@@ -73,7 +95,11 @@ public abstract class BaseService<TService> where TService : class
         string orderBy = "")
     {
         if (!string.IsNullOrEmpty(orderBy))
+        {
+            if (!AllowedOrderByColumns.Contains(orderBy))
+                throw new ArgumentException($"Invalid ORDER BY column: {orderBy}");
             sql += $" ORDER BY {orderBy}";
+        }
 
         sql += " LIMIT @Limit";
         p.Add("Limit", limit);

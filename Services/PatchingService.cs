@@ -19,7 +19,7 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
                 cycle_date,
                 servers_onprem,
                 status,
-                cycle_date - CURRENT_DATE AS days_until
+                (cycle_date - CURRENT_DATE)::INT AS days_until
             FROM {Sql.Tables.PatchCycles}
             WHERE cycle_date >= CURRENT_DATE AND status = 'active'
             ORDER BY cycle_date
@@ -29,34 +29,34 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
         if (cycle == null)
             return null;
 
-        // Get servers by patch group
-        var groups = await Db.QueryAsync<dynamic>($@"
-            SELECT patch_group, COUNT(*) AS count
+        // Get servers by group and issues by severity in a single roundtrip
+        using var multi = await Db.QueryMultipleAsync($@"
+            SELECT patch_group, COUNT(*)::INT AS count
             FROM {Sql.Tables.PatchSchedule}
             WHERE cycle_id = @CycleId
-            GROUP BY patch_group
-        ", new { CycleId = cycle.cycle_id });
+            GROUP BY patch_group;
 
-        // Get issues by severity
-        var issues = await Db.QueryAsync<dynamic>($@"
-            SELECT ki.severity, COUNT(DISTINCT ps.server_name) AS server_count
+            SELECT ki.severity, COUNT(DISTINCT ps.server_name)::INT AS server_count
             FROM {Sql.Tables.PatchSchedule} ps
-            JOIN {Sql.Tables.KnownIssues} ki ON ki.is_active 
-                AND (ps.app = ANY(ki.affected_apps) OR ps.service = ANY(ki.affected_services))
+            JOIN {Sql.Tables.KnownIssues} ki ON ki.is_active
+                AND (ps.app = ANY(COALESCE(ki.affected_apps, ARRAY[]::TEXT[])) OR ps.service = ANY(COALESCE(ki.affected_services, ARRAY[]::TEXT[])))
             WHERE ps.cycle_id = @CycleId
-            GROUP BY ki.severity
-        ", new { CycleId = cycle.cycle_id });
+            GROUP BY ki.severity;
+        ", new { CycleId = (int)cycle.cycle_id });
+
+        var groups = await multi.ReadAsync<dynamic>();
+        var issues = await multi.ReadAsync<dynamic>();
 
         return new NextPatchingSummary
         {
             Cycle = new PatchCycle
             {
-                CycleId = cycle.cycle_id,
-                CycleDate = cycle.cycle_date,
-                ServerCount = cycle.servers_onprem,
-                Status = cycle.status
+                CycleId = (int)cycle.cycle_id,
+                CycleDate = (DateOnly)cycle.cycle_date,
+                ServerCount = (int?)cycle.servers_onprem ?? 0,
+                Status = (string?)cycle.status ?? "unknown"
             },
-            DaysUntil = cycle.days_until,
+            DaysUntil = (int)cycle.days_until,
             ServersByGroup = groups.ToDictionary(
                 g => (string?)g.patch_group ?? "Unassigned",
                 g => (int)g.count
@@ -80,9 +80,14 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
             FROM {Sql.Tables.PatchCycles}";
 
         if (upcomingOnly)
+        {
             sql += " WHERE cycle_date >= CURRENT_DATE AND status = 'active'";
-
-        sql += " ORDER BY cycle_date LIMIT @Limit";
+            sql += " ORDER BY cycle_date LIMIT @Limit";
+        }
+        else
+        {
+            sql += " ORDER BY cycle_date DESC LIMIT @Limit";
+        }
 
         return await Db.QueryAsync<PatchCycle>(sql, new { Limit = limit });
     }
@@ -117,7 +122,7 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
             LEFT JOIN {Sql.Tables.PatchWindows} pw
                 ON pw.patch_group = ps.patch_group AND pw.window_type = 'onprem'
             LEFT JOIN {Sql.Tables.KnownIssues} ki
-                ON ki.is_active AND (ps.app = ANY(ki.affected_apps) OR ps.service = ANY(ki.affected_services))
+                ON ki.is_active AND (ps.app = ANY(COALESCE(ki.affected_apps, ARRAY[]::TEXT[])) OR ps.service = ANY(COALESCE(ki.affected_services, ARRAY[]::TEXT[])))
             {where}";
 
         var groupBy = @"
@@ -190,19 +195,23 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
 
         if (!string.IsNullOrEmpty(app))
         {
-            sql += " AND application ILIKE @App";
+            sql += " AND application ILIKE @App ESCAPE '\\'";
             p.Add("App", $"%{EscapeLike(app)}%");
         }
 
         if (!string.IsNullOrEmpty(patchType))
         {
-            sql += patchType.ToLower() switch
+            var typeFilter = patchType.ToLower() switch
             {
                 "windows" => " AND applies_to_windows",
                 "sql" => " AND applies_to_sql",
                 "other" => " AND applies_to_other",
                 _ => ""
             };
+            if (typeFilter.Length == 0)
+                Logger.LogWarning("Unknown patchType filter ignored: {PatchType}", patchType);
+            else
+                sql += typeFilter;
         }
 
         sql += @"

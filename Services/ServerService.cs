@@ -39,7 +39,7 @@ public class ServerService : BaseService<ServerService>, IServerService
 
         if (!string.IsNullOrEmpty(search))
         {
-            sql += " AND (s.server_name ILIKE @Search OR s.fqdn ILIKE @Search)";
+            sql += " AND (s.server_name ILIKE @Search ESCAPE '\\' OR s.fqdn ILIKE @Search ESCAPE '\\')";
             p.Add("Search", $"%{EscapeLike(search)}%");
         }
 
@@ -92,13 +92,14 @@ public class ServerService : BaseService<ServerService>, IServerService
                 first_seen_at AS FirstSeenAt,
                 last_seen_at AS LastSeenAt,
                 (
-                    SELECT s.server_name 
-                    FROM {Sql.Tables.Servers} s 
+                    SELECT s.server_name
+                    FROM {Sql.Tables.Servers} s
                     WHERE s.is_active
+                      AND similarity(system.normalize_server_name(s.server_name), um.server_name_normalized) > 0.3
                     ORDER BY similarity(
-                        system.normalize_server_name(s.server_name), 
+                        system.normalize_server_name(s.server_name),
                         um.server_name_normalized
-                    ) DESC
+                    ) DESC, s.server_name
                     LIMIT 1
                 ) AS ClosestMatch
             FROM {Sql.Tables.UnmatchedServers} um

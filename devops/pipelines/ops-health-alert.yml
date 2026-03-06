@@ -21,8 +21,8 @@ variables:
 steps:
   - task: UsePythonVersion@0
     inputs:
-      versionSpec: '3.11'
-    displayName: 'Use Python 3.11'
+      versionSpec: '3.13'
+    displayName: 'Use Python 3.13'
 
   - script: |
       REPO_ROOT="$(Build.SourcesDirectory)/operations-api"
@@ -38,5 +38,9 @@ steps:
       python sync_health_alert.py --verbose
     displayName: 'Check health and alert Teams'
     env:
-      OPS_API_URL: $(OPS_API_URL)
+      OPS_DB_HOST: $(OPS_DB_HOST)
+      OPS_DB_PORT: $(OPS_DB_PORT)
+      OPS_DB_NAME: $(OPS_DB_NAME)
+      OPS_DB_USER: $(OPS_DB_USER)
+      OPS_DB_PASSWORD: $(OPS_DB_PASSWORD)
       TEAMS_WEBHOOK_URL: $(TEAMS_WEBHOOK_URL)

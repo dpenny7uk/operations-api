@@ -4,6 +4,7 @@ import os
 import sys
 import logging
 import argparse
+import re
 import socket
 import time
 from typing import List, Optional
@@ -168,7 +169,8 @@ def get_database_connection(
         user=db_user,
         password=db_password,
         application_name=app_name,
-        cursor_factory=RealDictCursor
+        cursor_factory=RealDictCursor,
+        sslmode=os.environ.get('OPS_DB_SSLMODE', 'require')
     )
     conn.autocommit = False
     return conn
@@ -255,11 +257,16 @@ class SyncContext:
                 except Exception as rollback_err:
                     self.logger.warning(f"Rollback failed: {rollback_err}")
 
-        if not self.dry_run and self.history_id:
+        if not self.dry_run and self.history_id and self.conn:
             try:
                 self._complete_sync(status)
             except Exception as e:
                 self.logger.error(f"Failed to complete sync tracking: {e}")
+                # Rollback the failed tracking update to leave connection clean
+                try:
+                    self.conn.rollback()
+                except Exception as rb_err:
+                    self.logger.warning(f"Rollback after tracking failure also failed: {rb_err}")
 
         if self.conn:
             self.conn.close()
@@ -378,3 +385,51 @@ def configure_verbosity(verbose: bool) -> None:
     """Set logging level based on verbosity flag."""
     level = logging.DEBUG if verbose else logging.INFO
     logging.getLogger().setLevel(level)
+
+
+_SAVEPOINT_NAME_RE = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
+
+@contextmanager
+def savepoint(cur, name: str = 'sp'):
+    """Context manager for PostgreSQL savepoints with automatic rollback on error."""
+    if not _SAVEPOINT_NAME_RE.match(name):
+        raise ValueError(f"Invalid savepoint name: {name!r}")
+    cur.execute(f"SAVEPOINT {name}")
+    try:
+        yield
+        cur.execute(f"RELEASE SAVEPOINT {name}")
+    except Exception:
+        cur.execute(f"ROLLBACK TO SAVEPOINT {name}")
+        raise
+
+
+def count_upsert_results(rows) -> tuple:
+    """Count inserts/updates from RETURNING (xmax = 0) AS is_insert rows."""
+    inserted = sum(1 for r in rows if r['is_insert'])
+    updated = sum(1 for r in rows if not r['is_insert'])
+    return inserted, updated
+
+
+def resolve_server_name(cur, server_name: str, source_system: str, context_id=None):
+    """Resolve server_id via system.resolve_server_name, record unmatched if not found.
+
+    Returns server_id or None.
+    """
+    logger = logging.getLogger('resolve_server')
+    cur.execute(
+        "SELECT server_id FROM system.resolve_server_name(%s) LIMIT 1",
+        (server_name,)
+    )
+    row = cur.fetchone()
+    server_id = row['server_id'] if row else None
+
+    if not server_id:
+        try:
+            cur.execute(
+                "SELECT system.record_unmatched_server(%s, %s, %s)",
+                (server_name, source_system, context_id)
+            )
+        except Exception as e:
+            logger.warning(f"Failed to record unmatched server {server_name}: {e}")
+
+    return server_id
