@@ -1,0 +1,21 @@
+# Build output
+bin/
+obj/
+
+# User-specific files
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Visual Studio
+.vs/
+
+# Environment-specific settings (generated at deploy time)
+appsettings.Development.json
+appsettings.Production.json
+
+# OS files
+Thumbs.db
+Desktop.ini
+.DS_Store
