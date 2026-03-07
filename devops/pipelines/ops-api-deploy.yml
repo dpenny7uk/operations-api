@@ -9,10 +9,6 @@ parameters:
     displayName: 'Build pipeline run ID (leave empty for latest)'
     type: string
     default: ''
-  - name: skipMigrations
-    displayName: 'Skip database migrations'
-    type: boolean
-    default: false
 
 pool:
   name: 'Default'
@@ -55,7 +51,6 @@ stages:
 
                 # ── Database migrations ──────────────────────────────────
                 - task: PowerShell@2
-                  condition: and(succeeded(), eq('${{ parameters.skipMigrations }}', false))
                   displayName: 'Run database migrations'
                   inputs:
                     targetType: inline
@@ -80,26 +75,38 @@ stages:
                       }
                       Write-Host "Using psql: $psql"
 
-                      $env:PGPASSWORD = $env:OPS_DB_PASSWORD
+                      # Write password to a temp pgpass file so it never appears in
+                      # PGPASSWORD (which can leak into process listings and error logs).
+                      # Format: hostname:port:database:username:password
+                      $pgpassFile = [System.IO.Path]::GetTempFileName()
+                      try {
+                          $pgpassEntry = "$(OPS_DB_HOST):$(OPS_DB_PORT):$(OPS_DB_NAME):$(OPS_DB_MIGRATE_USER):" + $env:OPS_DB_PASSWORD
+                          [System.IO.File]::WriteAllText($pgpassFile, $pgpassEntry, [System.Text.Encoding]::ASCII)
+                          $env:PGPASSFILE = $pgpassFile
 
-                      # Run scripts 001+ in order (skip 000-extensions.sql — requires superuser)
-                      $scripts = Get-ChildItem "$($sqlDir.FullName)\*.sql" |
-                          Where-Object { $_.Name -notmatch '^000' } |
-                          Sort-Object Name
+                          # Run scripts 001+ in order (skip 000-extensions.sql — requires superuser)
+                          $scripts = Get-ChildItem "$($sqlDir.FullName)\*.sql" |
+                              Where-Object { $_.Name -notmatch '^000' } |
+                              Sort-Object Name
 
-                      Write-Host "Found $($scripts.Count) migration scripts"
+                          Write-Host "Found $($scripts.Count) migration scripts"
 
-                      foreach ($script in $scripts) {
-                          Write-Host "Running: $($script.Name)"
-                          & $psql -h "$(OPS_DB_HOST)" -p "$(OPS_DB_PORT)" -d "$(OPS_DB_NAME)" `
-                                  -U "$(OPS_DB_MIGRATE_USER)" -f $script.FullName -v ON_ERROR_STOP=1
-                          if ($LASTEXITCODE -ne 0) {
-                              Write-Error "Migration failed on $($script.Name)"
-                              exit 1
+                          foreach ($script in $scripts) {
+                              Write-Host "Running: $($script.Name)"
+                              & $psql -h "$(OPS_DB_HOST)" -p "$(OPS_DB_PORT)" -d "$(OPS_DB_NAME)" `
+                                      -U "$(OPS_DB_MIGRATE_USER)" -f $script.FullName -v ON_ERROR_STOP=1
+                              if ($LASTEXITCODE -ne 0) {
+                                  Write-Error "Migration failed on $($script.Name) — deployment aborted"
+                                  exit 1
+                              }
+                              Write-Host "  OK"
                           }
-                          Write-Host "  OK"
+                          Write-Host "All migrations complete"
+                      } finally {
+                          # Always clean up the pgpass file regardless of success or failure
+                          Remove-Item -Path $pgpassFile -Force -ErrorAction SilentlyContinue
+                          [System.Environment]::SetEnvironmentVariable('PGPASSFILE', $null)
                       }
-                      Write-Host "All migrations complete"
                   env:
                     OPS_DB_PASSWORD: $(OPS_DB_PASSWORD)
 
