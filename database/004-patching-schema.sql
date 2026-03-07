@@ -241,7 +241,10 @@ SELECT
 FROM patching.patch_schedule ps
 JOIN patching.patch_cycles pc ON pc.cycle_id = ps.cycle_id
 JOIN patching.known_issues ki ON ki.is_active
-    AND (ps.app = ANY(COALESCE(ki.affected_apps, ARRAY[]::TEXT[])) OR ps.service = ANY(COALESCE(ki.affected_services, ARRAY[]::TEXT[])))
+    AND (
+        (ps.app IS NOT NULL AND ps.app = ANY(COALESCE(ki.affected_apps, ARRAY[]::TEXT[])))
+        OR (ps.service IS NOT NULL AND ps.service = ANY(COALESCE(ki.affected_services, ARRAY[]::TEXT[])))
+    )
 WHERE pc.status = 'active'
 ORDER BY ki.severity, pc.cycle_date;
 
