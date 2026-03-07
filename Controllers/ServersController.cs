@@ -82,7 +82,8 @@ public class ServersController : ControllerBase
         if (req.SourceSystem?.Length > 100)
             return BadRequest("SourceSystem must be 100 characters or less.");
 
-        await _svc.CreateAliasAsync(req.CanonicalName.Trim(), req.AliasName.Trim(), req.SourceSystem?.Trim());
+        var user = User.Identity?.Name ?? "api";
+        await _svc.CreateAliasAsync(req.CanonicalName.Trim(), req.AliasName.Trim(), req.SourceSystem?.Trim(), user);
         return StatusCode(201);
     }
 
@@ -104,7 +105,8 @@ public class ServersController : ControllerBase
         if (target == null)
             return BadRequest($"Server with ID {req.ServerId} does not exist.");
 
-        var rows = await _svc.ResolveUnmatchedServerAsync(serverNameRaw, req.ServerId, req.SourceSystem?.Trim());
+        var user = User.Identity?.Name ?? "api";
+        var rows = await _svc.ResolveUnmatchedServerAsync(serverNameRaw, req.ServerId, req.SourceSystem?.Trim(), user);
         if (rows == 0)
             return NotFound($"No pending unmatched server entry found for '{serverNameRaw}'.");
         return Ok();
@@ -122,7 +124,8 @@ public class ServersController : ControllerBase
         if (req?.SourceSystem?.Length > 100)
             return BadRequest("SourceSystem must be 100 characters or less.");
 
-        await _svc.IgnoreUnmatchedServerAsync(serverNameRaw, req?.SourceSystem?.Trim());
+        var user = User.Identity?.Name ?? "api";
+        await _svc.IgnoreUnmatchedServerAsync(serverNameRaw, req?.SourceSystem?.Trim(), user);
         return Ok();
     }
 

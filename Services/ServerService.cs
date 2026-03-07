@@ -114,31 +114,33 @@ public class ServerService : BaseService<ServerService>, IServerService
         return await Db.QueryAsync<UnmatchedServer>(sql, p);
     }
 
-    public async Task CreateAliasAsync(string canonical, string alias, string? source)
+    public async Task CreateAliasAsync(string canonical, string alias, string? source, string actingUser)
     {
-        Logger.LogInformation("Creating server alias: {Alias} -> {Canonical} (source: {Source})", alias, canonical, source);
+        Logger.LogInformation("Creating server alias: {Alias} -> {Canonical} (source: {Source}, user: {User})", alias, canonical, source, actingUser);
         await Db.ExecuteAsync($@"
-            INSERT INTO {Sql.Tables.ServerAliases} 
+            INSERT INTO {Sql.Tables.ServerAliases}
                 (canonical_name, alias_name, source_system, created_by)
-            VALUES (@Canonical, @Alias, @Source, 'api')
-            ON CONFLICT (alias_name) DO UPDATE SET 
+            VALUES (@Canonical, @Alias, @Source, @CreatedBy)
+            ON CONFLICT (alias_name) DO UPDATE SET
                 canonical_name = EXCLUDED.canonical_name
-        ", new { Canonical = canonical, Alias = alias, Source = source });
+        ", new { Canonical = canonical, Alias = alias, Source = source, CreatedBy = actingUser });
     }
 
-    public async Task<int> ResolveUnmatchedServerAsync(string raw, int serverId, string? sourceSystem = null)
+    public async Task<int> ResolveUnmatchedServerAsync(string raw, int serverId, string? sourceSystem = null, string? actingUser = null)
     {
-        Logger.LogInformation("Resolving unmatched server {ServerName} to ID {ServerId}", raw, serverId);
+        Logger.LogInformation("Resolving unmatched server {ServerName} to ID {ServerId} by {User}", raw, serverId, actingUser ?? "unknown");
         var sql = $@"
             UPDATE {Sql.Tables.UnmatchedServers} SET
                 status = 'resolved',
                 resolved_to_server_id = @ServerId,
-                resolved_at = CURRENT_TIMESTAMP
+                resolved_at = CURRENT_TIMESTAMP,
+                resolved_by = @ResolvedBy
             WHERE server_name_raw = @Raw AND status = 'pending'";
 
         var p = new DynamicParameters();
         p.Add("Raw", raw);
         p.Add("ServerId", serverId);
+        p.Add("ResolvedBy", actingUser ?? "api");
 
         if (!string.IsNullOrEmpty(sourceSystem))
         {
@@ -149,17 +151,19 @@ public class ServerService : BaseService<ServerService>, IServerService
         return await Db.ExecuteAsync(sql, p);
     }
 
-    public async Task IgnoreUnmatchedServerAsync(string raw, string? sourceSystem = null)
+    public async Task IgnoreUnmatchedServerAsync(string raw, string? sourceSystem = null, string? actingUser = null)
     {
-        Logger.LogInformation("Ignoring unmatched server {ServerName}", raw);
+        Logger.LogInformation("Ignoring unmatched server {ServerName} by {User}", raw, actingUser ?? "unknown");
         var sql = $@"
             UPDATE {Sql.Tables.UnmatchedServers} SET
                 status = 'ignored',
-                resolved_at = CURRENT_TIMESTAMP
+                resolved_at = CURRENT_TIMESTAMP,
+                resolved_by = @ResolvedBy
             WHERE server_name_raw = @Raw";
 
         var p = new DynamicParameters();
         p.Add("Raw", raw);
+        p.Add("ResolvedBy", actingUser ?? "api");
 
         if (!string.IsNullOrEmpty(sourceSystem))
         {
