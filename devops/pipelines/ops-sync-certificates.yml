@@ -35,7 +35,17 @@ steps:
         -Ports $portsArray `
         -ThrottleLimit 20
     displayName: 'Scan certificates on servers'
-    errorActionPreference: continue
+    errorActionPreference: stop
+
+  # Step 1b: Verify at least one CSV was produced before running sync
+  - powershell: |
+      $csvFiles = Get-ChildItem -Path "$(Build.StagingDirectory)" -Filter "SSL-CertExpiry-*.csv" -ErrorAction SilentlyContinue
+      if (-not $csvFiles) {
+          Write-Error "Certificate scan produced no CSV output — aborting sync to prevent mass cert deactivation."
+          exit 1
+      }
+      Write-Host "Found $($csvFiles.Count) CSV file(s): $($csvFiles.Name -join ', ')"
+    displayName: 'Verify certificate scan output exists'
 
   # Step 2: Sync CSV results to PostgreSQL
   - task: UsePythonVersion@0
