@@ -100,7 +100,13 @@ public class ServersController : ControllerBase
         if (req.SourceSystem?.Length > 100)
             return BadRequest("SourceSystem must be 100 characters or less.");
 
-        await _svc.ResolveUnmatchedServerAsync(serverNameRaw, req.ServerId, req.SourceSystem?.Trim());
+        var target = await _svc.GetServerByIdAsync(req.ServerId);
+        if (target == null)
+            return BadRequest($"Server with ID {req.ServerId} does not exist.");
+
+        var rows = await _svc.ResolveUnmatchedServerAsync(serverNameRaw, req.ServerId, req.SourceSystem?.Trim());
+        if (rows == 0)
+            return NotFound($"No pending unmatched server entry found for '{serverNameRaw}'.");
         return Ok();
     }
 

@@ -126,7 +126,7 @@ public class ServerService : BaseService<ServerService>, IServerService
         ", new { Canonical = canonical, Alias = alias, Source = source });
     }
 
-    public async Task ResolveUnmatchedServerAsync(string raw, int serverId, string? sourceSystem = null)
+    public async Task<int> ResolveUnmatchedServerAsync(string raw, int serverId, string? sourceSystem = null)
     {
         Logger.LogInformation("Resolving unmatched server {ServerName} to ID {ServerId}", raw, serverId);
         var sql = $@"
@@ -134,7 +134,7 @@ public class ServerService : BaseService<ServerService>, IServerService
                 status = 'resolved',
                 resolved_to_server_id = @ServerId,
                 resolved_at = CURRENT_TIMESTAMP
-            WHERE server_name_raw = @Raw";
+            WHERE server_name_raw = @Raw AND status = 'pending'";
 
         var p = new DynamicParameters();
         p.Add("Raw", raw);
@@ -146,7 +146,7 @@ public class ServerService : BaseService<ServerService>, IServerService
             p.Add("Source", sourceSystem);
         }
 
-        await Db.ExecuteAsync(sql, p);
+        return await Db.ExecuteAsync(sql, p);
     }
 
     public async Task IgnoreUnmatchedServerAsync(string raw, string? sourceSystem = null)
