@@ -92,7 +92,8 @@ SELECT
         END
     ) AS impact_score
 FROM eol.end_of_life_software e
-LEFT JOIN shared.servers s ON UPPER(e.asset) = UPPER(s.server_name) AND s.is_active
+LEFT JOIN system.server_aliases sa ON UPPER(e.asset) = UPPER(sa.alias_name)
+LEFT JOIN shared.servers s ON (UPPER(e.asset) = UPPER(s.server_name) OR (sa.canonical_name IS NOT NULL AND s.server_name = sa.canonical_name)) AND s.is_active
 LEFT JOIN shared.applications a ON s.primary_application_id = a.application_id
 WHERE e.is_active
   AND e.eol_end_of_life <= CURRENT_TIMESTAMP + INTERVAL '6 months'
