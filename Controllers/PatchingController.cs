@@ -66,6 +66,8 @@ public class PatchingController : ControllerBase
         [FromQuery] string? patchType,
         [FromQuery] bool activeOnly = true)
     {
+        if (patchType != null && patchType.ToLower() is not ("windows" or "sql" or "other"))
+            return BadRequest("patchType must be one of: windows, sql, other.");
         return Ok(await _svc.ListKnownIssuesAsync(severity, application, patchType, activeOnly));
     }
 

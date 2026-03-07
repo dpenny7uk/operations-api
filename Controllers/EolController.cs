@@ -33,6 +33,8 @@ public class EolController : ControllerBase
         [FromQuery] string? product,
         [FromQuery] int limit = 100)
     {
+        if (alertLevel != null && alertLevel.ToLower() is not ("eol" or "approaching" or "supported"))
+            return BadRequest("alertLevel must be one of: eol, approaching, supported.");
         return Ok(await _svc.ListEolSoftwareAsync(alertLevel, product, Math.Clamp(limit, 1, 1000)));
     }
 
