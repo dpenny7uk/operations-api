@@ -1,3 +1,6 @@
+# Nested git repositories
+operations-api/
+
 # Build output
 bin/
 obj/
