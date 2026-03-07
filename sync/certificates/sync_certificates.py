@@ -86,7 +86,7 @@ def read_csv(csv_path: str) -> list:
     logger.info(f"Reading CSV: {csv_file}")
 
     rows = []
-    with open(csv_file, 'r', encoding='utf-8-sig') as f:
+    with open(csv_file, 'r', encoding='utf-8-sig', errors='replace') as f:
         reader = csv.DictReader(f)
         for row in reader:
             rows.append(row)
