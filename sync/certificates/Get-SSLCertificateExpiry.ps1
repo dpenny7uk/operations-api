@@ -355,43 +355,46 @@ Write-Host "All $($jobs.Count) scan jobs dispatched. Collecting results..."
 $allResults = @()
 $timeoutMs = 300000  # 5 minute overall timeout per job
 
-foreach ($job in $jobs) {
-    try {
-        $completed = $job.Handle.AsyncWaitHandle.WaitOne($timeoutMs)
-        if ($completed) {
-            $output = $job.PowerShell.EndInvoke($job.Handle)
-            if ($output) { $allResults += $output }
+try {
+    foreach ($job in $jobs) {
+        try {
+            $completed = $job.Handle.AsyncWaitHandle.WaitOne($timeoutMs)
+            if ($completed) {
+                $output = $job.PowerShell.EndInvoke($job.Handle)
+                if ($output) { $allResults += $output }
 
-            if ($job.PowerShell.Streams.Error.Count -gt 0) {
-                $errMsg = ($job.PowerShell.Streams.Error | Select-Object -First 1).ToString()
-                Write-Warning "Errors scanning $($job.Target): $errMsg"
+                if ($job.PowerShell.Streams.Error.Count -gt 0) {
+                    $errMsg = ($job.PowerShell.Streams.Error | Select-Object -First 1).ToString()
+                    Write-Warning "Errors scanning $($job.Target): $errMsg"
+                }
+            }
+            else {
+                Write-Warning "Scan timed out for $($job.Target)"
+                $job.PowerShell.Stop()
+                $allResults += [PSCustomObject]@{
+                    Name = $job.Target; Status = 'ERROR'; Thumbprint = ''; Subject = ''
+                    Issuer = ''; NotBefore = ''; NotAfter = ''; DaysRemaining = ''
+                    Source = ''; URL = ''; Error = 'Scan timed out after 5 minutes'
+                }
             }
         }
-        else {
-            Write-Warning "Scan timed out for $($job.Target)"
-            $job.PowerShell.Stop()
+        catch {
+            Write-Warning "Failed to collect results for $($job.Target): $($_.Exception.Message)"
             $allResults += [PSCustomObject]@{
                 Name = $job.Target; Status = 'ERROR'; Thumbprint = ''; Subject = ''
                 Issuer = ''; NotBefore = ''; NotAfter = ''; DaysRemaining = ''
-                Source = ''; URL = ''; Error = 'Scan timed out after 5 minutes'
+                Source = ''; URL = ''; Error = $_.Exception.Message
             }
         }
-    }
-    catch {
-        Write-Warning "Failed to collect results for $($job.Target): $($_.Exception.Message)"
-        $allResults += [PSCustomObject]@{
-            Name = $job.Target; Status = 'ERROR'; Thumbprint = ''; Subject = ''
-            Issuer = ''; NotBefore = ''; NotAfter = ''; DaysRemaining = ''
-            Source = ''; URL = ''; Error = $_.Exception.Message
+        finally {
+            $job.PowerShell.Dispose()
         }
     }
-    finally {
-        $job.PowerShell.Dispose()
-    }
 }
-
-$runspacePool.Close()
-$runspacePool.Dispose()
+finally {
+    $runspacePool.Close()
+    $runspacePool.Dispose()
+}
 
 # ── Export CSV ────────────────────────────────────────────────────────────────
 
