@@ -35,6 +35,8 @@ public class CertificatesController : ControllerBase
         [FromQuery] int? daysUntilExpiry,
         [FromQuery] int limit = 100)
     {
+        if (alertLevel != null && alertLevel.ToLower() is not ("critical" or "warning" or "ok"))
+            return BadRequest("alertLevel must be one of: critical, warning, ok.");
         var days = daysUntilExpiry.HasValue ? Math.Max(daysUntilExpiry.Value, 0) : (int?)null;
         return Ok(await _svc.ListCertificatesAsync(alertLevel, serverName, days, Math.Clamp(limit, 1, 1000)));
     }
