@@ -1,0 +1,209 @@
+# Operations API - Rollback Pipeline
+# Restores a previous deployment from a timestamped backup.
+# Manual trigger only — uses the same environment approval gate as deploy.
+#
+# Usage:
+#   1. Run this pipeline and select the backup timestamp to restore.
+#      Leave backupTimestamp empty to restore the most recent backup.
+#   2. If the deployment being reversed included database migrations,
+#      apply the matching rollback SQL scripts MANUALLY after the code
+#      is restored — see database/rollback/ for per-migration scripts.
+#      Run them in reverse order (e.g. 006 before 005 before 004...).
+
+trigger: none
+
+parameters:
+  - name: backupTimestamp
+    displayName: 'Backup timestamp to restore (yyyyMMdd-HHmmss, leave empty for latest)'
+    type: string
+    default: ''
+
+pool:
+  name: 'Default'
+
+variables:
+  - group: operations-api-prod
+  - name: iisSiteName
+    value: 'OperationsApi'
+  - name: iisAppPoolName
+    value: 'OperationsApi'
+  - name: deployPath
+    value: 'C:\inetpub\operations-api'
+
+stages:
+  - stage: Rollback
+    displayName: 'Rollback Production Deployment'
+    jobs:
+      - deployment: RollbackApi
+        displayName: 'Rollback Operations API'
+        environment: 'operations-api-prod'
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                # ── Identify backup to restore ───────────────────────────
+                - task: PowerShell@2
+                  displayName: 'Identify backup'
+                  inputs:
+                    targetType: inline
+                    script: |
+                      $deployPath = "$(deployPath)"
+                      $requestedTimestamp = '${{ parameters.backupTimestamp }}'.Trim()
+
+                      $backups = Get-ChildItem "${deployPath}.backup.*" -Directory |
+                          Sort-Object Name -Descending
+
+                      if ($backups.Count -eq 0) {
+                          Write-Error "No backups found at ${deployPath}.backup.* — cannot rollback"
+                          exit 1
+                      }
+
+                      Write-Host "Available backups:"
+                      $backups | ForEach-Object { Write-Host "  $($_.Name)" }
+
+                      if ($requestedTimestamp -eq '') {
+                          $backup = $backups | Select-Object -First 1
+                          Write-Host "No timestamp specified — selecting latest: $($backup.FullName)"
+                      } else {
+                          $backup = $backups | Where-Object { $_.Name -like "*${requestedTimestamp}*" } |
+                              Select-Object -First 1
+                          if (-not $backup) {
+                              Write-Error "No backup found matching timestamp '${requestedTimestamp}'"
+                              Write-Host "Available backups listed above."
+                              exit 1
+                          }
+                          Write-Host "Selected backup: $($backup.FullName)"
+                      }
+
+                      # Pass the chosen path to subsequent steps via a pipeline variable
+                      Write-Host "##vso[task.setvariable variable=selectedBackupPath]$($backup.FullName)"
+                      Write-Host "##vso[task.setvariable variable=selectedBackupName]$($backup.Name)"
+
+                # ── Stop IIS app pool ────────────────────────────────────
+                - task: PowerShell@2
+                  displayName: 'Stop IIS app pool'
+                  inputs:
+                    targetType: inline
+                    script: |
+                      Import-Module WebAdministration
+                      $pool = "$(iisAppPoolName)"
+
+                      if ((Get-WebAppPoolState -Name $pool).Value -eq 'Started') {
+                          Stop-WebAppPool -Name $pool
+                          Write-Host "Stopping app pool: $pool"
+
+                          $timeout = 30
+                          $elapsed = 0
+                          while ((Get-WebAppPoolState -Name $pool).Value -ne 'Stopped' -and $elapsed -lt $timeout) {
+                              Start-Sleep -Seconds 2
+                              $elapsed += 2
+                          }
+
+                          if ((Get-WebAppPoolState -Name $pool).Value -ne 'Stopped') {
+                              Write-Warning "App pool did not stop within ${timeout}s — proceeding anyway"
+                          } else {
+                              Write-Host "App pool stopped"
+                          }
+                      } else {
+                          Write-Host "App pool already stopped"
+                      }
+
+                # ── Restore backup ───────────────────────────────────────
+                - task: PowerShell@2
+                  displayName: 'Restore from backup'
+                  inputs:
+                    targetType: inline
+                    script: |
+                      $deployPath = "$(deployPath)"
+                      $backupPath = "$(selectedBackupPath)"
+                      $backupName = "$(selectedBackupName)"
+
+                      if (-not (Test-Path $backupPath)) {
+                          Write-Error "Backup path no longer exists: $backupPath"
+                          exit 1
+                      }
+
+                      Write-Host "Restoring from: $backupPath"
+                      Write-Host "Restoring to:   $deployPath"
+
+                      # Remove current deployment and replace with backup contents
+                      if (Test-Path $deployPath) {
+                          Remove-Item -Path $deployPath -Recurse -Force
+                      }
+                      Copy-Item -Path $backupPath -Destination $deployPath -Recurse
+                      Write-Host "Restore complete from $backupName"
+
+                # ── Regenerate production config ─────────────────────────
+                # Config is regenerated from current pipeline variables rather than
+                # restoring the backed-up config, so credentials are always current.
+                - task: PowerShell@2
+                  displayName: 'Write appsettings.Production.json'
+                  inputs:
+                    targetType: inline
+                    script: |
+                      $origins = "$(OPS_CORS_ORIGINS)".Split(",", [System.StringSplitOptions]::RemoveEmptyEntries) |
+                          ForEach-Object { $_.Trim() }
+
+                      $settings = @{
+                          ConnectionStrings = @{
+                              OperationsDb = $env:OPS_CONNECTIONSTRING
+                          }
+                          Authentication = @{
+                              Mode = "Windows"
+                          }
+                          Cors = @{
+                              AllowedOrigins = $origins
+                          }
+                      } | ConvertTo-Json -Depth 3
+
+                      $settingsPath = "$(deployPath)\appsettings.Production.json"
+                      $settings | Out-File -FilePath $settingsPath -Encoding utf8
+                      Write-Host "Wrote $settingsPath"
+                  env:
+                    OPS_CONNECTIONSTRING: $(OPS_CONNECTIONSTRING)
+
+                # ── Start IIS app pool ───────────────────────────────────
+                - task: PowerShell@2
+                  displayName: 'Start IIS app pool'
+                  inputs:
+                    targetType: inline
+                    script: |
+                      Import-Module WebAdministration
+                      $pool = "$(iisAppPoolName)"
+                      Start-WebAppPool -Name $pool
+                      Write-Host "Started app pool: $pool"
+                      Start-Sleep -Seconds 5
+
+                # ── Health check gate ────────────────────────────────────
+                - task: PowerShell@2
+                  displayName: 'Health check'
+                  inputs:
+                    targetType: inline
+                    script: |
+                      $url = "http://localhost/healthz"
+                      $maxRetries = 3
+                      $retryDelay = 10
+
+                      for ($i = 1; $i -le $maxRetries; $i++) {
+                          Write-Host "Health check attempt $i of ${maxRetries}..."
+                          try {
+                              $response = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 15
+                              if ($response.StatusCode -eq 200 -and $response.Content -match "Healthy") {
+                                  Write-Host "##[section]Rollback verified — API is healthy"
+                                  Write-Host "##[warning]REMINDER: If the rolled-back deployment included database migrations, apply the matching rollback SQL scripts manually from database/rollback/ in reverse order."
+                                  exit 0
+                              } else {
+                                  Write-Warning "Status $($response.StatusCode): $($response.Content)"
+                              }
+                          } catch {
+                              Write-Warning "Attempt $i failed: $($_.Exception.Message)"
+                          }
+
+                          if ($i -lt $maxRetries) {
+                              Write-Host "Waiting $retryDelay seconds..."
+                              Start-Sleep -Seconds $retryDelay
+                          }
+                      }
+
+                      Write-Error "Health check failed after $maxRetries attempts. Manual intervention required."
+                      exit 1
