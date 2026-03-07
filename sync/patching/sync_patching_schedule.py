@@ -179,12 +179,60 @@ def main():
         logger.error(f"Invalid URL scheme: {args.url} — only https allowed")
         sys.exit(1)
 
+    import ipaddress
+    import socket
     from urllib.parse import urlparse
+
     parsed = urlparse(args.url)
-    blocked = {'localhost', '127.0.0.1', '169.254.169.254', '[::1]'}
-    if parsed.hostname and (parsed.hostname in blocked or parsed.hostname.startswith('10.') or parsed.hostname.startswith('192.168.')):
-        logger.error(f"URL targets a restricted address: {parsed.hostname}")
+    hostname = parsed.hostname
+    if not hostname:
+        logger.error("URL has no hostname")
         sys.exit(1)
+
+    # Resolve hostname to IP(s) and validate each resolved address.
+    # This prevents DNS rebinding: a hostname that passes the name check
+    # but resolves to a private/internal IP at request time.
+    try:
+        resolved = socket.getaddrinfo(hostname, None)
+    except socket.gaierror as exc:
+        logger.error(f"Cannot resolve hostname {hostname!r}: {exc}")
+        sys.exit(1)
+
+    for _family, _type, _proto, _canonname, sockaddr in resolved:
+        raw_ip = sockaddr[0]
+        try:
+            addr = ipaddress.ip_address(raw_ip)
+        except ValueError:
+            logger.error(f"Unexpected address format from getaddrinfo: {raw_ip!r}")
+            sys.exit(1)
+
+        if (addr.is_loopback or addr.is_link_local or addr.is_multicast
+                or addr.is_reserved or addr.is_unspecified):
+            logger.error(f"URL {args.url!r} resolves to restricted address {raw_ip}")
+            sys.exit(1)
+
+        if addr.version == 4:
+            # Block RFC-1918 private ranges not covered by is_private in older Python:
+            # 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
+            private_ranges = [
+                ipaddress.ip_network('10.0.0.0/8'),
+                ipaddress.ip_network('172.16.0.0/12'),
+                ipaddress.ip_network('192.168.0.0/16'),
+                ipaddress.ip_network('169.254.0.0/16'),  # link-local / IMDS
+            ]
+            if any(addr in net for net in private_ranges):
+                logger.error(f"URL {args.url!r} resolves to private address {raw_ip}")
+                sys.exit(1)
+        else:
+            # IPv6: block private/ULA (fc00::/7), loopback (::1), link-local (fe80::/10)
+            ipv6_private = [
+                ipaddress.ip_network('fc00::/7'),   # Unique Local Address (ULA)
+                ipaddress.ip_network('fe80::/10'),  # Link-local
+                ipaddress.ip_network('::1/128'),    # Loopback
+            ]
+            if any(addr in net for net in ipv6_private):
+                logger.error(f"URL {args.url!r} resolves to private IPv6 address {raw_ip}")
+                sys.exit(1)
 
     logger.info(f"Fetching patching schedule from {args.url}")
     html = fetch_page(args.url)
