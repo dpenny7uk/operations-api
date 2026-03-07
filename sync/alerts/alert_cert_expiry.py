@@ -163,8 +163,9 @@ def main():
             logger.info("No new certificate expiry alerts to send")
             return
 
-        expired = [c for c in certs if c['days_until_expiry'] < 0]
-        critical = [c for c in certs if c['days_until_expiry'] >= 0]
+        # Treat NULL days_until_expiry as critical (unknown expiry date)
+        expired = [c for c in certs if c['days_until_expiry'] is not None and c['days_until_expiry'] < 0]
+        critical = [c for c in certs if c['days_until_expiry'] is None or c['days_until_expiry'] >= 0]
 
         logger.warning(
             f"Found {len(expired)} expired + {len(critical)} critical certs — sending alert"
