@@ -22,6 +22,12 @@ Thumbs.db
 Desktop.ini
 .DS_Store
 
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
 # Certificates and private keys
 *.pem
 *.key
