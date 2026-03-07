@@ -60,8 +60,28 @@ def sync_servers(ctx, servers: list):
                 (s.get('cmdb_id') or '').strip()[:100] or None
             ))
         
+        if not values:
+            raise RuntimeError(
+                "Databricks returned 0 servers — aborting sync to prevent mass deactivation. "
+                "Verify the Databricks query and connection before retrying."
+            )
+
         execute_values(cur, "INSERT INTO tmp_servers VALUES %s", values)
         ctx.stats.processed = len(values)
+
+        # Safety check: abort if incoming count is less than 50% of current active count,
+        # which indicates a partial or failed Databricks result rather than legitimate churn.
+        cur.execute(
+            "SELECT COUNT(*) AS cnt FROM shared.servers "
+            "WHERE source_system = 'databricks' AND is_active = TRUE"
+        )
+        existing_count = cur.fetchone()['cnt']
+        if existing_count > 0 and len(values) < existing_count * 0.5:
+            raise RuntimeError(
+                f"Databricks returned {len(values)} servers but {existing_count} are currently active "
+                f"({len(values) / existing_count:.0%} of baseline, threshold is 50%). "
+                "Aborting sync to prevent mass deactivation — investigate the Databricks source."
+            )
 
         # Upsert applications (create if not exists)
         cur.execute("""
