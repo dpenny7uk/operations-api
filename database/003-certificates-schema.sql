@@ -110,6 +110,15 @@ BEGIN
         END,
         updated_at = CURRENT_TIMESTAMP
     WHERE is_active AND valid_to IS NOT NULL;
+
+    -- Flag certs with NULL valid_to as CRITICAL (unknown expiry = assume worst)
+    UPDATE certificates.inventory
+    SET
+        days_until_expiry = NULL,
+        is_expired = FALSE,
+        alert_level = 'CRITICAL',
+        updated_at = CURRENT_TIMESTAMP
+    WHERE is_active AND valid_to IS NULL AND alert_level IS DISTINCT FROM 'CRITICAL';
     
     GET DIAGNOSTICS v_updated = ROW_COUNT;
     RETURN v_updated;
@@ -152,9 +161,9 @@ SELECT
 FROM certificates.inventory c
 LEFT JOIN shared.servers s ON c.server_id = s.server_id
 LEFT JOIN shared.applications a ON s.primary_application_id = a.application_id
-WHERE c.is_active 
-  AND NOT c.is_expired 
-  AND c.days_until_expiry <= 90
+WHERE c.is_active
+  AND NOT c.is_expired
+  AND (c.days_until_expiry <= 90 OR c.valid_to IS NULL)
 ORDER BY impact_score DESC, c.days_until_expiry;
 
 -- ===========================================
