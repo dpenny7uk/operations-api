@@ -2,40 +2,151 @@
 
 **Target:** Windows Server with IIS, .NET 10, PostgreSQL
 **Server:** Group Application Server (self-hosted Azure DevOps agent)
+**Version:** 1.1.4
 
-This guide walks through every step of deploying the Operations API from scratch on a Windows Server. It covers installing prerequisites, setting up the database, publishing the .NET API, configuring IIS, setting up the Python sync environment, and scheduling automated data sync pipelines.
+This guide walks through every step of deploying the Operations API from scratch on the Group Application Server. It covers installing prerequisites, setting up the database, publishing the .NET API, configuring IIS, setting up the Python sync environment, and scheduling automated data sync pipelines.
 
 ---
 
 ## Table of Contents
 
-1. [Architecture Overview](#architecture-overview)
-2. [Prerequisites](#prerequisites)
-3. [Step 1: Install PostgreSQL](#step-1-install-postgresql)
-4. [Step 2: Create the Database and Users](#step-2-create-the-database-and-users)
-5. [Step 3: Run Database Schema Scripts](#step-3-run-database-schema-scripts)
-6. [Step 4: Grant Database Permissions](#step-4-grant-database-permissions)
-7. [Step 5: Verify the Database](#step-5-verify-the-database)
-8. [Step 6: Install the .NET 10 Hosting Bundle](#step-6-install-the-net-10-hosting-bundle)
-9. [Step 7: Install the .NET 10 SDK (Build Machine)](#step-7-install-the-net-10-sdk-build-machine)
-10. [Step 8: Publish the Application](#step-8-publish-the-application)
-11. [Step 9: Configure Application Settings](#step-9-configure-application-settings)
-12. [Step 10: Enable IIS Features](#step-10-enable-iis-features)
-13. [Step 11: Create the IIS Application Pool](#step-11-create-the-iis-application-pool)
-14. [Step 12: Create the IIS Website](#step-12-create-the-iis-website)
-15. [Step 13: Configure Authentication in IIS](#step-13-configure-authentication-in-iis)
-16. [Step 14: Deploy the Frontend](#step-14-deploy-the-frontend)
-17. [Step 15: Verify the API and Frontend](#step-15-verify-the-api-and-frontend)
-18. [Step 16: Install Python](#step-16-install-python)
-19. [Step 17: Create the Python Virtual Environment](#step-17-create-the-python-virtual-environment)
-20. [Step 18: Configure Sync Environment Variables](#step-18-configure-sync-environment-variables)
-21. [Step 19: Test Sync Scripts Manually](#step-19-test-sync-scripts-manually)
-22. [Step 20: Set Up Azure DevOps Pipelines](#step-20-set-up-azure-devops-pipelines)
-23. [Step 21: Seed Sync Status Records](#step-21-seed-sync-status-records)
-24. [Step 22: Post-Deployment Verification](#step-22-post-deployment-verification)
-25. [Step 23: Set Up CI/CD Pipelines (Build and Deploy)](#step-23-set-up-cicd-pipelines-build-and-deploy)
-26. [Updating the Application](#updating-the-application)
-27. [Troubleshooting](#troubleshooting)
+1. [Quick Deploy — Group App Server](#quick-deploy--group-app-server)
+2. [Architecture Overview](#architecture-overview)
+3. [Prerequisites](#prerequisites)
+4. [Step 1: Install PostgreSQL](#step-1-install-postgresql)
+5. [Step 2: Create the Database and Users](#step-2-create-the-database-and-users)
+6. [Step 3: Run Database Schema Scripts](#step-3-run-database-schema-scripts)
+7. [Step 4: Grant Database Permissions](#step-4-grant-database-permissions)
+8. [Step 5: Verify the Database](#step-5-verify-the-database)
+9. [Step 6: Install the .NET 10 Hosting Bundle](#step-6-install-the-net-10-hosting-bundle)
+10. [Step 7: Install the .NET 10 SDK (Build Machine)](#step-7-install-the-net-10-sdk-build-machine)
+11. [Step 8: Publish the Application](#step-8-publish-the-application)
+12. [Step 9: Configure Application Settings](#step-9-configure-application-settings)
+13. [Step 10: Enable IIS Features](#step-10-enable-iis-features)
+14. [Step 11: Create the IIS Application Pool](#step-11-create-the-iis-application-pool)
+15. [Step 12: Create the IIS Website](#step-12-create-the-iis-website)
+16. [Step 13: Configure Authentication in IIS](#step-13-configure-authentication-in-iis)
+17. [Step 14: Deploy the Frontend](#step-14-deploy-the-frontend)
+18. [Step 15: Verify the API and Frontend](#step-15-verify-the-api-and-frontend)
+19. [Step 16: Install Python](#step-16-install-python)
+20. [Step 17: Create the Python Virtual Environment](#step-17-create-the-python-virtual-environment)
+21. [Step 18: Configure Sync Environment Variables](#step-18-configure-sync-environment-variables)
+22. [Step 19: Test Sync Scripts Manually](#step-19-test-sync-scripts-manually)
+23. [Step 20: Set Up Azure DevOps Pipelines](#step-20-set-up-azure-devops-pipelines)
+24. [Step 21: Seed Sync Status Records](#step-21-seed-sync-status-records)
+25. [Step 22: Post-Deployment Verification](#step-22-post-deployment-verification)
+26. [Step 23: Set Up CI/CD Pipelines (Build and Deploy)](#step-23-set-up-cicd-pipelines-build-and-deploy)
+27. [Updating the Application](#updating-the-application)
+28. [Applying Database Migrations](#applying-database-migrations)
+29. [Troubleshooting](#troubleshooting)
+
+---
+
+## Quick Deploy — Group App Server
+
+This section is a condensed checklist for getting the Operations API running on the Group Application Server. Each item references a detailed step below if you need the full walkthrough.
+
+### What you need on the Group App Server
+
+| Component | Version | Purpose |
+|-----------|---------|---------|
+| **Windows Server** | 2019 or later | Host OS |
+| **PostgreSQL** | 16+ | Database — stores all operational data |
+| **.NET 10 Hosting Bundle** | 10.0.x | Runs the ASP.NET Core API inside IIS |
+| **.NET 10 SDK** | 10.0.x | Builds/publishes the application |
+| **IIS** | 10+ | Web server — reverse proxy + Windows Auth + static files |
+| **Python** | 3.11+ | Runs scheduled sync scripts |
+| **Azure DevOps Agent** | Latest | Self-hosted agent for CI/CD pipelines |
+
+### Deploy order (do these in sequence)
+
+```
+Phase 1 — Database                         Phase 2 — API + Frontend
+─────────────────────────────               ──────────────────────────
+1. Install PostgreSQL          [Step 1]     6. Install .NET Hosting Bundle  [Step 6]
+2. Create database + users     [Step 2]     7. Install .NET SDK             [Step 7]
+3. Run schema scripts (000-007)[Step 3]     8. Publish the API              [Step 8]
+4. Grant permissions           [Step 4]     9. Configure appsettings.json   [Step 9]
+5. Verify DB connectivity      [Step 5]    10. Enable IIS features          [Step 10]
+                                           11. Create IIS app pool          [Step 11]
+Phase 3 — Python Sync                     12. Create IIS website           [Step 12]
+─────────────────────────────             13. Configure Windows Auth       [Step 13]
+14. Install Python             [Step 16]  14. Deploy frontend to wwwroot   [Step 14]
+15. Create venv + install deps [Step 17]  15. Test health + API + dashboard[Step 15]
+16. Set environment variables  [Step 18]
+17. Dry-run each sync script   [Step 19]
+
+Phase 4 — Automation
+─────────────────────────────
+18. Create Azure DevOps variable groups   [Step 20]
+19. Create sync pipelines (7 YAML files)  [Step 20]
+20. Create build + deploy pipelines       [Step 23]
+21. Run first deployment through pipeline [Step 23]
+22. Post-deployment verification          [Step 22]
+```
+
+### Quick verification commands
+
+Run these on the Group App Server to confirm everything is working:
+
+```cmd
+:: ── Prerequisites ──
+psql --version                        & REM Should show PostgreSQL 16+
+dotnet --list-runtimes                & REM Should show Microsoft.AspNetCore.App 10.0.x
+python --version                      & REM Should show Python 3.11+
+
+:: ── Database ──
+psql -U ops_api -d ops_platform -c "SELECT table_schema, COUNT(*) FROM information_schema.tables WHERE table_schema IN ('shared','certificates','patching','eol','system') GROUP BY table_schema ORDER BY table_schema;"
+
+:: ── API ──
+curl -k --negotiate -u : https://localhost/healthz
+curl -k --negotiate -u : https://localhost/api/health
+
+:: ── IIS ──
+%windir%\system32\inetsrv\appcmd list site /name:OperationsApi
+%windir%\system32\inetsrv\appcmd list apppool /apppool.name:OperationsApi
+
+:: ── Sync (from venv) ──
+cd C:\Dev\GitHub\operations-api\sync
+venv\Scripts\activate
+python servers/sync_server_list.py --dry-run --verbose
+```
+
+### Key file locations on the Group App Server
+
+| What | Path |
+|------|------|
+| **Repository clone** | `C:\Dev\GitHub\operations-api` |
+| **Published API** | `C:\inetpub\operations-api` |
+| **Frontend** | `C:\inetpub\operations-api\wwwroot\index.html` |
+| **Production config** | `C:\inetpub\operations-api\appsettings.Production.json` |
+| **IIS stdout logs** | `C:\inetpub\operations-api\logs\stdout` |
+| **Python venv** | `C:\Dev\GitHub\operations-api\sync\venv` |
+| **Database schemas** | `C:\Dev\GitHub\operations-api\database\000-*.sql` through `007-*.sql` |
+| **Deployment backups** | `C:\inetpub\operations-api.backup.*` |
+| **Azure DevOps Agent** | Check Services for `vstsagent.*` |
+| **PostgreSQL data** | `C:\Program Files\PostgreSQL\16\data` |
+
+### Ports and networking
+
+| Service | Port | Protocol | Notes |
+|---------|------|----------|-------|
+| IIS (HTTPS) | 443 | TCP | Frontend + API — requires SSL cert |
+| IIS (HTTP) | 80 | TCP | Optional redirect to HTTPS |
+| PostgreSQL | 5432 | TCP | Database — localhost only unless `pg_hba.conf` allows remote |
+| Kestrel (internal) | N/A | — | In-process hosting via ASP.NET Core Module — no separate port |
+
+### Required credentials (have these ready)
+
+| Credential | Where it goes | Created in |
+|------------|---------------|------------|
+| `postgres` superuser password | psql commands during setup | PostgreSQL installer |
+| `ops_api` password | `appsettings.json` connection string | Step 2 |
+| `ops_sync` password | System env var `OPS_DB_PASSWORD` + Azure DevOps variable group | Step 2 |
+| Databricks PAT | System env var `DATABRICKS_TOKEN` + Azure DevOps variable group | Databricks workspace |
+| Confluence token | System env var `CONFLUENCE_TOKEN` + Azure DevOps variable group | Confluence admin |
+| Teams webhook URL | System env var `TEAMS_WEBHOOK_URL` + Azure DevOps variable group | Teams channel connector |
+| SSL certificate | IIS site binding | Your certificate authority |
 
 ---
 
@@ -1405,13 +1516,13 @@ Restart the IIS site in IIS Manager or run:
 
 ### Update the database schema
 
-If a schema file has changed, connect as the postgres superuser and re-run the affected file:
+If a schema file has changed, see the [Applying Database Migrations](#applying-database-migrations) section for the full procedure. Quick version:
 
 ```cmd
 psql -U postgres -d ops_platform -f "C:/Dev/GitHub/operations-api/database/006-eol-schema.sql"
 ```
 
-Most schema objects use `CREATE ... IF NOT EXISTS` and `ON CONFLICT DO NOTHING/UPDATE`, so re-running is generally safe.
+Most schema objects use `CREATE ... IF NOT EXISTS` and `ON CONFLICT DO NOTHING/UPDATE`, so re-running is generally safe. Always re-grant permissions afterward.
 
 > **With CI/CD:** The deploy pipeline runs all migration scripts automatically. You don't need to do this manually unless you're skipping the pipeline.
 
@@ -1422,6 +1533,98 @@ cd C:\Dev\GitHub\operations-api\sync
 venv\Scripts\activate
 pip install -r requirements.txt --upgrade
 ```
+
+---
+
+## Applying Database Migrations
+
+When schema files are updated (new tables, views, functions, validation rules), you need to re-apply the changed scripts to the Group App Server's database. The scripts are designed to be idempotent — `CREATE ... IF NOT EXISTS`, `ON CONFLICT DO NOTHING`, and `CREATE OR REPLACE` — so re-running them is safe.
+
+### Which scripts changed?
+
+Check git for what's changed since the last deployment:
+
+```cmd
+cd C:\Dev\GitHub\operations-api
+git log --oneline --name-only -- database/
+```
+
+Or compare against the migration tracking table:
+
+```cmd
+psql -U ops_api -d ops_platform -c "SELECT script_name, applied_at FROM system.schema_migrations ORDER BY script_name;"
+```
+
+### Apply changed scripts
+
+Connect as the postgres superuser and run each changed script:
+
+```cmd
+psql -U postgres -d ops_platform
+```
+
+```sql
+-- Example: re-apply changed certificate schema (updated expiry function + view)
+\i 'C:/Dev/GitHub/operations-api/database/003-certificates-schema.sql'
+
+-- Example: re-apply system health schema (new validation rules)
+\i 'C:/Dev/GitHub/operations-api/database/005-system-health-schema.sql'
+
+-- Example: re-apply EOL schema (updated v_at_risk_servers view with alias resolution)
+\i 'C:/Dev/GitHub/operations-api/database/006-eol-schema.sql'
+```
+
+> **Important:** Always run scripts in numerical order. If you need to re-run `003`, `005`, and `006`, run them in that order.
+
+### Record the migration
+
+After applying scripts, update the migration tracking table:
+
+```sql
+INSERT INTO system.schema_migrations (script_name, description) VALUES
+    ('003-certificates-schema.sql', 'Updated: NULL valid_to flagged as CRITICAL, view includes NULL certs'),
+    ('005-system-health-schema.sql', 'Updated: Added certs_server_id_mismatch validation rule'),
+    ('006-eol-schema.sql', 'Updated: v_at_risk_servers resolves server aliases')
+ON CONFLICT (script_name) DO UPDATE SET
+    applied_at = CURRENT_TIMESTAMP,
+    applied_by = CURRENT_USER,
+    description = EXCLUDED.description;
+```
+
+### Verify the changes took effect
+
+```cmd
+:: Check the updated certificate function handles NULL valid_to
+psql -U ops_api -d ops_platform -c "SELECT certificates.refresh_expiry_calculations();"
+
+:: Check the new validation rule exists
+psql -U ops_api -d ops_platform -c "SELECT rule_name, severity FROM system.validation_rules WHERE rule_name = 'certs_server_id_mismatch';"
+
+:: Check the EOL view resolves aliases (should join system.server_aliases)
+psql -U ops_api -d ops_platform -c "SELECT pg_get_viewdef('eol.v_at_risk_servers'::regclass, true);" 2>&1 | head -5
+```
+
+### Re-grant permissions after schema changes
+
+If new tables, views, or functions were added, re-run the permission grants to ensure both users can access them:
+
+```cmd
+psql -U postgres -d ops_platform
+```
+
+```sql
+-- Re-grant to API user (read-only)
+GRANT SELECT ON ALL TABLES IN SCHEMA shared, certificates, patching, eol, system TO ops_api;
+
+-- Re-grant to sync user (read-write)
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA shared, certificates, patching, eol, system TO ops_sync;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA shared, certificates, patching, eol, system TO ops_sync;
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA system TO ops_sync;
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA patching TO ops_sync;
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA certificates TO ops_sync;
+```
+
+> **With CI/CD:** The deploy pipeline (`ops-api-deploy.yml`) runs all migration scripts automatically and handles permissions. You only need to do this manually if deploying without the pipeline.
 
 ---
 
