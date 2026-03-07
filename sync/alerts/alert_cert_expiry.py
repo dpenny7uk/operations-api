@@ -8,6 +8,7 @@ Designed to run as a post-sync step after sync_certificates.py.
 """
 
 import os
+import re
 import logging
 from datetime import datetime
 
@@ -17,6 +18,17 @@ from common import (
 )
 
 logger = setup_logging('cert_expiry_alert')
+
+_TEAMS_WEBHOOK_RE = re.compile(r'^https://[a-zA-Z0-9-]+\.webhook\.office\.com/')
+
+
+def _validate_teams_url(url: str) -> None:
+    if not _TEAMS_WEBHOOK_RE.match(url):
+        raise ValueError(
+            f"TEAMS_WEBHOOK_URL must be an outlook.webhook.office.com URL — "
+            f"got: {url!r}. Set TEAMS_WEBHOOK_URL to the webhook URL from your Teams channel."
+        )
+
 
 CRITICAL_QUERY = """
     SELECT
@@ -152,6 +164,7 @@ def main():
 
     validate_env_vars(['TEAMS_WEBHOOK_URL'])
     webhook_url = os.environ['TEAMS_WEBHOOK_URL']
+    _validate_teams_url(webhook_url)
 
     conn = get_database_connection(app_name='cert_expiry_alert')
     try:

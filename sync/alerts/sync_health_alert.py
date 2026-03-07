@@ -6,6 +6,7 @@ after all daily syncs have completed.
 """
 
 import os
+import re
 import logging
 
 from common import (
@@ -14,6 +15,17 @@ from common import (
 )
 
 logger = setup_logging('health_alert')
+
+_TEAMS_WEBHOOK_RE = re.compile(r'^https://[a-zA-Z0-9-]+\.webhook\.office\.com/')
+
+
+def _validate_teams_url(url: str) -> None:
+    if not _TEAMS_WEBHOOK_RE.match(url):
+        raise ValueError(
+            f"TEAMS_WEBHOOK_URL must be an outlook.webhook.office.com URL — "
+            f"got: {url!r}. Set TEAMS_WEBHOOK_URL to the webhook URL from your Teams channel."
+        )
+
 
 STATUS_COLOURS = {
     'error':   'attention',   # red
@@ -145,6 +157,7 @@ def main():
 
     validate_env_vars(['TEAMS_WEBHOOK_URL'])
     webhook_url = os.environ['TEAMS_WEBHOOK_URL']
+    _validate_teams_url(webhook_url)
 
     logger.info("Querying database for sync health")
     summary = query_health_summary()
