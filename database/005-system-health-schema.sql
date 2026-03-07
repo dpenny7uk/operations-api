@@ -119,7 +119,10 @@ VALUES
      'critical'),
     ('certs_expired', 'pattern', 'certificates', 'inventory', 'valid_to',
      'SELECT certificate_id, subject_cn FROM certificates.inventory WHERE is_active AND is_expired',
-     'critical')
+     'critical'),
+    ('certs_server_id_mismatch', 'referential', 'certificates', 'inventory', 'server_id',
+     'SELECT c.certificate_id, c.server_name, c.server_id, s.server_name AS canonical_name FROM certificates.inventory c JOIN shared.servers s ON c.server_id = s.server_id WHERE c.is_active AND UPPER(c.server_name) <> UPPER(s.server_name)',
+     'warning')
 ON CONFLICT (rule_name) DO NOTHING;
 
 -- ===========================================
