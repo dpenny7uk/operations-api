@@ -52,20 +52,20 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
             Cycle = new PatchCycle
             {
                 CycleId = (int)cycle.cycle_id,
-                CycleDate = (DateOnly)cycle.cycle_date,
+                CycleDate = cycle.cycle_date is DateOnly d ? d : DateOnly.FromDateTime((DateTime)cycle.cycle_date),
                 ServerCount = (int?)cycle.servers_onprem ?? 0,
                 Status = (string?)cycle.status ?? "unknown"
             },
-            DaysUntil = (int)cycle.days_until,
+            DaysUntil = (int?)cycle.days_until ?? 0,
             ServersByGroup = groups.ToDictionary(
                 g => (string?)g.patch_group ?? "Unassigned",
-                g => (int)g.count
+                g => (int)(g.count ?? 0)
             ),
             IssuesBySeverity = issues.ToDictionary(
                 i => (string?)i.severity ?? "Unknown",
-                i => (int)i.server_count
+                i => (int)(i.server_count ?? 0)
             ),
-            TotalIssuesAffectingServers = issues.Sum(i => (int)i.server_count)
+            TotalIssuesAffectingServers = issues.Sum(i => (int)(i.server_count ?? 0))
         };
     }
 
@@ -129,12 +129,13 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
             GROUP BY ps.schedule_id, ps.server_name,
                      ps.patch_group, pw.scheduled_time, ps.app";
 
-        // Total count
-        var countSql = $"SELECT COUNT(*) FROM (SELECT ps.schedule_id {joins} {groupBy} {having}) sub";
-        var totalCount = await Db.ExecuteScalarAsync<int>(countSql, p);
+        p.Add("Limit", limit);
+        p.Add("Offset", offset);
 
-        // Paginated data
-        var dataSql = $@"
+        // Combined count + data in a single roundtrip for consistency
+        var combinedSql = $@"
+            SELECT COUNT(*) FROM (SELECT ps.schedule_id {joins} {groupBy} {having}) sub;
+
             SELECT
                 ps.schedule_id AS ScheduleId,
                 ps.server_name AS ServerName,
@@ -149,10 +150,9 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
             ORDER BY ps.patch_group, ps.server_name
             LIMIT @Limit OFFSET @Offset";
 
-        p.Add("Limit", limit);
-        p.Add("Offset", offset);
-
-        var items = await Db.QueryAsync<PatchScheduleItem>(dataSql, p);
+        using var multi = await Db.QueryMultipleAsync(combinedSql, p);
+        var totalCount = await multi.ReadSingleAsync<int>();
+        var items = await multi.ReadAsync<PatchScheduleItem>();
 
         return new PagedResult<PatchScheduleItem>
         {
