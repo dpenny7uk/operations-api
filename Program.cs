@@ -1,8 +1,13 @@
 using Microsoft.AspNetCore.Authentication.Negotiate;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Diagnostics;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Npgsql;
 using Scalar.AspNetCore;
+using Serilog;
+using Serilog.Events;
+using Serilog.Formatting.Compact;
 using System.Data;
 using System.Threading.RateLimiting;
 using Dapper;
@@ -11,44 +16,43 @@ using OperationsApi.Services;
 
 SqlMapper.AddTypeHandler(new DateOnlyTypeHandler());
 
+Log.Logger = new LoggerConfiguration()
+    .MinimumLevel.Override("Microsoft.AspNetCore", LogEventLevel.Warning)
+    .MinimumLevel.Override("Microsoft.Hosting", LogEventLevel.Information)
+    .Enrich.FromLogContext()
+    .Enrich.WithProperty("Application", "OperationsApi")
+    .WriteTo.Console(new RenderedCompactJsonFormatter())
+    .CreateBootstrapLogger();
+
 var builder = WebApplication.CreateBuilder(args);
+builder.Host.UseSerilog((ctx, services, cfg) =>
+{
+    cfg.MinimumLevel.Is(ctx.HostingEnvironment.IsDevelopment() ? LogEventLevel.Debug : LogEventLevel.Information)
+       .MinimumLevel.Override("Microsoft.AspNetCore", LogEventLevel.Warning)
+       .MinimumLevel.Override("Microsoft.Hosting", LogEventLevel.Information)
+       .Enrich.FromLogContext()
+       .Enrich.WithProperty("Application", "OperationsApi")
+       .WriteTo.Console(new RenderedCompactJsonFormatter());
+});
 var config = builder.Configuration;
 
-// Authentication
-var authMode = config.GetValue<string>("Authentication:Mode") ?? "Windows";
-var authEnabled = !authMode.Equals("none", StringComparison.OrdinalIgnoreCase);
-if (!authEnabled && !builder.Environment.IsDevelopment())
-{
-    throw new InvalidOperationException("Authentication cannot be disabled in non-development environments. Remove Authentication:Mode=none from configuration.");
-}
+// Authentication — Windows Negotiate (Kerberos/NTLM) is always required.
+// There is no bypass mode. For local development without Active Directory,
+// configure a test account in IIS Express or use a mocked auth middleware in a test project.
 var adminRole = config.GetValue<string>("Authentication:AdminRole") ?? "";
-if (authEnabled)
+builder.Services
+    .AddAuthentication(NegotiateDefaults.AuthenticationScheme)
+    .AddNegotiate();
+builder.Services.AddAuthorization(options =>
 {
-    builder.Services
-        .AddAuthentication(NegotiateDefaults.AuthenticationScheme)
-        .AddNegotiate();
-    builder.Services.AddAuthorization(options =>
-    {
-        options.FallbackPolicy = new AuthorizationPolicyBuilder()
-            .RequireAuthenticatedUser()
-            .Build();
-        if (!string.IsNullOrWhiteSpace(adminRole))
-        {
-            options.AddPolicy("OpsAdmin", policy => policy.RequireRole(adminRole));
-        }
-        else
-        {
-            options.AddPolicy("OpsAdmin", policy => policy.RequireAuthenticatedUser());
-        }
-    });
-}
-else
-{
-    builder.Services.AddAuthorization(options =>
-    {
-        options.AddPolicy("OpsAdmin", policy => policy.RequireAssertion(_ => true));
-    });
-}
+    options.FallbackPolicy = new AuthorizationPolicyBuilder()
+        .RequireAuthenticatedUser()
+        .Build();
+    if (!string.IsNullOrWhiteSpace(adminRole))
+        options.AddPolicy("OpsAdmin", policy => policy.RequireRole(adminRole));
+    else
+        options.AddPolicy("OpsAdmin", policy => policy.RequireAuthenticatedUser());
+});
 
 // Database connection
 builder.Services.AddScoped<IDbConnection>(sp =>
@@ -149,10 +153,7 @@ app.UseHttpsRedirection();
 app.UseCors();
 app.UseRateLimiter();
 
-if (authEnabled)
-{
-    app.UseAuthentication();
-}
+app.UseAuthentication();
 app.UseAuthorization();
 
 app.UseDefaultFiles();
@@ -166,12 +167,24 @@ if (app.Environment.IsDevelopment())
 }
 
 // Endpoints
-app.MapHealthChecks("/healthz", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+app.MapHealthChecks("/healthz", new HealthCheckOptions
 {
-    ResponseWriter = (context, _) =>
+    ResponseWriter = async (context, report) =>
     {
-        context.Response.ContentType = "text/plain";
-        return context.Response.WriteAsync(context.Response.StatusCode == 200 ? "Healthy" : "Unhealthy");
+        context.Response.ContentType = "application/json";
+        await context.Response.WriteAsJsonAsync(new
+        {
+            status = report.Status.ToString(),
+            checks = report.Entries.Select(e => new
+            {
+                name = e.Key,
+                status = e.Value.Status.ToString(),
+                description = e.Value.Description,
+                duration = e.Value.Duration.TotalMilliseconds
+            }),
+            version = typeof(Program).Assembly.GetName().Version?.ToString(3),
+            timestamp = DateTime.UtcNow
+        });
     }
 }).AllowAnonymous();
 app.MapControllers();
