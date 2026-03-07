@@ -158,23 +158,59 @@ def get_database_connection(
     password: str = None,
     app_name: str = "ops_sync"
 ):
-    """Create PostgreSQL connection from params or environment variables."""
+    """Create PostgreSQL connection from params or environment variables.
+
+    Credentials can be supplied via:
+      - OPS_DB_PASSWORD environment variable (Azure DevOps secret variable recommended)
+      - A .pgpass file: set OPS_DB_USE_PGPASS=1 and psycopg2 will read ~/.pgpass
+        or the file at PGPASSFILE. This is the preferred option for production as
+        it avoids storing the password in process environment at all.
+
+    SSL:
+      - Set OPS_DB_SSLMODE=verify-full and OPS_DB_SSLROOTCERT=/path/to/ca.crt for
+        full certificate verification (strongly recommended in production).
+      - Defaults to sslmode=require which encrypts but does not verify the server cert.
+    """
+    _log = logging.getLogger('database')
+
     db_user = user or os.environ.get('OPS_DB_USER')
     db_password = password or os.environ.get('OPS_DB_PASSWORD')
+    use_pgpass = os.environ.get('OPS_DB_USE_PGPASS', '').lower() in ('1', 'true', 'yes')
+
     if not db_user:
         raise EnvironmentError("Database user not configured: set OPS_DB_USER or pass user parameter")
-    if not db_password:
-        raise EnvironmentError("Database password not configured: set OPS_DB_PASSWORD or pass password parameter")
-    conn = psycopg2.connect(
+    if not db_password and not use_pgpass:
+        raise EnvironmentError(
+            "Database password not configured: set OPS_DB_PASSWORD, or set OPS_DB_USE_PGPASS=1 "
+            "to authenticate via a .pgpass file (recommended for production)"
+        )
+
+    sslmode = os.environ.get('OPS_DB_SSLMODE', 'require')
+    sslrootcert = os.environ.get('OPS_DB_SSLROOTCERT')
+
+    if sslmode not in ('verify-full', 'verify-ca'):
+        _log.warning(
+            "Database SSL mode is %r — server certificate is not verified. "
+            "Set OPS_DB_SSLMODE=verify-full and OPS_DB_SSLROOTCERT=/path/to/ca.crt "
+            "for full verification in production.",
+            sslmode
+        )
+
+    connect_kwargs: dict = dict(
         host=host or os.environ.get('OPS_DB_HOST', 'localhost'),
         port=port or int(os.environ.get('OPS_DB_PORT', '5432')),
         database=database or os.environ.get('OPS_DB_NAME', 'ops_platform'),
         user=db_user,
-        password=db_password,
         application_name=app_name,
         cursor_factory=RealDictCursor,
-        sslmode=os.environ.get('OPS_DB_SSLMODE', 'require')
+        sslmode=sslmode,
     )
+    if db_password:
+        connect_kwargs['password'] = db_password
+    if sslrootcert:
+        connect_kwargs['sslrootcert'] = sslrootcert
+
+    conn = psycopg2.connect(**connect_kwargs)
     conn.autocommit = False
     return conn
 
