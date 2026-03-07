@@ -62,7 +62,10 @@ def http_request(
     logger = logging.getLogger('http_request')
     kwargs.setdefault('timeout', timeout)
 
-    last_exception = None
+    if retries < 1:
+        raise ValueError(f"retries must be >= 1, got {retries!r}")
+
+    last_exception: Exception | None = None
     for attempt in range(1, retries + 1):
         try:
             resp = requests.request(method, url, **kwargs)
@@ -282,7 +285,10 @@ class SyncContext:
                 "VALUES (%s, %s) RETURNING history_id",
                 (self.sync_name, get_current_user())
             )
-            history_id = cur.fetchone()['history_id']
+            row = cur.fetchone()
+            if row is None:
+                raise RuntimeError(f"Failed to create sync_history record for {self.sync_name!r}")
+            history_id = row['history_id']
             
             cur.execute(
                 "UPDATE system.sync_status SET status = 'warning', "
