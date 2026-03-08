@@ -21,8 +21,8 @@ variables:
 steps:
   - task: UsePythonVersion@0
     inputs:
-      versionSpec: '3.13'
-    displayName: 'Use Python 3.13'
+      versionSpec: '>=3.11'
+    displayName: 'Use Python 3.11+'
 
   - script: |
       REPO_ROOT="$(Build.SourcesDirectory)/operations-api"
@@ -32,11 +32,13 @@ steps:
       cp "$REPO_ROOT/sync/alerts/sync_health_alert.py" "$WORK_DIR/"
       pip install -r "$REPO_ROOT/sync/requirements.txt"
     displayName: 'Prepare sync environment'
+    timeoutInMinutes: 10
 
   - script: |
       cd "$(Build.StagingDirectory)/sync_run"
       python sync_health_alert.py --verbose
     displayName: 'Check health and alert Teams'
+    timeoutInMinutes: 15
     env:
       OPS_DB_HOST: $(OPS_DB_HOST)
       OPS_DB_PORT: $(OPS_DB_PORT)

@@ -70,7 +70,7 @@ const DEMO = {
     },
     10: { items: [], totalCount: 0, limit: 100, offset: 0 },
   },
-  eolSummary: { eolCount: 4, approachingCount: 6, supportedCount: 35, totalCount: 45, affectedServers: 18 },
+  eolSummary: { eolCount: 4, approachingCount: 6, supportedCount: 35, unknownCount: 0, totalCount: 45, affectedServers: 18 },
   eolSoftware: [
     { product: 'Windows Server', version: '2012 R2', endOfLife: '2023-10-10T00:00:00Z', endOfExtendedSupport: '2026-10-13T00:00:00Z', endOfSupport: '2023-10-10T00:00:00Z', alertLevel: 'eol', affectedAssets: 5 },
     { product: 'SQL Server', version: '2014', endOfLife: '2024-07-09T00:00:00Z', endOfExtendedSupport: '2024-07-09T00:00:00Z', endOfSupport: '2019-07-09T00:00:00Z', alertLevel: 'eol', affectedAssets: 3 },
@@ -606,6 +606,7 @@ function renderEol(summary, items) {
     { pct: summary.eolCount / total * 100, color: 'var(--red)', label: `EOL: ${summary.eolCount}` },
     { pct: summary.approachingCount / total * 100, color: 'var(--orange)', label: `Approaching: ${summary.approachingCount}` },
     { pct: summary.supportedCount / total * 100, color: 'var(--green)', label: `Supported: ${summary.supportedCount}` },
+    { pct: (summary.unknownCount || 0) / total * 100, color: 'var(--text-muted)', label: `Unknown: ${summary.unknownCount || 0}` },
   ]);
 
   // Wire up card click filters

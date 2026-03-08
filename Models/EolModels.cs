@@ -5,6 +5,7 @@ public class EolSummary
     public int EolCount { get; set; }
     public int ApproachingCount { get; set; }
     public int SupportedCount { get; set; }
+    public int UnknownCount { get; set; }
     public int TotalCount { get; set; }
     public int AffectedServers { get; set; }
 }

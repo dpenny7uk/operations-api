@@ -25,6 +25,7 @@ public class EolService : BaseService<EolService>, IEolService
                 COUNT(*) FILTER (WHERE eol_end_of_life <= NOW()) AS EolCount,
                 COUNT(*) FILTER (WHERE eol_end_of_life > NOW() AND eol_end_of_life <= NOW() + INTERVAL '6 months') AS ApproachingCount,
                 COUNT(*) FILTER (WHERE eol_end_of_life > NOW() + INTERVAL '6 months') AS SupportedCount,
+                COUNT(*) FILTER (WHERE eol_end_of_life IS NULL) AS UnknownCount,
                 COUNT(*) AS TotalCount,
                 COUNT(DISTINCT asset) FILTER (WHERE eol_end_of_life <= NOW() + INTERVAL '6 months') AS AffectedServers
             FROM {Sql.Tables.EolSoftware}
@@ -63,7 +64,7 @@ public class EolService : BaseService<EolService>, IEolService
             {
                 "eol" => " AND eol_end_of_life <= NOW()",
                 "approaching" => " AND eol_end_of_life > NOW() AND eol_end_of_life <= NOW() + INTERVAL '6 months'",
-                "supported" => " AND (eol_end_of_life > NOW() + INTERVAL '6 months' OR eol_end_of_life IS NULL)",
+                "supported" => " AND eol_end_of_life > NOW() + INTERVAL '6 months'",
                 _ => ""
             };
             if (alertFilter.Length == 0)
