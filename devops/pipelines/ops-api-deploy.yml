@@ -21,6 +21,8 @@ variables:
     value: 'OperationsApi'
   - name: deployPath
     value: 'C:\inetpub\operations-api'
+  - name: dbBackupPath
+    value: 'C:\backups\ops-api-db'
 
 stages:
   - stage: Deploy
@@ -48,6 +50,67 @@ stages:
                     artifactName: 'operations-api'
                     downloadPath: '$(Pipeline.Workspace)/artifact'
                   displayName: 'Download build artifact'
+
+                # ── Database backup (pre-migration) ──────────────────────
+                # A failed dump aborts the pipeline — no migration runs without a backup.
+                - task: PowerShell@2
+                  displayName: 'Database backup (pre-migration)'
+                  inputs:
+                    targetType: inline
+                    script: |
+                      $backupDir = "$(dbBackupPath)"
+                      if (-not (Test-Path $backupDir)) {
+                          New-Item -ItemType Directory -Path $backupDir | Out-Null
+                          Write-Host "Created backup directory: $backupDir"
+                      }
+
+                      # Locate pg_dump
+                      $pgDumpCmd = Get-Command pg_dump -ErrorAction SilentlyContinue
+                      if ($pgDumpCmd) {
+                          $pgDump = $pgDumpCmd.Source
+                      } else {
+                          $pgDump = (Get-ChildItem "C:\Program Files\PostgreSQL\*\bin\pg_dump.exe" -ErrorAction SilentlyContinue |
+                                     Sort-Object FullName | Select-Object -Last 1).FullName
+                          if (-not $pgDump) {
+                              Write-Error "pg_dump.exe not found. Is PostgreSQL installed?"
+                              exit 1
+                          }
+                      }
+                      Write-Host "Using pg_dump: $pgDump"
+
+                      $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
+                      $dumpFile = "$backupDir\ops-api-db-$timestamp.dump"
+
+                      $pgpassFile = [System.IO.Path]::GetTempFileName()
+                      try {
+                          $pgpassEntry = "$(OPS_DB_HOST):$(OPS_DB_PORT):$(OPS_DB_NAME):$(OPS_DB_MIGRATE_USER):" + $env:OPS_DB_PASSWORD
+                          [System.IO.File]::WriteAllText($pgpassFile, $pgpassEntry, [System.Text.Encoding]::ASCII)
+                          $env:PGPASSFILE = $pgpassFile
+
+                          & $pgDump -h "$(OPS_DB_HOST)" -p "$(OPS_DB_PORT)" -d "$(OPS_DB_NAME)" `
+                                    -U "$(OPS_DB_MIGRATE_USER)" -F c -f $dumpFile
+                          if ($LASTEXITCODE -ne 0) {
+                              Write-Error "pg_dump failed (exit $LASTEXITCODE) — deployment aborted"
+                              exit 1
+                          }
+                      } finally {
+                          Remove-Item -Path $pgpassFile -Force -ErrorAction SilentlyContinue
+                          [System.Environment]::SetEnvironmentVariable('PGPASSFILE', $null)
+                      }
+
+                      Write-Host "DB dump written to: $dumpFile"
+                      Write-Host "##vso[task.setvariable variable=dbDumpFile]$dumpFile"
+
+                      # Keep last 5 dumps, remove older ones
+                      $dumps = Get-ChildItem "$backupDir\ops-api-db-*.dump" |
+                          Sort-Object Name -Descending |
+                          Select-Object -Skip 5
+                      foreach ($old in $dumps) {
+                          Write-Host "Removing old dump: $($old.Name)"
+                          Remove-Item $old.FullName -Force
+                      }
+                  env:
+                    OPS_DB_PASSWORD: $(OPS_DB_PASSWORD)
 
                 # ── Database migrations ──────────────────────────────────
                 - task: PowerShell@2

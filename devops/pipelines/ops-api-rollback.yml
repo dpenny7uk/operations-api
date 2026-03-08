@@ -5,16 +5,25 @@
 # Usage:
 #   1. Run this pipeline and select the backup timestamp to restore.
 #      Leave backupTimestamp empty to restore the most recent backup.
-#   2. If the deployment being reversed included database migrations,
-#      apply the matching rollback SQL scripts MANUALLY after the code
-#      is restored — see database/rollback/ for per-migration scripts.
-#      Run them in reverse order (e.g. 006 before 005 before 004...).
+#
+# Database restore options:
+#   Option A (recommended): Set dbDumpFile to the full path of the .dump file
+#     printed as "DB dump written to: ..." in the deploy pipeline log.
+#     pg_restore will run before the file rollback, restoring the database to
+#     its exact pre-migration state.
+#   Option B (manual): Leave dbDumpFile empty. Only application files are restored.
+#     Apply database/rollback/ SQL scripts manually in reverse order afterwards
+#     (e.g. 006 before 005 before 004...).
 
 trigger: none
 
 parameters:
   - name: backupTimestamp
     displayName: 'Backup timestamp to restore (yyyyMMdd-HHmmss, leave empty for latest)'
+    type: string
+    default: ''
+  - name: dbDumpFile
+    displayName: 'Database dump file to restore (full path, leave empty to skip DB restore)'
     type: string
     default: ''
 
@@ -78,6 +87,58 @@ stages:
                       # Pass the chosen path to subsequent steps via a pipeline variable
                       Write-Host "##vso[task.setvariable variable=selectedBackupPath]$($backup.FullName)"
                       Write-Host "##vso[task.setvariable variable=selectedBackupName]$($backup.Name)"
+
+                # ── Restore database from dump ───────────────────────────
+                # Runs only when dbDumpFile is supplied. Restores before IIS is stopped
+                # so a failure aborts the rollback before touching the running application.
+                - task: PowerShell@2
+                  displayName: 'Restore database from dump'
+                  condition: ne('${{ parameters.dbDumpFile }}', '')
+                  inputs:
+                    targetType: inline
+                    script: |
+                      $dumpFile = '${{ parameters.dbDumpFile }}'
+
+                      if (-not (Test-Path $dumpFile)) {
+                          Write-Error "Dump file not found: $dumpFile"
+                          exit 1
+                      }
+
+                      # Locate pg_restore
+                      $pgRestoreCmd = Get-Command pg_restore -ErrorAction SilentlyContinue
+                      if ($pgRestoreCmd) {
+                          $pgRestore = $pgRestoreCmd.Source
+                      } else {
+                          $pgRestore = (Get-ChildItem "C:\Program Files\PostgreSQL\*\bin\pg_restore.exe" -ErrorAction SilentlyContinue |
+                                        Sort-Object FullName | Select-Object -Last 1).FullName
+                          if (-not $pgRestore) {
+                              Write-Error "pg_restore.exe not found. Is PostgreSQL installed?"
+                              exit 1
+                          }
+                      }
+                      Write-Host "Using pg_restore: $pgRestore"
+                      Write-Host "Restoring from: $dumpFile"
+
+                      $pgpassFile = [System.IO.Path]::GetTempFileName()
+                      try {
+                          $pgpassEntry = "$(OPS_DB_HOST):$(OPS_DB_PORT):$(OPS_DB_NAME):$(OPS_DB_MIGRATE_USER):" + $env:OPS_DB_PASSWORD
+                          [System.IO.File]::WriteAllText($pgpassFile, $pgpassEntry, [System.Text.Encoding]::ASCII)
+                          $env:PGPASSFILE = $pgpassFile
+
+                          & $pgRestore -h "$(OPS_DB_HOST)" -p "$(OPS_DB_PORT)" -d "$(OPS_DB_NAME)" `
+                                       -U "$(OPS_DB_MIGRATE_USER)" -F c -c -v $dumpFile
+                          if ($LASTEXITCODE -ne 0) {
+                              Write-Error "pg_restore failed (exit $LASTEXITCODE) — rollback aborted"
+                              exit 1
+                          }
+                      } finally {
+                          Remove-Item -Path $pgpassFile -Force -ErrorAction SilentlyContinue
+                          [System.Environment]::SetEnvironmentVariable('PGPASSFILE', $null)
+                      }
+
+                      Write-Host "Database restored successfully from $dumpFile"
+                  env:
+                    OPS_DB_PASSWORD: $(OPS_DB_PASSWORD)
 
                 # ── Stop IIS app pool ────────────────────────────────────
                 - task: PowerShell@2
@@ -190,7 +251,6 @@ stages:
                               $response = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 15
                               if ($response.StatusCode -eq 200 -and $response.Content -match "Healthy") {
                                   Write-Host "##[section]Rollback verified — API is healthy"
-                                  Write-Host "##[warning]REMINDER: If the rolled-back deployment included database migrations, apply the matching rollback SQL scripts manually from database/rollback/ in reverse order."
                                   exit 0
                               } else {
                                   Write-Warning "Status $($response.StatusCode): $($response.Content)"
