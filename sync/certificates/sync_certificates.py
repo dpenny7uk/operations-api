@@ -68,10 +68,19 @@ def map_scan_source(source: str) -> str:
 
 
 def parse_timestamp(value: str):
-    """Parse a timestamp string, returning None if empty or invalid."""
+    """Parse a timestamp string, returning None if empty or invalid.
+
+    Validates that the value looks like an ISO 8601 date (YYYY-MM-DD...) before
+    accepting it. Malformed values from PowerShell scan output are rejected and
+    logged rather than written to the database as bad timestamp data.
+    """
     if not value or value.strip() == '':
         return None
-    return value.strip()
+    stripped = value.strip()
+    if not re.match(r'^\d{4}-\d{2}-\d{2}', stripped):
+        logger.warning(f"Rejecting malformed timestamp: {stripped!r}")
+        return None
+    return stripped
 
 
 def read_csv(csv_path: str) -> list:

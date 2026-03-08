@@ -1,3 +1,5 @@
+BEGIN;
+
 -- Rollback: 003-certificates-schema.sql
 -- Drops the certificates schema and all its contents.
 --
@@ -6,3 +8,5 @@
 -- Run BEFORE rolling back 002-shared-schema.sql.
 
 DROP SCHEMA IF EXISTS certificates CASCADE;
+
+COMMIT;

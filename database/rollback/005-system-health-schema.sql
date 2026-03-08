@@ -1,3 +1,5 @@
+BEGIN;
+
 -- Rollback: 005-system-health-schema.sql
 -- Drops all objects added to the system schema by this script.
 -- Does NOT drop the system schema itself (created by 001-common.sql).
@@ -25,3 +27,5 @@ DROP TABLE IF EXISTS system.unmatched_servers CASCADE;
 DROP TABLE IF EXISTS system.scan_failures CASCADE;
 DROP TABLE IF EXISTS system.sync_history CASCADE;
 DROP TABLE IF EXISTS system.sync_status CASCADE;
+
+COMMIT;

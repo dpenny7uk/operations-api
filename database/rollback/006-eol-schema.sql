@@ -1,3 +1,5 @@
+BEGIN;
+
 -- Rollback: 006-eol-schema.sql
 -- Drops the eol schema and all its contents.
 --
@@ -6,3 +8,5 @@
 -- Run BEFORE rolling back 005-system-health-schema.sql.
 
 DROP SCHEMA IF EXISTS eol CASCADE;
+
+COMMIT;

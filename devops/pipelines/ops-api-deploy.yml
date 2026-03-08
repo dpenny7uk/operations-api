@@ -187,6 +187,10 @@ stages:
                                   Write-Error "Migration failed on $($script.Name) — deployment aborted"
                                   exit 1
                               }
+                              # Compute SHA256 of the script so the tracking table can detect
+                              # if a previously-applied script has been modified on disk.
+                              $checksum = (Get-FileHash $script.FullName -Algorithm SHA256).Hash
+
                               # Record the script in the tracking table if it now exists
                               # (007 creates the table, so subsequent scripts in the same run are recorded).
                               $postCheck = & $psql -h "$(OPS_DB_HOST)" -p "$(OPS_DB_PORT)" -d "$(OPS_DB_NAME)" `
@@ -195,7 +199,7 @@ stages:
                               if (($postCheck | Select-String '1') -ne $null) {
                                   & $psql -h "$(OPS_DB_HOST)" -p "$(OPS_DB_PORT)" -d "$(OPS_DB_NAME)" `
                                       -U "$(OPS_DB_MIGRATE_USER)" -c `
-                                      "INSERT INTO system.schema_migrations (script_name) VALUES ('$($script.Name)') ON CONFLICT (script_name) DO NOTHING" | Out-Null
+                                      "INSERT INTO system.schema_migrations (script_name, checksum) VALUES ('$($script.Name)', '$checksum') ON CONFLICT (script_name) DO NOTHING" | Out-Null
                               }
                               Write-Host "  OK"
                               $ran++

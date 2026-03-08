@@ -61,6 +61,11 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Normalize server names for matching (removes domain suffixes, lowercases)
+--
+-- ENVIRONMENT-SPECIFIC: The domain suffixes below are hardcoded for this deployment.
+-- When onboarding to a new environment, update the REGEXP_REPLACE patterns to match
+-- your organisation's actual domain names (e.g. .example.com, .ad.myorg.net).
+-- Without correct suffixes, cross-system server name matching will degrade.
 CREATE OR REPLACE FUNCTION system.normalize_server_name(raw_name TEXT)
 RETURNS TEXT AS $$
 BEGIN

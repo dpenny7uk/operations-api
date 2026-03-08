@@ -1,3 +1,5 @@
+BEGIN;
+
 -- Rollback: 004-patching-schema.sql
 -- Drops the patching schema and all its contents.
 --
@@ -6,3 +8,5 @@
 -- Run BEFORE rolling back 003-certificates-schema.sql.
 
 DROP SCHEMA IF EXISTS patching CASCADE;
+
+COMMIT;

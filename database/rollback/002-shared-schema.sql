@@ -1,3 +1,5 @@
+BEGIN;
+
 -- Rollback: 002-shared-schema.sql
 -- Drops the shared schema (servers and applications) entirely.
 --
@@ -9,3 +11,5 @@ DROP VIEW IF EXISTS shared.v_application_summary;
 DROP TABLE IF EXISTS shared.servers CASCADE;
 DROP TABLE IF EXISTS shared.applications CASCADE;
 DROP SCHEMA IF EXISTS shared CASCADE;
+
+COMMIT;

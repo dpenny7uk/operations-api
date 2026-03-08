@@ -81,6 +81,9 @@ CREATE TABLE IF NOT EXISTS system.sync_history (
 
 CREATE INDEX IF NOT EXISTS idx_history_name ON system.sync_history(sync_name);
 CREATE INDEX IF NOT EXISTS idx_history_started ON system.sync_history(started_at DESC);
+-- Composite index for circuit breaker query (filters by name, orders by time)
+CREATE INDEX IF NOT EXISTS idx_history_name_started
+    ON system.sync_history(sync_name, started_at DESC);
 
 -- ===========================================
 -- VALIDATION RULES
@@ -488,6 +491,25 @@ SELECT
 FROM system.unmatched_servers um
 WHERE um.status = 'pending'
 ORDER BY um.occurrence_count DESC;
+
+-- ===========================================
+-- SYNC HISTORY RETENTION
+-- ===========================================
+-- Purges old sync_history rows to prevent unbounded table growth.
+-- Call manually or from a scheduled pipeline/pg_cron job.
+-- Default: retain 90 days. Override with p_retain_days parameter.
+
+CREATE OR REPLACE FUNCTION system.purge_old_sync_history(p_retain_days INTEGER DEFAULT 90)
+RETURNS INTEGER AS $$
+DECLARE
+    v_deleted INTEGER;
+BEGIN
+    DELETE FROM system.sync_history
+    WHERE started_at < CURRENT_TIMESTAMP - (p_retain_days || ' days')::INTERVAL;
+    GET DIAGNOSTICS v_deleted = ROW_COUNT;
+    RETURN v_deleted;
+END;
+$$ LANGUAGE plpgsql;
 
 -- ===========================================
 -- TRIGGERS

@@ -23,6 +23,10 @@ _TEAMS_WEBHOOK_RE = re.compile(r'^https://[a-zA-Z0-9-]+\.webhook\.office\.com/')
 
 
 def _validate_teams_url(url: str) -> None:
+    if not url.startswith('https://'):
+        raise ValueError(
+            f"TEAMS_WEBHOOK_URL must use HTTPS — got: {url!r}"
+        )
     if not _TEAMS_WEBHOOK_RE.match(url):
         raise ValueError(
             f"TEAMS_WEBHOOK_URL must be an outlook.webhook.office.com URL — "
@@ -131,6 +135,9 @@ def main():
     )
     args = parser.parse_args()
     configure_verbosity(args.verbose)
+
+    if args.threshold < 1:
+        parser.error("--threshold must be at least 1")
 
     validate_env_vars(['TEAMS_WEBHOOK_URL'])
     webhook_url = os.environ['TEAMS_WEBHOOK_URL']

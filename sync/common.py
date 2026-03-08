@@ -141,10 +141,25 @@ def query_databricks(query: str, env_var_override: str = None) -> list:
         error_msg = result.get('status', {}).get('error', {}).get('message', 'Unknown error')
         raise RuntimeError(f"Databricks query failed: {error_msg}")
 
-    columns = [
-        col['name'].lower()
-        for col in result.get('manifest', {}).get('schema', {}).get('columns', [])
-    ]
+    manifest = result.get('manifest')
+    if not manifest or not isinstance(manifest, dict):
+        raise RuntimeError(
+            "Databricks response missing or invalid 'manifest' field — "
+            "unexpected API response structure. Check the API version."
+        )
+    schema = manifest.get('schema')
+    if not schema or not isinstance(schema, dict):
+        raise RuntimeError(
+            "Databricks response missing 'manifest.schema' — "
+            "unexpected API response structure."
+        )
+    columns_raw = schema.get('columns')
+    if not isinstance(columns_raw, list):
+        raise RuntimeError(
+            f"Databricks 'manifest.schema.columns' is not a list "
+            f"(got {type(columns_raw).__name__}) — unexpected API response structure."
+        )
+    columns = [col['name'].lower() for col in columns_raw]
 
     rows = [dict(zip(columns, row)) for row in result.get('result', {}).get('data_array', [])]
     logger.info(f"Fetched {len(rows)} rows from Databricks")

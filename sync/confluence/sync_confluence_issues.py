@@ -147,7 +147,9 @@ class ConfluencePageParser(HTMLParser):
 SERVICE_NAME_RE = re.compile(
     r'\b([A-Z][a-zA-Z]+(?:\.[A-Z][a-zA-Z]+)+)\b'  # Dotted names: Rms.MRIService
     r'|'
-    r'\b([A-Z][a-z]+(?:[A-Z][a-z]+)*?(?:Service|Host|Engine|Agent)s?)\b'  # PascalCase ending in Service/Host/Engine/Agent
+    # PascalCase with at least 2 components before the suffix (e.g. RmsMonitorService).
+    # Requiring >=2 components prevents single-word generics like "WindowsService" matching.
+    r'\b([A-Z][a-z]+(?:[A-Z][a-z]+)+(?:Service|Host|Engine|Agent)s?)\b'
 )
 
 # Category to patch type mapping
@@ -172,7 +174,9 @@ def parse_issue_page(page: dict) -> dict:
     issue = {
         'confluence_page_id': page.get('id'),
         'confluence_url': page.get('_links', {}).get('webui', ''),
-        'title': page.get('title', '')[:500],
+        # Strip any HTML tags from the title before storage to prevent XSS
+        # if the title is ever rendered in an admin UI without escaping.
+        'title': re.sub(r'<[^>]+>', '', page.get('title', '')).strip()[:500],
         'trigger_description': None,
         'signature': None,
         'fix': None,
@@ -322,7 +326,10 @@ def fetch_confluence_pages(ctx) -> list:
         batch = data.get('results', [])
         pages.extend(batch)
 
-        if len(batch) < page_size:
+        # Use the API-reported 'size' field if available; it correctly indicates
+        # whether this is the last page even when a page is exactly page_size items.
+        returned_size = data.get('size', len(batch))
+        if returned_size < page_size:
             break
         start += page_size
 

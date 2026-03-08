@@ -66,6 +66,16 @@ def sync_servers(ctx, servers: list):
                 "Verify the Databricks query and connection before retrying."
             )
 
+        # Absolute floor — catches partial Databricks exports even on first deploy
+        # when the 50% churn guard cannot apply (existing_count == 0).
+        min_servers = int(os.environ.get('DATABRICKS_MIN_SERVERS', '50'))
+        if len(values) < min_servers:
+            raise RuntimeError(
+                f"Databricks returned only {len(values)} servers (minimum: {min_servers}). "
+                "This looks like a partial or failed export. "
+                "Set DATABRICKS_MIN_SERVERS env var to override if intentional."
+            )
+
         execute_values(cur, "INSERT INTO tmp_servers VALUES %s", values)
         ctx.stats.processed = len(values)
 

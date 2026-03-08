@@ -35,6 +35,10 @@ CREATE TABLE IF NOT EXISTS eol.end_of_life_software (
     synced_at                   TIMESTAMP
 );
 
+-- INTENT: COALESCE(asset, '') treats NULL asset as empty string so that a product-wide
+-- record (no specific asset) is unique per product/version. Only one NULL-asset record
+-- can exist per product+version combination. This is intentional: it represents a
+-- product-level EOL entry not tied to a specific asset.
 CREATE UNIQUE INDEX IF NOT EXISTS uq_eol_product_asset
     ON eol.end_of_life_software (eol_product, eol_product_version, COALESCE(asset, ''));
 

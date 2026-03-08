@@ -109,7 +109,14 @@ def process_servers(ctx, cycle_id: int, servers: list):
             
             ctx.stats.processed += 1
             server_name = normalized['server_name']
-            
+
+            # Detect server type: Azure servers carry resource_group or subscription fields.
+            # On-prem Ivanti exports never include those columns, so their absence means on-prem.
+            has_azure_fields = bool(
+                normalized.get('resource_group') or normalized.get('subscription')
+            )
+            server_type = 'azure' if has_azure_fields else 'onprem'
+
             # Try to resolve server_id
             server_id = resolve_server_name(cur, server_name, 'ivanti', cycle_id)
             if not server_id:
@@ -135,7 +142,7 @@ def process_servers(ctx, cycle_id: int, servers: list):
                     """, (
                         cycle_id,
                         server_name,
-                        'onprem',
+                        server_type,
                         server_id,
                         normalized.get('domain'),
                         normalized.get('app'),

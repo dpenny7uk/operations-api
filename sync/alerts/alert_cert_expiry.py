@@ -23,6 +23,10 @@ _TEAMS_WEBHOOK_RE = re.compile(r'^https://[a-zA-Z0-9-]+\.webhook\.office\.com/')
 
 
 def _validate_teams_url(url: str) -> None:
+    if not url.startswith('https://'):
+        raise ValueError(
+            f"TEAMS_WEBHOOK_URL must use HTTPS — got: {url!r}"
+        )
     if not _TEAMS_WEBHOOK_RE.match(url):
         raise ValueError(
             f"TEAMS_WEBHOOK_URL must be an outlook.webhook.office.com URL — "
@@ -50,11 +54,20 @@ CRITICAL_QUERY = """
     WHERE c.is_active
       AND c.days_until_expiry <= 14
       AND c.valid_to IS NOT NULL
+      -- Exclude certs from servers with unresolved scan failures: last_seen_at may be
+      -- stale, making alert_level and days_until_expiry unreliable.
+      AND UPPER(c.server_name) NOT IN (
+          SELECT UPPER(server_name) FROM system.scan_failures
+          WHERE scan_type = 'certificate' AND NOT is_resolved
+      )
+      -- Deduplication: suppress alerts sent within the last 7 days.
+      -- After 7 days the alert re-fires so renewed/updated certs are re-checked.
       AND c.certificate_id NOT IN (
           SELECT certificate_id FROM certificates.alerts
           WHERE alert_type = 'expiry_teams'
             AND notification_sent = TRUE
             AND NOT resolved
+            AND notification_sent_at >= CURRENT_TIMESTAMP - INTERVAL '7 days'
       )
     ORDER BY c.days_until_expiry, c.server_name
 """

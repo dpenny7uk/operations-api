@@ -1,3 +1,5 @@
+BEGIN;
+
 -- Rollback: 001-common.sql
 -- Removes utility functions and custom domains from the system schema.
 --
@@ -18,3 +20,5 @@ DROP DOMAIN IF EXISTS system.sync_status_type;
 -- Drop the system schema only if all dependent objects have already been removed
 -- (i.e. all other rollback scripts have run). Use CASCADE with caution.
 -- DROP SCHEMA IF EXISTS system CASCADE;
+
+COMMIT;

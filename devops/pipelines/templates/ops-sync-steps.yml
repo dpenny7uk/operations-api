@@ -2,6 +2,16 @@
 # Copies common.py + the target script from sync/ into a flat working
 # directory so that "from common import ..." works without path hacks.
 # This eliminates the need for duplicate script copies in devops/.
+#
+# SCHEDULE STAGGER (intentional — do not "optimise"):
+# Sync pipelines run in a deliberate stagger to avoid concurrent DB load:
+#   04:00  ops-sync-confluence        (Confluence issues)
+#   05:00  ops-sync-servers           (Databricks server list)
+#   05:30  ops-sync-eol               (Databricks EOL software)
+#   06:00  ops-sync-certificates      (PowerShell cert scan + sync)
+#   06:30  ops-sync-patching-schedule (patching HTML page)
+#   07:00  ops-alert-unmatched        (unmatched server spike check)
+#   08:00  ops-health-alert           (overall sync health — runs after all syncs)
 
 parameters:
   - name: scriptPath
@@ -16,8 +26,8 @@ parameters:
 steps:
   - task: UsePythonVersion@0
     inputs:
-      versionSpec: '3.13'
-    displayName: 'Use Python 3.13'
+      versionSpec: '>=3.11'
+    displayName: 'Use Python 3.11+'
 
   - script: |
       REPO_ROOT="$(Build.SourcesDirectory)/operations-api"
@@ -27,12 +37,14 @@ steps:
       cp "$REPO_ROOT/sync/${{ parameters.scriptPath }}" "$WORK_DIR/"
       pip install -r "$REPO_ROOT/sync/requirements.txt"
     displayName: 'Prepare sync environment'
+    timeoutInMinutes: 10
 
   - script: |
       cd "$(Build.StagingDirectory)/sync_run"
       SCRIPT_NAME="${{ parameters.scriptPath }}"
       python "${SCRIPT_NAME##*/}" $EXTRA_ARGS
     displayName: ${{ parameters.displayName }}
+    timeoutInMinutes: 30
     env:
       EXTRA_ARGS: ${{ parameters.extraArgs }}
       OPS_DB_HOST: $(OPS_DB_HOST)
@@ -43,3 +55,41 @@ steps:
       DATABRICKS_HOST: $(DATABRICKS_HOST)
       DATABRICKS_TOKEN: $(DATABRICKS_TOKEN)
       DATABRICKS_WAREHOUSE_ID: $(DATABRICKS_WAREHOUSE_ID)
+
+  # Alert Teams immediately on sync step failure — don't wait for the 08:00 health check.
+  # Requires TEAMS_WEBHOOK_URL in the variable group; silently skips if not set.
+  - script: |
+      if [ -n "$TEAMS_WEBHOOK_URL" ]; then
+        python -c "
+import os, json, urllib.request
+card = {
+  'type': 'message',
+  'attachments': [{
+    'contentType': 'application/vnd.microsoft.card.adaptive',
+    'content': {
+      'type': 'AdaptiveCard', 'version': '1.4',
+      'body': [
+        {'type': 'TextBlock', 'weight': 'bolder', 'color': 'attention',
+         'text': 'Sync Failed: ${{ parameters.displayName }}'},
+        {'type': 'TextBlock', 'wrap': True,
+         'text': 'Pipeline: $(Build.DefinitionName) | Run \#$(Build.BuildId)'},
+        {'type': 'TextBlock', 'wrap': True, 'isSubtle': True,
+         'text': 'Check Azure DevOps for the full error log.'}
+      ]
+    }
+  }]
+}
+req = urllib.request.Request(
+  os.environ['TEAMS_WEBHOOK_URL'],
+  data=json.dumps(card).encode(),
+  headers={'Content-Type': 'application/json'}
+)
+urllib.request.urlopen(req, timeout=15)
+print('Teams failure alert sent')
+"
+      fi
+    displayName: 'Alert Teams on sync failure'
+    condition: failed()
+    continueOnError: true
+    env:
+      TEAMS_WEBHOOK_URL: $(TEAMS_WEBHOOK_URL)
