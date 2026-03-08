@@ -146,6 +146,7 @@ def main():
     configure_verbosity(args.verbose)
 
     with SyncContext("databricks_servers", "Databricks Server Sync", dry_run=args.dry_run) as ctx:
+        ctx.check_circuit_breaker()
         servers = query_databricks(SERVER_QUERY, env_var_override='DATABRICKS_QUERY')
         sync_servers(ctx, servers)
 

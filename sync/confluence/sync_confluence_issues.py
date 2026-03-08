@@ -397,6 +397,7 @@ def main():
     configure_verbosity(args.verbose)
 
     with SyncContext("confluence_issues", "Confluence Issues Sync", dry_run=args.dry_run) as ctx:
+        ctx.check_circuit_breaker()
         pages = fetch_confluence_pages(ctx)
         issues = [parse_issue_page(p) for p in pages]
 

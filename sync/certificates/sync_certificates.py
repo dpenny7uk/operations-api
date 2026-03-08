@@ -282,6 +282,7 @@ def main():
     configure_verbosity(args.verbose)
 
     with SyncContext("certificate_scan", "Certificate Scan Sync", dry_run=args.dry_run) as ctx:
+        ctx.check_circuit_breaker()
         records = read_csv(args.csv)
         sync_certificates(ctx, records)
 

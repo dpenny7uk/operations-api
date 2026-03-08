@@ -138,6 +138,7 @@ def main():
     configure_verbosity(args.verbose)
 
     with SyncContext("databricks_eol", "Databricks EOL Software Sync", dry_run=args.dry_run) as ctx:
+        ctx.check_circuit_breaker()
         records = query_databricks(EOL_QUERY, env_var_override='DATABRICKS_EOL_QUERY')
         sync_eol_software(ctx, records)
 

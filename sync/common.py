@@ -7,6 +7,7 @@ import argparse
 import re
 import socket
 import time
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 from dataclasses import dataclass, field
 from contextlib import contextmanager
@@ -225,6 +226,31 @@ def database_connection(app_name: str = "ops_sync"):
         conn.close()
 
 
+class CircuitBreakerOpenError(Exception):
+    """Raised by SyncContext.check_circuit_breaker() when a sync has failed too many times recently.
+
+    The circuit breaker reads consecutive_failures and last_failure_at from
+    system.sync_status. When open, SyncContext.__exit__() suppresses this exception
+    and records the run as 'cancelled' so the pipeline step exits with code 0.
+    """
+    def __init__(
+        self,
+        sync_name: str,
+        consecutive_failures: int,
+        last_failure_at: datetime,
+        retry_after: datetime,
+    ):
+        self.sync_name = sync_name
+        self.consecutive_failures = consecutive_failures
+        self.last_failure_at = last_failure_at
+        self.retry_after = retry_after
+        super().__init__(
+            f"Circuit breaker OPEN for '{sync_name}': {consecutive_failures} consecutive failures, "
+            f"last failure at {last_failure_at:%Y-%m-%d %H:%M:%S %Z}, "
+            f"will retry after {retry_after:%Y-%m-%d %H:%M:%S %Z}"
+        )
+
+
 @dataclass
 class SyncStats:
     """Statistics tracked during sync operations."""
@@ -283,7 +309,84 @@ class SyncContext:
         
         return self
 
+    def check_circuit_breaker(self) -> None:
+        """Skip this sync run if too many consecutive failures have occurred recently.
+
+        Reads consecutive_failures and last_failure_at from system.sync_status.
+        Opens the circuit (raises CircuitBreakerOpenError) when both conditions hold:
+          - consecutive_failures >= CIRCUIT_BREAKER_THRESHOLD (default: 3)
+          - last_failure_at is within CIRCUIT_BREAKER_TIMEOUT_SECONDS (default: 7200)
+
+        Fails open on any DB error — the sync will proceed rather than silently skip.
+        Does nothing in dry-run mode (the sync should always attempt in dry-run).
+        """
+        if self.dry_run:
+            return
+
+        threshold = int(os.environ.get('CIRCUIT_BREAKER_THRESHOLD', '3'))
+        timeout_seconds = int(os.environ.get('CIRCUIT_BREAKER_TIMEOUT_SECONDS', '7200'))
+
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute(
+                    "SELECT consecutive_failures, last_failure_at "
+                    "FROM system.sync_status WHERE sync_name = %s",
+                    (self.sync_name,)
+                )
+                row = cur.fetchone()
+        except Exception as exc:
+            self.logger.warning(
+                "Circuit breaker check failed (DB error) — proceeding with sync: %s", exc
+            )
+            return
+
+        if row is None:
+            return  # No tracking row yet — first run, proceed normally
+
+        failures = row['consecutive_failures'] or 0
+        last_failure_at = row['last_failure_at']
+
+        if failures < threshold or last_failure_at is None:
+            return
+
+        now = datetime.now(timezone.utc)
+        # last_failure_at from psycopg2 TIMESTAMPTZ is already timezone-aware
+        elapsed = (now - last_failure_at).total_seconds()
+        if elapsed >= timeout_seconds:
+            return  # Cooldown has passed — let the sync attempt
+
+        retry_after = last_failure_at + timedelta(seconds=timeout_seconds)
+        self.logger.warning(
+            "Circuit breaker OPEN for '%s': %d consecutive failures, "
+            "last failure at %s UTC, will retry after %s UTC.",
+            self.sync_name,
+            failures,
+            last_failure_at.strftime('%Y-%m-%d %H:%M:%S'),
+            retry_after.strftime('%Y-%m-%d %H:%M:%S'),
+        )
+        raise CircuitBreakerOpenError(self.sync_name, failures, last_failure_at, retry_after)
+
     def __exit__(self, exc_type, exc_val, exc_tb):
+        # Circuit breaker fired — record the skip as 'cancelled' and exit cleanly.
+        # consecutive_failures is deliberately left unchanged so the breaker stays open.
+        if exc_type is CircuitBreakerOpenError:
+            if self.history_id and self.conn:
+                try:
+                    with self.conn.cursor() as cur:
+                        cur.execute(
+                            "UPDATE system.sync_history SET "
+                            "completed_at = CURRENT_TIMESTAMP, status = 'cancelled', "
+                            "error_message = %s WHERE history_id = %s",
+                            (str(exc_val), self.history_id)
+                        )
+                    self.conn.commit()
+                except Exception as db_err:
+                    self.logger.warning("Failed to record circuit breaker skip: %s", db_err)
+            if self.conn:
+                self.conn.close()
+            self.logger.info("Sync '%s' skipped — circuit breaker open.", self.sync_name)
+            return True  # Suppress exception; process exits 0
+
         status = 'error' if exc_type else 'success'
 
         if exc_type:

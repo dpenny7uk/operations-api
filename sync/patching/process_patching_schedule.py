@@ -183,6 +183,7 @@ def main():
         cycle_date = parse_cycle_date(filepath.name)
 
     with SyncContext("ivanti_patching", "Ivanti Patching Schedule", dry_run=args.dry_run) as ctx:
+        ctx.check_circuit_breaker()
         if ctx.conn is None:
             raise RuntimeError("Failed to establish database connection")
         # Create or get patch cycle

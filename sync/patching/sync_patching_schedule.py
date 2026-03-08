@@ -250,6 +250,7 @@ def main():
     logger.info(f"Parsed {len(servers)} servers from HTML")
 
     with SyncContext("patching_schedule_html", "Patching Schedule (HTML)", dry_run=args.dry_run) as ctx:
+        ctx.check_circuit_breaker()
         if ctx.conn is None:
             raise RuntimeError("Failed to establish database connection")
 
