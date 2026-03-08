@@ -1,3 +1,5 @@
+BEGIN;
+
 -- Operations Platform - Shared Schema (Servers & Applications)
 -- Source: Databricks master_server_list (Gold standard)
 
@@ -99,3 +101,5 @@ ORDER BY a.criticality, a.application_name;
 
 SELECT system.create_updated_at_trigger('shared', 'applications');
 SELECT system.create_updated_at_trigger('shared', 'servers');
+
+COMMIT;

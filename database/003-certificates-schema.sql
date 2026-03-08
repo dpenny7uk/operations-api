@@ -1,3 +1,5 @@
+BEGIN;
+
 -- Operations Platform - Certificates Schema
 -- Source: PowerShell certificate scans
 
@@ -171,3 +173,5 @@ ORDER BY impact_score DESC, c.days_until_expiry;
 -- ===========================================
 
 SELECT system.create_updated_at_trigger('certificates', 'inventory');
+
+COMMIT;

@@ -1,3 +1,5 @@
+BEGIN;
+
 -- Migration Tracking & Rollback Strategy
 -- Records which database scripts have been applied and supports rollback metadata.
 
@@ -69,3 +71,5 @@ RETURNS TABLE (
     LEFT JOIN system.schema_migrations m ON m.script_name = s.script
     ORDER BY s.script;
 $$;
+
+COMMIT;

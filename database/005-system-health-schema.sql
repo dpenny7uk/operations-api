@@ -1,3 +1,5 @@
+BEGIN;
+
 -- Operations Platform - System Health & Sync Tracking
 
 -- ===========================================
@@ -492,3 +494,5 @@ ORDER BY um.occurrence_count DESC;
 -- ===========================================
 
 SELECT system.create_updated_at_trigger('system', 'sync_status');
+
+COMMIT;

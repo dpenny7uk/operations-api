@@ -1,3 +1,5 @@
+BEGIN;
+
 -- Operations Platform - Patching Schema
 -- Sources: Ivanti Excel exports, Confluence known issues
 
@@ -270,3 +272,5 @@ ORDER BY pc.cycle_date DESC;
 SELECT system.create_updated_at_trigger('patching', 'patch_cycles');
 SELECT system.create_updated_at_trigger('patching', 'patch_windows');
 SELECT system.create_updated_at_trigger('patching', 'known_issues');
+
+COMMIT;

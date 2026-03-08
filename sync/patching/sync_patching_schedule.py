@@ -224,11 +224,13 @@ def main():
                 logger.error(f"URL {args.url!r} resolves to private address {raw_ip}")
                 sys.exit(1)
         else:
-            # IPv6: block private/ULA (fc00::/7), loopback (::1), link-local (fe80::/10)
+            # IPv6: block private/ULA (fc00::/7), loopback (::1), link-local (fe80::/10),
+            # and IPv4-mapped addresses (::ffff:0:0/96) which can bypass IPv4 checks.
             ipv6_private = [
-                ipaddress.ip_network('fc00::/7'),   # Unique Local Address (ULA)
-                ipaddress.ip_network('fe80::/10'),  # Link-local
-                ipaddress.ip_network('::1/128'),    # Loopback
+                ipaddress.ip_network('::ffff:0:0/96'),  # IPv4-mapped IPv6 (SSRF bypass)
+                ipaddress.ip_network('fc00::/7'),        # Unique Local Address (ULA)
+                ipaddress.ip_network('fe80::/10'),       # Link-local
+                ipaddress.ip_network('::1/128'),         # Loopback
             ]
             if any(addr in net for net in ipv6_private):
                 logger.error(f"URL {args.url!r} resolves to private IPv6 address {raw_ip}")

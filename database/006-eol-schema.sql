@@ -1,3 +1,5 @@
+BEGIN;
+
 -- Operations Platform - End of Life Schema
 -- Source: Databricks gold_asset_inventory.end_of_life_software
 
@@ -105,3 +107,5 @@ ORDER BY impact_score DESC;
 -- ===========================================
 
 SELECT system.create_updated_at_trigger('eol', 'end_of_life_software');
+
+COMMIT;

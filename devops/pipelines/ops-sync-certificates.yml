@@ -22,6 +22,23 @@ variables:
     value: '443,8443'
 
 steps:
+  # Step 0: Validate server list before running the scan
+  - powershell: |
+      $serverList = "$env:BUILD_SOURCESDIRECTORY/operations-api/config/certificate-servers.txt"
+      if (-not (Test-Path $serverList)) {
+          Write-Error "certificate-servers.txt not found: $serverList"
+          exit 1
+      }
+      $entries = Get-Content $serverList |
+          Where-Object { $_ -notmatch '^\s*#' -and $_.Trim() -ne '' }
+      if ($entries.Count -eq 0) {
+          Write-Error "certificate-servers.txt is empty or contains only comments — aborting scan"
+          exit 1
+      }
+      Write-Host "certificate-servers.txt has $($entries.Count) server(s) — proceeding"
+    displayName: 'Validate certificate-servers.txt is non-empty'
+    errorActionPreference: stop
+
   # Step 1: Run PowerShell certificate scan
   - powershell: |
       $repoRoot = "$(Build.SourcesDirectory)/operations-api"

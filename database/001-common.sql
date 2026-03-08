@@ -1,3 +1,5 @@
+BEGIN;
+
 -- Operations Platform - Common Types & Utilities
 
 CREATE SCHEMA IF NOT EXISTS system;
@@ -75,3 +77,5 @@ BEGIN
     ));
 END;
 $$ LANGUAGE plpgsql IMMUTABLE;
+
+COMMIT;

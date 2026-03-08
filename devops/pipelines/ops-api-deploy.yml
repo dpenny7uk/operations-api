@@ -154,7 +154,32 @@ stages:
 
                           Write-Host "Found $($scripts.Count) migration scripts"
 
+                          # Check if the migration tracking table exists (absent on first deploy).
+                          # On first deploy every script runs; on subsequent deploys only pending ones do.
+                          $trackingCheck = & $psql -h "$(OPS_DB_HOST)" -p "$(OPS_DB_PORT)" -d "$(OPS_DB_NAME)" `
+                              -U "$(OPS_DB_MIGRATE_USER)" -t -c `
+                              "SELECT 1 FROM information_schema.tables WHERE table_schema='system' AND table_name='schema_migrations'"
+                          $trackingTableExists = ($trackingCheck | Select-String '1') -ne $null
+
+                          $appliedScripts = @()
+                          if ($trackingTableExists) {
+                              $appliedScripts = (& $psql -h "$(OPS_DB_HOST)" -p "$(OPS_DB_PORT)" -d "$(OPS_DB_NAME)" `
+                                  -U "$(OPS_DB_MIGRATE_USER)" -t -c `
+                                  "SELECT script_name FROM system.schema_migrations WHERE rolled_back_at IS NULL") |
+                                  ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' }
+                              Write-Host "Tracking table found — $($appliedScripts.Count) script(s) already applied"
+                          } else {
+                              Write-Host "Tracking table not found — first deploy, all scripts will run"
+                          }
+
+                          $ran = 0
+                          $skipped = 0
                           foreach ($script in $scripts) {
+                              if ($appliedScripts -contains $script.Name) {
+                                  Write-Host "Skipping (already applied): $($script.Name)"
+                                  $skipped++
+                                  continue
+                              }
                               Write-Host "Running: $($script.Name)"
                               & $psql -h "$(OPS_DB_HOST)" -p "$(OPS_DB_PORT)" -d "$(OPS_DB_NAME)" `
                                       -U "$(OPS_DB_MIGRATE_USER)" -f $script.FullName -v ON_ERROR_STOP=1
@@ -162,9 +187,20 @@ stages:
                                   Write-Error "Migration failed on $($script.Name) — deployment aborted"
                                   exit 1
                               }
+                              # Record the script in the tracking table if it now exists
+                              # (007 creates the table, so subsequent scripts in the same run are recorded).
+                              $postCheck = & $psql -h "$(OPS_DB_HOST)" -p "$(OPS_DB_PORT)" -d "$(OPS_DB_NAME)" `
+                                  -U "$(OPS_DB_MIGRATE_USER)" -t -c `
+                                  "SELECT 1 FROM information_schema.tables WHERE table_schema='system' AND table_name='schema_migrations'"
+                              if (($postCheck | Select-String '1') -ne $null) {
+                                  & $psql -h "$(OPS_DB_HOST)" -p "$(OPS_DB_PORT)" -d "$(OPS_DB_NAME)" `
+                                      -U "$(OPS_DB_MIGRATE_USER)" -c `
+                                      "INSERT INTO system.schema_migrations (script_name) VALUES ('$($script.Name)') ON CONFLICT (script_name) DO NOTHING" | Out-Null
+                              }
                               Write-Host "  OK"
+                              $ran++
                           }
-                          Write-Host "All migrations complete"
+                          Write-Host "Migrations complete — ran: $ran, skipped: $skipped"
                       } finally {
                           # Always clean up the pgpass file regardless of success or failure
                           Remove-Item -Path $pgpassFile -Force -ErrorAction SilentlyContinue
