@@ -39,3 +39,6 @@ __pycache__/
 *.cer
 *.crt
 *.der
+
+# Claude Files
+Claude.md
