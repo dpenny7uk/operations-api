@@ -752,5 +752,24 @@ document.getElementById('certServerSearch').addEventListener('input', filterCert
 document.getElementById('eolAlertFilter').addEventListener('change', filterEol);
 document.getElementById('eolProductSearch').addEventListener('input', filterEol);
 
+// --- Theme toggle ---
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  const btn = document.getElementById('themeToggle');
+  // ☾ for dark (click to go light), ☀ for light (click to go dark)
+  btn.innerHTML = theme === 'light' ? '&#9788;' : '&#9790;';
+  btn.title = theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode';
+}
+
+const savedTheme = localStorage.getItem('ges-theme') || 'dark';
+applyTheme(savedTheme);
+
+document.getElementById('themeToggle').addEventListener('click', () => {
+  const current = document.documentElement.getAttribute('data-theme') || 'dark';
+  const next = current === 'dark' ? 'light' : 'dark';
+  applyTheme(next);
+  localStorage.setItem('ges-theme', next);
+});
+
 // --- Initial load ---
 loadAllData();
