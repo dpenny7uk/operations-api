@@ -45,6 +45,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_eol_product_asset
 CREATE INDEX IF NOT EXISTS idx_eol_product ON eol.end_of_life_software(eol_product);
 CREATE INDEX IF NOT EXISTS idx_eol_version ON eol.end_of_life_software(eol_product, eol_product_version);
 CREATE INDEX IF NOT EXISTS idx_eol_asset ON eol.end_of_life_software(asset);
+CREATE INDEX IF NOT EXISTS idx_eol_asset_active ON eol.end_of_life_software(asset) WHERE is_active;
 CREATE INDEX IF NOT EXISTS idx_eol_end_of_life ON eol.end_of_life_software(eol_end_of_life) WHERE is_active;
 
 -- ===========================================
@@ -61,6 +62,7 @@ SELECT
     eol_end_of_extended_support,
     COUNT(DISTINCT asset) AS affected_assets,
     CASE
+        WHEN eol_end_of_life IS NULL THEN 'UNKNOWN'
         WHEN eol_end_of_life <= CURRENT_TIMESTAMP THEN 'EOL'
         WHEN eol_end_of_life <= CURRENT_TIMESTAMP + INTERVAL '6 months' THEN 'APPROACHING'
         ELSE 'SUPPORTED'

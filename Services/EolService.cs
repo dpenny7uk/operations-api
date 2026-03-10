@@ -117,6 +117,12 @@ public class EolService : BaseService<EolService>, IEolService
     public async Task<IEnumerable<EolSoftware>> GetByServerAsync(string serverName, int limit = 500)
     {
         return await Db.QueryAsync<EolSoftware>($@"
+            WITH product_counts AS (
+                SELECT eol_product, eol_product_version, COUNT(DISTINCT asset)::INT AS affected_count
+                FROM {Sql.Tables.EolSoftware}
+                WHERE is_active = TRUE
+                GROUP BY eol_product, eol_product_version
+            )
             SELECT
                 e.eol_product AS Product,
                 e.eol_product_version AS Version,
@@ -124,12 +130,9 @@ public class EolService : BaseService<EolService>, IEolService
                 e.eol_end_of_extended_support AS EndOfExtendedSupport,
                 e.eol_end_of_support AS EndOfSupport,
                 {AlertLevel("e.eol_end_of_life")} AS AlertLevel,
-                (SELECT COUNT(DISTINCT e2.asset)::INT
-                 FROM {Sql.Tables.EolSoftware} e2
-                 WHERE e2.eol_product = e.eol_product
-                   AND e2.eol_product_version = e.eol_product_version
-                   AND e2.is_active = TRUE) AS AffectedAssets
+                pc.affected_count AS AffectedAssets
             FROM {Sql.Tables.EolSoftware} e
+            JOIN product_counts pc ON pc.eol_product = e.eol_product AND pc.eol_product_version = e.eol_product_version
             WHERE UPPER(e.asset) = UPPER(@Server) AND e.is_active = TRUE
             ORDER BY e.eol_end_of_life NULLS LAST
             LIMIT @Limit
