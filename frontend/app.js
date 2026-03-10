@@ -156,6 +156,8 @@ function esc(str) {
   return d.innerHTML;
 }
 
+function num(v) { return Number.isFinite(Number(v)) ? Number(v) : 0; }
+
 function badge(text, color) {
   const safeColor = (color || '').replace(/[^a-zA-Z0-9_-]/g, '');
   return `<span class="badge ${safeColor}">${esc(text)}</span>`;
@@ -286,12 +288,12 @@ function renderHealth(data) {
     </div>
     <div class="card${cardAlert(data.unmatchedServersCount, {red: 10, orange: 5, yellow: 1})}">
       <h3>\u{2753} Unmatched Servers</h3>
-      <div class="value">${data.unmatchedServersCount}</div>
+      <div class="value">${num(data.unmatchedServersCount)}</div>
       <div class="sub">Need resolution</div>
     </div>
     <div class="card${cardAlert(data.unreachableServersCount, {red: 5, orange: 1})}">
       <h3>\u{1F6AB} Unreachable</h3>
-      <div class="value ${data.unreachableServersCount ? 'color-orange' : 'color-green'}">${data.unreachableServersCount || 0}</div>
+      <div class="value ${num(data.unreachableServersCount) ? 'color-orange' : 'color-green'}">${num(data.unreachableServersCount)}</div>
       <div class="sub">Scan failures</div>
     </div>
     <div class="card${cardAlert(failCount, {red: 1})}">
@@ -305,8 +307,8 @@ function renderHealth(data) {
     <td><strong>${esc(s.syncName)}</strong></td>
     <td>${statusBadge(s.freshnessStatus)}</td>
     <td>${fmtTime(s.lastSuccessAt)}</td>
-    <td>${(s.recordsProcessed ?? 0).toLocaleString()}</td>
-    <td>${s.consecutiveFailures > 0 ? `<span class="color-red">${s.consecutiveFailures}</span>` : '<span class="color-muted">0</span>'}</td>
+    <td>${num(s.recordsProcessed).toLocaleString()}</td>
+    <td>${num(s.consecutiveFailures) > 0 ? `<span class="color-red">${num(s.consecutiveFailures)}</span>` : '<span class="color-muted">0</span>'}</td>
     <td class="color-muted">${esc(s.expectedSchedule) || '\u2014'}</td>
   </tr>`).join('');
 }
@@ -319,7 +321,7 @@ function renderServers(servers, unmatched) {
   document.getElementById('unmatchedTable').innerHTML = unmatched.map(u => `<tr>
     <td><code>${esc(u.serverNameRaw)}</code></td>
     <td>${badge(u.sourceSystem, 'blue')}</td>
-    <td>${u.occurrenceCount}</td>
+    <td>${num(u.occurrenceCount)}</td>
     <td>${fmtDate(u.firstSeenAt)}</td>
     <td>${u.closestMatch ? `<span class="color-green">${esc(u.closestMatch)}</span>` : '<span class="color-muted">None</span>'}</td>
   </tr>`).join('');
@@ -358,8 +360,8 @@ function renderPatching(next, cycles, issues) {
         <div class="patch-banner-layout">
           <div class="patch-banner-main">
             <h3>\u{1F4C5} Next Patch Cycle</h3>
-            <div class="value">${next.daysUntil} days</div>
-            <div class="sub">${fmtDate(next.cycle.cycleDate)} \u00B7 ${next.cycle.serverCount} servers</div>
+            <div class="value">${num(next.daysUntil)} days</div>
+            <div class="sub">${fmtDate(next.cycle.cycleDate)} \u00B7 ${num(next.cycle.serverCount)} servers</div>
           </div>
           <div class="patch-banner-details">
             <div class="patch-banner-col">
@@ -382,7 +384,7 @@ function renderPatching(next, cycles, issues) {
     row.className = 'cycle-row';
     row.innerHTML = `
       <td><strong>${fmtDate(c.cycleDate)}</strong></td>
-      <td>${c.serverCount}</td>
+      <td>${num(c.serverCount)}</td>
       <td>${statusBadge(c.status)}</td>`;
 
     const detailRow = document.createElement('tr');
@@ -478,7 +480,7 @@ function renderCycleServers(cycleId) {
             <td class="color-muted">${esc(s.scheduledTime) || '\u2014'}</td>
             <td>${esc(s.application) || '\u2014'}</td>
             <td>${s.hasKnownIssue
-              ? `<span class="color-orange">${dot('orange')}${s.issueCount} issue${s.issueCount !== 1 ? 's' : ''}</span>`
+              ? `<span class="color-orange">${dot('orange')}${num(s.issueCount)} issue${num(s.issueCount) !== 1 ? 's' : ''}</span>`
               : `<span class="color-green">${dot('green')}None</span>`}</td>
           </tr>`).join('')}</tbody>
         </table>`
@@ -502,22 +504,22 @@ function renderCerts(summary, certs) {
   document.getElementById('certCards').innerHTML = `
     <div class="card clickable${cardAlert(summary.criticalCount, {red: 1})}" data-filter="critical">
       <h3>\u{1F6A8} Critical</h3>
-      <div class="value color-red">${summary.criticalCount}</div>
+      <div class="value color-red">${num(summary.criticalCount)}</div>
       <div class="sub">Expiring soon</div>
     </div>
     <div class="card clickable${cardAlert(summary.warningCount, {orange: 1})}" data-filter="warning">
       <h3>\u{26A0}\u{FE0F} Warning</h3>
-      <div class="value color-orange">${summary.warningCount}</div>
+      <div class="value color-orange">${num(summary.warningCount)}</div>
       <div class="sub">Needs attention</div>
     </div>
     <div class="card clickable" data-filter="ok">
       <h3>\u2705 OK</h3>
-      <div class="value color-green">${summary.okCount}</div>
+      <div class="value color-green">${num(summary.okCount)}</div>
       <div class="sub">Valid</div>
     </div>
     <div class="card">
       <h3>\u{1F4CB} Total</h3>
-      <div class="value">${summary.totalCount}</div>
+      <div class="value">${num(summary.totalCount)}</div>
       <div class="sub">All certificates</div>
     </div>
   `;
@@ -541,13 +543,14 @@ function renderCerts(summary, certs) {
 
 function renderCertTable(certs) {
   document.getElementById('certTable').innerHTML = certs.map(c => {
-    const daysClass = c.daysUntilExpiry != null && c.daysUntilExpiry <= 14 ? 'color-red'
-                    : c.daysUntilExpiry != null && c.daysUntilExpiry <= 30 ? 'color-orange' : '';
+    const days = c.daysUntilExpiry != null ? num(c.daysUntilExpiry) : null;
+    const daysClass = days != null && days <= 14 ? 'color-red'
+                    : days != null && days <= 30 ? 'color-orange' : '';
     return `<tr>
     <td><strong>${esc(c.subjectCn)}</strong></td>
     <td>${esc(c.serverName)}</td>
     <td>${fmtDate(c.validTo)}</td>
-    <td class="${daysClass}"><strong>${c.daysUntilExpiry != null ? c.daysUntilExpiry + 'd' : '\u2014'}</strong></td>
+    <td class="${daysClass}"><strong>${days != null ? days + 'd' : '\u2014'}</strong></td>
     <td>${alertBadge(c.alertLevel)}</td>
   </tr>`;
   }).join('');
@@ -581,22 +584,22 @@ function renderEol(summary, items) {
   document.getElementById('eolCards').innerHTML = `
     <div class="card clickable${cardAlert(summary.eolCount, {red: 1})}" data-filter="eol">
       <h3>\u{1F6D1} End of Life</h3>
-      <div class="value color-red">${summary.eolCount}</div>
+      <div class="value color-red">${num(summary.eolCount)}</div>
       <div class="sub">Past EOL date</div>
     </div>
     <div class="card clickable${cardAlert(summary.approachingCount, {orange: 1})}" data-filter="approaching">
       <h3>\u{23F3} Approaching EOL</h3>
-      <div class="value color-orange">${summary.approachingCount}</div>
+      <div class="value color-orange">${num(summary.approachingCount)}</div>
       <div class="sub">Within 6 months</div>
     </div>
     <div class="card clickable" data-filter="supported">
       <h3>\u2705 Supported</h3>
-      <div class="value color-green">${summary.supportedCount}</div>
+      <div class="value color-green">${num(summary.supportedCount)}</div>
       <div class="sub">Currently supported</div>
     </div>
     <div class="card${cardAlert(summary.affectedServers, {red: 20, orange: 10, yellow: 1})}">
       <h3>\u{1F5A5}\u{FE0F} Affected Servers</h3>
-      <div class="value">${summary.affectedServers}</div>
+      <div class="value">${num(summary.affectedServers)}</div>
       <div class="sub">Running EOL/approaching software</div>
     </div>
   `;
@@ -632,7 +635,7 @@ function renderEolTable(items) {
       <td>${fmtDate(e.endOfLife)}</td>
       <td>${fmtDate(e.endOfExtendedSupport)}</td>
       <td>${eolBadge(e.alertLevel)}</td>
-      <td><strong>${e.affectedAssets}</strong></td>`;
+      <td><strong>${num(e.affectedAssets)}</strong></td>`;
 
     const detailRow = document.createElement('tr');
     detailRow.className = 'eol-detail';

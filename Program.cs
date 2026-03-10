@@ -36,6 +36,11 @@ builder.Host.UseSerilog((ctx, services, cfg) =>
 });
 var config = builder.Configuration;
 
+// Fail fast if connection string is missing — don't wait for first request
+var connStringCheck = config.GetConnectionString("OperationsDb");
+if (string.IsNullOrEmpty(connStringCheck) && !builder.Environment.IsDevelopment())
+    throw new InvalidOperationException("Connection string 'OperationsDb' is not configured. Set it in appsettings.json or environment variables.");
+
 // Authentication — Windows Negotiate (Kerberos/NTLM) is always required.
 // There is no bypass mode. For local development without Active Directory,
 // configure a test account in IIS Express or use a mocked auth middleware in a test project.
