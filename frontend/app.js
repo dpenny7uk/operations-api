@@ -140,9 +140,9 @@ async function api(path) {
 }
 
 // --- Navigation ---
-document.querySelectorAll('nav button').forEach(btn => {
+document.querySelectorAll('header nav button').forEach(btn => {
   btn.addEventListener('click', () => {
-    document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('header nav button').forEach(b => b.classList.remove('active'));
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
     btn.classList.add('active');
     document.getElementById(btn.dataset.page).classList.add('active');
@@ -231,7 +231,7 @@ function syncCardSelection(containerId, level) {
   }
 }
 
-// Render a proportional timeline bar from segments
+// Render a proportional timeline bar from segments with legend
 function renderTimeline(containerId, segments) {
   const el = document.getElementById(containerId);
   el.innerHTML = '';
@@ -243,6 +243,13 @@ function renderTimeline(containerId, segments) {
     div.title = s.label;
     el.appendChild(div);
   });
+  // Render legend below the timeline
+  const legendEl = document.getElementById(containerId + 'Legend');
+  if (legendEl) {
+    legendEl.innerHTML = segments.filter(s => s.pct > 0).map(s =>
+      `<span class="timeline-legend-item"><span class="timeline-legend-dot" style="background:${s.color}"></span>${esc(s.label)}</span>`
+    ).join('');
+  }
 }
 
 // Wire up clickable card grids — clicking a card filters the table
@@ -278,26 +285,26 @@ function renderHealth(data) {
   const statusAlert = status === 'error' ? ' card-alert-red' : status === 'warning' ? ' card-alert-orange' : '';
   document.getElementById('healthCards').innerHTML = `
     <div class="card${statusAlert}">
-      <h3>\u{1F4CA} Overall Status</h3>
+      <h3>Overall Status</h3>
       <div class="value color-${overallColor}">${esc(data.overallStatus)}</div>
     </div>
     <div class="card">
-      <h3>\u{1F504} Active Syncs</h3>
+      <h3>Active Syncs</h3>
       <div class="value">${syncs.length}</div>
       <div class="sub">${syncs.filter(s=>s.freshnessStatus==='healthy').length} healthy</div>
     </div>
     <div class="card${cardAlert(data.unmatchedServersCount, {red: 10, orange: 5, yellow: 1})}">
-      <h3>\u{2753} Unmatched Servers</h3>
+      <h3>Unmatched Servers</h3>
       <div class="value">${num(data.unmatchedServersCount)}</div>
       <div class="sub">Need resolution</div>
     </div>
     <div class="card${cardAlert(data.unreachableServersCount, {red: 5, orange: 1})}">
-      <h3>\u{1F6AB} Unreachable</h3>
+      <h3>Unreachable</h3>
       <div class="value ${num(data.unreachableServersCount) ? 'color-orange' : 'color-green'}">${num(data.unreachableServersCount)}</div>
       <div class="sub">Scan failures</div>
     </div>
     <div class="card${cardAlert(failCount, {red: 1})}">
-      <h3>\u{26A0}\u{FE0F} Sync Failures</h3>
+      <h3>Sync Failures</h3>
       <div class="value ${failCount ? 'color-red' : 'color-green'}">${failCount}</div>
       <div class="sub">Consecutive failures</div>
     </div>
@@ -371,7 +378,7 @@ function renderPatching(next, cycles, issues) {
       <div class="card patch-banner patch-banner-${urgency}">
         <div class="patch-banner-layout">
           <div class="patch-banner-main">
-            <h3>\u{1F4C5} Next Patch Cycle</h3>
+            <h3>Next Patch Cycle</h3>
             <div class="value">${num(next.daysUntil)} days</div>
             <div class="sub">${fmtDate(next.cycle.cycleDate)} \u00B7 ${num(next.cycle.serverCount)} servers</div>
           </div>
@@ -515,22 +522,22 @@ function renderCerts(summary, certs) {
 
   document.getElementById('certCards').innerHTML = `
     <div class="card clickable${cardAlert(summary.criticalCount, {red: 1})}" data-filter="critical">
-      <h3>\u{1F6A8} Critical</h3>
+      <h3>Critical</h3>
       <div class="value color-red">${num(summary.criticalCount)}</div>
       <div class="sub">Expiring soon</div>
     </div>
     <div class="card clickable${cardAlert(summary.warningCount, {orange: 1})}" data-filter="warning">
-      <h3>\u{26A0}\u{FE0F} Warning</h3>
+      <h3>Warning</h3>
       <div class="value color-orange">${num(summary.warningCount)}</div>
       <div class="sub">Needs attention</div>
     </div>
     <div class="card clickable" data-filter="ok">
-      <h3>\u2705 OK</h3>
+      <h3>OK</h3>
       <div class="value color-green">${num(summary.okCount)}</div>
       <div class="sub">Valid</div>
     </div>
     <div class="card">
-      <h3>\u{1F4CB} Total</h3>
+      <h3>Total</h3>
       <div class="value">${num(summary.totalCount)}</div>
       <div class="sub">All certificates</div>
     </div>
@@ -597,22 +604,22 @@ function renderEol(summary, items) {
 
   document.getElementById('eolCards').innerHTML = `
     <div class="card clickable${cardAlert(summary.eolCount, {red: 1})}" data-filter="eol">
-      <h3>\u{1F6D1} End of Life</h3>
+      <h3>End of Life</h3>
       <div class="value color-red">${num(summary.eolCount)}</div>
       <div class="sub">Past EOL date</div>
     </div>
     <div class="card clickable${cardAlert(summary.approachingCount, {orange: 1})}" data-filter="approaching">
-      <h3>\u{23F3} Approaching EOL</h3>
+      <h3>Approaching EOL</h3>
       <div class="value color-orange">${num(summary.approachingCount)}</div>
       <div class="sub">Within 6 months</div>
     </div>
     <div class="card clickable" data-filter="supported">
-      <h3>\u2705 Supported</h3>
+      <h3>Supported</h3>
       <div class="value color-green">${num(summary.supportedCount)}</div>
       <div class="sub">Currently supported</div>
     </div>
     <div class="card${cardAlert(summary.affectedServers, {red: 20, orange: 10, yellow: 1})}">
-      <h3>\u{1F5A5}\u{FE0F} Affected Servers</h3>
+      <h3>Affected Servers</h3>
       <div class="value">${num(summary.affectedServers)}</div>
       <div class="sub">Running EOL/approaching software</div>
     </div>

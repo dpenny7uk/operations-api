@@ -9,29 +9,28 @@
 </head>
 <body>
 
+<div id="demoBanner" class="demo-banner" style="display:none" role="alert">
+  DEMO MODE — API not reachable. Data shown is example only.
+</div>
+
 <header>
-  <div style="display:flex;align-items:center;gap:1rem">
+  <div class="header-left">
     <h1>GES Operations Dashboard</h1>
     <span id="overallStatus"></span>
+    <nav>
+      <button class="active" data-page="health">Health</button>
+      <button data-page="servers">Servers</button>
+      <button data-page="patching">Patching</button>
+      <button data-page="certificates">Certificates</button>
+      <button data-page="eol">End of Life</button>
+    </nav>
   </div>
-  <div style="display:flex;align-items:center;gap:1rem">
-    <span id="lastUpdated" style="font-size:0.8rem;color:var(--text-muted)"></span>
+  <div class="header-right">
+    <span id="lastUpdated" class="last-updated"></span>
     <button id="themeToggle" class="theme-toggle" title="Toggle light/dark mode" aria-label="Toggle theme">&#9790;</button>
     <button id="refreshBtn" class="refresh-btn">Refresh</button>
   </div>
 </header>
-
-<nav>
-  <button class="active" data-page="health">Health</button>
-  <button data-page="servers">Servers</button>
-  <button data-page="patching">Patching</button>
-  <button data-page="certificates">Certificates</button>
-  <button data-page="eol">End of Life</button>
-</nav>
-
-<div id="demoBanner" class="demo-banner" style="display:none" role="alert">
-  DEMO MODE — API not reachable. Data shown is example only.
-</div>
 
 <main>
 
@@ -52,7 +51,6 @@
   <!-- SERVERS PAGE -->
   <div id="servers" class="page">
     <div class="filter-bar">
-      <span id="serverCountIndicator" class="count-indicator"></span>
       <input type="text" id="serverSearch" placeholder="Search servers..." aria-label="Search servers">
       <select id="envFilter" aria-label="Filter by environment">
         <option value="">All Environments</option>
@@ -60,6 +58,7 @@
         <option value="Staging">Staging</option>
         <option value="Development">Development</option>
       </select>
+      <span id="serverCountIndicator" class="count-indicator"></span>
     </div>
     <div class="card">
       <table>
@@ -106,7 +105,8 @@
   <!-- CERTIFICATES PAGE -->
   <div id="certificates" class="page">
     <div class="grid grid-4" id="certCards"></div>
-    <div class="cert-timeline" id="certTimeline" style="margin-bottom:1rem"></div>
+    <div class="cert-timeline" id="certTimeline"></div>
+    <div class="timeline-legend" id="certTimelineLegend"></div>
     <div class="filter-bar">
       <select id="alertFilter" aria-label="Filter by alert level">
         <option value="">All Levels</option>
@@ -130,7 +130,8 @@
   <!-- END OF LIFE PAGE -->
   <div id="eol" class="page">
     <div class="grid grid-4" id="eolCards"></div>
-    <div class="cert-timeline" id="eolTimeline" style="margin-bottom:1rem"></div>
+    <div class="cert-timeline" id="eolTimeline"></div>
+    <div class="timeline-legend" id="eolTimelineLegend"></div>
     <div class="filter-bar">
       <select id="eolAlertFilter" aria-label="Filter by EOL status">
         <option value="">All Statuses</option>

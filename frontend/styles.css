@@ -8,16 +8,17 @@
   --border-light: rgba(255, 255, 255, 0.14);
   --text: #f8fafc;
   --text-secondary: #b8c5d6;
-  --text-muted: #5c6b7f;
-  --accent: #DA291C;
-  --accent-hover: #ef3425;
-  --accent-glow: rgba(218, 41, 28, 0.2);
+  --text-muted: #7a8fa5;
+  --accent: #E8400A;
+  --accent-hover: #f04b12;
+  --accent-glow: rgba(232, 64, 10, 0.2);
   --green: #10b981;
-  --yellow: #f59e0b;
-  --orange: #f97316;
+  --yellow: #eab308;
+  --orange: #fb6f1a;
   --red: #ef4444;
   --blue: #3b82f6;
-  --purple: #8b5cf6;
+  --text-xs: 0.7rem;
+  --text-sm: 0.82rem;
   --radius: 14px;
   --radius-sm: 10px;
   --radius-xs: 6px;
@@ -41,35 +42,34 @@
   --timeline-bg: rgba(255, 255, 255, 0.02);
   --loading-ring: rgba(255, 255, 255, 0.06);
   --td-border: rgba(255, 255, 255, 0.04);
-  --glow-red: radial-gradient(ellipse, rgba(218, 41, 28, 0.06) 0%, transparent 70%);
+  --glow-red: radial-gradient(ellipse, rgba(232, 64, 10, 0.06) 0%, transparent 70%);
   --glow-blue: radial-gradient(ellipse, rgba(59, 130, 246, 0.04) 0%, transparent 70%);
   --card-shine: linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent);
   --card-radial: radial-gradient(ellipse at 50% 0%, rgba(255,255,255,0.03) 0%, transparent 70%);
   --scrollbar-thumb: rgba(255, 255, 255, 0.08);
   --scrollbar-hover: rgba(255, 255, 255, 0.14);
-  --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%235c6b7f' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10l-5 5z'/%3E%3C/svg%3E");
+  --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%237a8fa5' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10l-5 5z'/%3E%3C/svg%3E");
 }
 
 [data-theme="light"] {
-  --bg: #f0f2f5;
-  --surface: rgba(255, 255, 255, 0.85);
-  --surface-solid: #ffffff;
+  --bg: #e8ecf0;
+  --surface: #ffffff;
+  --surface-solid: #f8fafc;
   --surface2: rgba(0, 0, 0, 0.03);
   --surface3: rgba(0, 0, 0, 0.05);
-  --border: rgba(0, 0, 0, 0.1);
-  --border-light: rgba(0, 0, 0, 0.18);
+  --border: rgba(0, 0, 0, 0.14);
+  --border-light: rgba(0, 0, 0, 0.22);
   --text: #1a1a2e;
   --text-secondary: #4a5568;
   --text-muted: #8896a6;
-  --accent: #c41e14;
-  --accent-hover: #a81a12;
-  --accent-glow: rgba(196, 30, 20, 0.15);
+  --accent: #d03808;
+  --accent-hover: #b83006;
+  --accent-glow: rgba(208, 56, 8, 0.15);
   --green: #059669;
-  --yellow: #d97706;
-  --orange: #ea580c;
+  --yellow: #ca8a04;
+  --orange: #e25b0a;
   --red: #dc2626;
   --blue: #2563eb;
-  --purple: #7c3aed;
   --header-bg: rgba(255, 255, 255, 0.85);
   --nav-bg: rgba(255, 255, 255, 0.7);
   --nav-hover-bg: rgba(0, 0, 0, 0.04);
@@ -89,7 +89,7 @@
   --timeline-bg: rgba(0, 0, 0, 0.03);
   --loading-ring: rgba(0, 0, 0, 0.08);
   --td-border: rgba(0, 0, 0, 0.06);
-  --glow-red: radial-gradient(ellipse, rgba(218, 41, 28, 0.03) 0%, transparent 70%);
+  --glow-red: radial-gradient(ellipse, rgba(232, 64, 10, 0.03) 0%, transparent 70%);
   --glow-blue: radial-gradient(ellipse, rgba(59, 130, 246, 0.02) 0%, transparent 70%);
   --card-shine: linear-gradient(90deg, transparent, rgba(0,0,0,0.04), transparent);
   --card-radial: radial-gradient(ellipse at 50% 0%, rgba(0,0,0,0.02) 0%, transparent 70%);
@@ -155,19 +155,11 @@ header h1 {
   color: var(--text);
 }
 
-/* ── Navigation ─────────────────────────────────────────────────────────── */
+/* ── Navigation (inside header) ────────────────────────────────────────── */
 
-nav {
+header nav {
   display: flex;
   gap: 4px;
-  background: var(--nav-bg);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border-bottom: 1px solid var(--border);
-  padding: 0.5rem 2rem;
-  position: sticky;
-  top: 52px;
-  z-index: 50;
 }
 
 nav button {
@@ -215,6 +207,13 @@ main {
 .grid { display: grid; gap: 1rem; }
 .grid-4 { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
 .grid-3 { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+
+/* Health page has 5 cards — tighter min so they fit on one row */
+#healthCards { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
+
+/* Header utility classes */
+.header-left, .header-right { display: flex; align-items: center; gap: 1rem; }
+.last-updated { font-size: 0.8rem; color: var(--text-muted); }
 
 /* ── Cards ───────────────────────────────────────────────────────────────── */
 
@@ -292,8 +291,9 @@ main {
 
 /* Card alert states */
 .card.card-alert-red {
-  border-color: rgba(239, 68, 68, 0.25);
-  background: linear-gradient(180deg, rgba(239, 68, 68, 0.08) 0%, var(--surface) 100%);
+  border-color: rgba(239, 68, 68, 0.4);
+  border-left: 3px solid var(--red);
+  background: linear-gradient(180deg, rgba(239, 68, 68, 0.14) 0%, var(--surface) 100%);
 }
 .card.card-alert-red::before {
   background: linear-gradient(90deg, transparent, rgba(239, 68, 68, 0.6), transparent);
@@ -301,8 +301,9 @@ main {
 }
 
 .card.card-alert-orange {
-  border-color: rgba(249, 115, 22, 0.25);
-  background: linear-gradient(180deg, rgba(249, 115, 22, 0.08) 0%, var(--surface) 100%);
+  border-color: rgba(249, 115, 22, 0.4);
+  border-left: 3px solid var(--orange);
+  background: linear-gradient(180deg, rgba(249, 115, 22, 0.12) 0%, var(--surface) 100%);
 }
 .card.card-alert-orange::before {
   background: linear-gradient(90deg, transparent, rgba(249, 115, 22, 0.6), transparent);
@@ -310,23 +311,25 @@ main {
 }
 
 .card.card-alert-yellow {
-  border-color: rgba(245, 158, 11, 0.25);
-  background: linear-gradient(180deg, rgba(245, 158, 11, 0.06) 0%, var(--surface) 100%);
+  border-color: rgba(234, 179, 8, 0.25);
+  background: linear-gradient(180deg, rgba(234, 179, 8, 0.06) 0%, var(--surface) 100%);
 }
 .card.card-alert-yellow::before {
-  background: linear-gradient(90deg, transparent, rgba(245, 158, 11, 0.6), transparent);
+  background: linear-gradient(90deg, transparent, rgba(234, 179, 8, 0.6), transparent);
   left: 10%; right: 10%;
 }
 
 /* ── Section titles ──────────────────────────────────────────────────────── */
 
 .section-title {
-  font-size: 0.78rem;
+  font-size: 0.72rem;
   font-weight: 600;
   margin: 2.25rem 0 0.75rem;
-  color: var(--text-muted);
+  color: var(--text-secondary);
   text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.08em;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.5rem;
 }
 
 /* ── Tables ──────────────────────────────────────────────────────────────── */
@@ -383,11 +386,11 @@ table tr:hover td { background: var(--row-hover); }
 }
 
 .badge.green  { background: rgba(16, 185, 129, 0.1);  color: var(--green);  border-color: rgba(16, 185, 129, 0.15); }
-.badge.yellow { background: rgba(245, 158, 11, 0.1);  color: var(--yellow); border-color: rgba(245, 158, 11, 0.15); }
-.badge.orange { background: rgba(249, 115, 22, 0.1);  color: var(--orange); border-color: rgba(249, 115, 22, 0.15); }
+.badge.yellow { background: rgba(234, 179, 8, 0.1);  color: var(--yellow); border-color: rgba(234, 179, 8, 0.15); }
+.badge.orange { background: rgba(251, 111, 26, 0.1);  color: var(--orange); border-color: rgba(251, 111, 26, 0.15); }
 .badge.red    { background: rgba(239, 68, 68, 0.1);   color: var(--red);    border-color: rgba(239, 68, 68, 0.15); }
 .badge.blue   { background: rgba(59, 130, 246, 0.1);  color: var(--blue);   border-color: rgba(59, 130, 246, 0.15); }
-.badge.muted  { background: rgba(92, 107, 127, 0.08); color: var(--text-muted); border-color: rgba(92, 107, 127, 0.12); }
+.badge.muted  { background: rgba(122, 143, 165, 0.08); color: var(--text-muted); border-color: rgba(122, 143, 165, 0.12); }
 
 /* ── Status dots ─────────────────────────────────────────────────────────── */
 
@@ -400,9 +403,9 @@ table tr:hover td { background: var(--row-hover); }
 }
 
 .status-dot.green  { background: var(--green);  box-shadow: 0 0 8px rgba(16, 185, 129, 0.5); }
-.status-dot.yellow { background: var(--yellow); box-shadow: 0 0 8px rgba(245, 158, 11, 0.5); }
+.status-dot.yellow { background: var(--yellow); box-shadow: 0 0 8px rgba(234, 179, 8, 0.5); }
 .status-dot.red    { background: var(--red);    box-shadow: 0 0 8px rgba(239, 68, 68, 0.5); }
-.status-dot.orange { background: var(--orange); box-shadow: 0 0 8px rgba(249, 115, 22, 0.5); }
+.status-dot.orange { background: var(--orange); box-shadow: 0 0 8px rgba(251, 111, 26, 0.5); }
 
 /* ── Charts & timeline ───────────────────────────────────────────────────── */
 
@@ -449,6 +452,27 @@ table tr:hover td { background: var(--row-hover); }
   opacity: 1;
 }
 
+/* ── Timeline legend ─────────────────────────────────────────────────────── */
+
+.timeline-legend {
+  display: flex;
+  gap: 1.25rem;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  margin-top: 0.4rem;
+}
+.timeline-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.timeline-legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
 /* ── Filter bar ──────────────────────────────────────────────────────────── */
 
 .filter-bar {
@@ -465,7 +489,7 @@ table tr:hover td { background: var(--row-hover); }
   border: 1px solid var(--border);
   color: var(--text);
   padding: 0.55rem 0.95rem;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-xs);
   font-size: 0.8rem;
   font-family: inherit;
   transition: border-color var(--transition), box-shadow var(--transition), background var(--transition);
@@ -477,7 +501,7 @@ table tr:hover td { background: var(--row-hover); }
 
 .filter-bar input:focus, .filter-bar select:focus {
   outline: none;
-  border-color: rgba(218, 41, 28, 0.4);
+  border-color: rgba(232, 64, 10, 0.4);
   box-shadow: 0 0 0 3px var(--accent-glow);
 }
 
@@ -520,7 +544,7 @@ table tr:hover td { background: var(--row-hover); }
 /* ── Buttons ─────────────────────────────────────────────────────────────── */
 
 .refresh-btn {
-  background: linear-gradient(135deg, var(--accent) 0%, #b82318 100%);
+  background: linear-gradient(135deg, var(--accent) 0%, #c03508 100%);
   border: none;
   color: #FFFFFF;
   padding: 0.45rem 1.1rem;
@@ -532,10 +556,10 @@ table tr:hover td { background: var(--row-hover); }
   text-transform: uppercase;
   letter-spacing: 0.06em;
   transition: all var(--transition);
-  box-shadow: 0 2px 8px rgba(218, 41, 28, 0.3), inset 0 1px 0 rgba(255,255,255,0.1);
+  box-shadow: 0 2px 8px rgba(232, 64, 10, 0.3), inset 0 1px 0 rgba(255,255,255,0.1);
 }
 .refresh-btn:hover {
-  box-shadow: 0 4px 20px rgba(218, 41, 28, 0.4), inset 0 1px 0 rgba(255,255,255,0.15);
+  box-shadow: 0 4px 20px rgba(232, 64, 10, 0.4), inset 0 1px 0 rgba(255,255,255,0.15);
   transform: translateY(-1px);
 }
 .refresh-btn:active { transform: translateY(0) scale(0.97); }
@@ -564,15 +588,16 @@ table tr:hover td { background: var(--row-hover); }
 
 .cycle-row, .eol-row { cursor: pointer; }
 .cycle-row:hover td, .eol-row:hover td { background: var(--expand-hover); }
+.cycle-row:hover td:first-child, .eol-row:hover td:first-child { box-shadow: inset 2px 0 0 var(--border-light); }
 
 .cycle-row td:first-child::before,
 .eol-row td:first-child::before {
   content: '\25B8';
   display: inline-block;
   margin-right: 0.5rem;
-  font-size: 0.68rem;
+  font-size: 0.75rem;
   transition: transform 0.2s ease, color 0.2s ease;
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 .cycle-row.expanded td:first-child::before,
 .eol-row.expanded td:first-child::before {
@@ -660,9 +685,9 @@ table tr:hover td { background: var(--row-hover); }
   background: var(--card-clickable-hover-bg);
 }
 .card.card-selected {
-  border-color: rgba(218, 41, 28, 0.4);
-  box-shadow: 0 0 0 1px var(--accent-glow), 0 4px 24px rgba(218, 41, 28, 0.12);
-  background: linear-gradient(180deg, rgba(218, 41, 28, 0.06) 0%, var(--surface) 100%);
+  border-color: rgba(232, 64, 10, 0.4);
+  box-shadow: 0 0 0 1px var(--accent-glow), 0 4px 24px rgba(232, 64, 10, 0.12);
+  background: linear-gradient(180deg, rgba(232, 64, 10, 0.06) 0%, var(--surface) 100%);
 }
 .card.card-selected::before {
   background: linear-gradient(90deg, transparent, var(--accent), transparent);
@@ -694,6 +719,9 @@ table tr:hover td { background: var(--row-hover); }
   position: relative;
   overflow: hidden;
 }
+.patch-banner .value {
+  font-size: 3rem;
+}
 .patch-banner-red {
   border-color: rgba(239, 68, 68, 0.25);
   background: linear-gradient(135deg, rgba(239, 68, 68, 0.08) 0%, var(--surface) 60%);
@@ -706,10 +734,10 @@ table tr:hover td { background: var(--row-hover); }
 }
 .patch-banner-red::before { background: linear-gradient(90deg, transparent, rgba(239, 68, 68, 0.6), transparent); left: 10%; right: 10%; }
 .patch-banner-yellow {
-  border-color: rgba(245, 158, 11, 0.25);
-  background: linear-gradient(135deg, rgba(245, 158, 11, 0.06) 0%, var(--surface) 60%);
+  border-color: rgba(234, 179, 8, 0.25);
+  background: linear-gradient(135deg, rgba(234, 179, 8, 0.06) 0%, var(--surface) 60%);
 }
-.patch-banner-yellow::before { background: linear-gradient(90deg, transparent, rgba(245, 158, 11, 0.6), transparent); left: 10%; right: 10%; }
+.patch-banner-yellow::before { background: linear-gradient(90deg, transparent, rgba(234, 179, 8, 0.6), transparent); left: 10%; right: 10%; }
 .patch-banner-green {
   border-color: rgba(16, 185, 129, 0.25);
   background: linear-gradient(135deg, rgba(16, 185, 129, 0.06) 0%, var(--surface) 60%);
@@ -780,7 +808,7 @@ code {
 }
 
 ::selection {
-  background: rgba(218, 41, 28, 0.3);
+  background: rgba(232, 64, 10, 0.3);
   color: var(--text);
 }
 
@@ -825,16 +853,16 @@ nav button:focus-visible,
 /* ── Light mode badge overrides ─────────────────────────────────────────── */
 
 [data-theme="light"] .badge.green  { background: rgba(5, 150, 105, 0.1);  border-color: rgba(5, 150, 105, 0.2); }
-[data-theme="light"] .badge.yellow { background: rgba(217, 119, 6, 0.1);  border-color: rgba(217, 119, 6, 0.2); }
-[data-theme="light"] .badge.orange { background: rgba(234, 88, 12, 0.1);  border-color: rgba(234, 88, 12, 0.2); }
+[data-theme="light"] .badge.yellow { background: rgba(202, 138, 4, 0.1);  border-color: rgba(202, 138, 4, 0.2); }
+[data-theme="light"] .badge.orange { background: rgba(226, 91, 10, 0.1);  border-color: rgba(226, 91, 10, 0.2); }
 [data-theme="light"] .badge.red    { background: rgba(220, 38, 38, 0.1);  border-color: rgba(220, 38, 38, 0.2); }
 [data-theme="light"] .badge.blue   { background: rgba(37, 99, 235, 0.1);  border-color: rgba(37, 99, 235, 0.2); }
 [data-theme="light"] .badge.muted  { background: rgba(136, 150, 166, 0.1); border-color: rgba(136, 150, 166, 0.15); }
 
 [data-theme="light"] .status-dot.green  { box-shadow: 0 0 6px rgba(5, 150, 105, 0.4); }
-[data-theme="light"] .status-dot.yellow { box-shadow: 0 0 6px rgba(217, 119, 6, 0.4); }
+[data-theme="light"] .status-dot.yellow { box-shadow: 0 0 6px rgba(202, 138, 4, 0.4); }
 [data-theme="light"] .status-dot.red    { box-shadow: 0 0 6px rgba(220, 38, 38, 0.4); }
-[data-theme="light"] .status-dot.orange { box-shadow: 0 0 6px rgba(234, 88, 12, 0.4); }
+[data-theme="light"] .status-dot.orange { box-shadow: 0 0 6px rgba(226, 91, 10, 0.4); }
 
 /* Light mode card alert states */
 [data-theme="light"] .card.card-alert-red {
@@ -842,12 +870,12 @@ nav button:focus-visible,
   background: linear-gradient(180deg, rgba(220, 38, 38, 0.06) 0%, var(--surface) 100%);
 }
 [data-theme="light"] .card.card-alert-orange {
-  border-color: rgba(234, 88, 12, 0.3);
-  background: linear-gradient(180deg, rgba(234, 88, 12, 0.06) 0%, var(--surface) 100%);
+  border-color: rgba(226, 91, 10, 0.3);
+  background: linear-gradient(180deg, rgba(226, 91, 10, 0.06) 0%, var(--surface) 100%);
 }
 [data-theme="light"] .card.card-alert-yellow {
-  border-color: rgba(217, 119, 6, 0.3);
-  background: linear-gradient(180deg, rgba(217, 119, 6, 0.05) 0%, var(--surface) 100%);
+  border-color: rgba(202, 138, 4, 0.3);
+  background: linear-gradient(180deg, rgba(202, 138, 4, 0.05) 0%, var(--surface) 100%);
 }
 
 /* Light mode patch banners */
@@ -856,8 +884,8 @@ nav button:focus-visible,
   background: linear-gradient(135deg, rgba(220, 38, 38, 0.06) 0%, var(--surface) 60%);
 }
 [data-theme="light"] .patch-banner-yellow {
-  border-color: rgba(217, 119, 6, 0.3);
-  background: linear-gradient(135deg, rgba(217, 119, 6, 0.05) 0%, var(--surface) 60%);
+  border-color: rgba(202, 138, 4, 0.3);
+  background: linear-gradient(135deg, rgba(202, 138, 4, 0.05) 0%, var(--surface) 60%);
 }
 [data-theme="light"] .patch-banner-green {
   border-color: rgba(5, 150, 105, 0.3);
@@ -866,9 +894,9 @@ nav button:focus-visible,
 
 /* Light mode selected card */
 [data-theme="light"] .card.card-selected {
-  border-color: rgba(196, 30, 20, 0.4);
-  box-shadow: 0 0 0 1px var(--accent-glow), 0 4px 24px rgba(196, 30, 20, 0.08);
-  background: linear-gradient(180deg, rgba(196, 30, 20, 0.04) 0%, var(--surface) 100%);
+  border-color: rgba(208, 56, 8, 0.4);
+  box-shadow: 0 0 0 1px var(--accent-glow), 0 4px 24px rgba(208, 56, 8, 0.08);
+  background: linear-gradient(180deg, rgba(208, 56, 8, 0.04) 0%, var(--surface) 100%);
 }
 
 /* Light mode smooth transition */
