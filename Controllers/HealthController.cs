@@ -17,14 +17,14 @@ public class HealthController : ControllerBase
 
     /// <summary>Get overall system health summary including sync statuses and server counts.</summary>
     [HttpGet]
-    [ResponseCache(Duration = 60, Location = ResponseCacheLocation.Client)]
+    [ResponseCache(Duration = 60, Location = ResponseCacheLocation.Any)]
     [ProducesResponseType(200)]
     public async Task<IActionResult> GetSummary()
         => Ok(await _svc.GetHealthSummaryAsync());
 
     /// <summary>Get status of all data sync jobs.</summary>
     [HttpGet("syncs")]
-    [ResponseCache(Duration = 30, Location = ResponseCacheLocation.Client)]
+    [ResponseCache(Duration = 30, Location = ResponseCacheLocation.Any)]
     [ProducesResponseType(200)]
     public async Task<IActionResult> GetSyncStatuses()
         => Ok(await _svc.GetSyncStatusesAsync());

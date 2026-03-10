@@ -328,6 +328,8 @@ function renderServers(servers, unmatched) {
 }
 
 function renderServerTable(servers) {
+  const indicator = document.getElementById('serverCountIndicator');
+  if (indicator) indicator.textContent = allServers.length >= 200 ? `Showing ${servers.length} of 200+ servers` : `${servers.length} servers`;
   document.getElementById('serverTable').innerHTML = servers.map(s => `<tr>
     <td><strong>${esc(s.serverName)}</strong></td>
     <td class="color-muted">${esc(s.fqdn) || '\u2014'}</td>
@@ -542,6 +544,8 @@ function renderCerts(summary, certs) {
 }
 
 function renderCertTable(certs) {
+  const indicator = document.getElementById('certCountIndicator');
+  if (indicator) indicator.textContent = allCerts.length >= 200 ? `Showing ${certs.length} of 200+ certificates` : `${certs.length} certificates`;
   document.getElementById('certTable').innerHTML = certs.map(c => {
     const days = c.daysUntilExpiry != null ? num(c.daysUntilExpiry) : null;
     const daysClass = days != null && days <= 14 ? 'color-red'
@@ -623,6 +627,8 @@ function renderEol(summary, items) {
 }
 
 function renderEolTable(items) {
+  const indicator = document.getElementById('eolCountIndicator');
+  if (indicator) indicator.textContent = allEol.length >= 200 ? `Showing ${items.length} of 200+ entries` : `${items.length} entries`;
   const tbody = document.getElementById('eolTable');
   tbody.innerHTML = '';
   items.forEach(e => {
@@ -738,6 +744,10 @@ async function _loadAllDataInner() {
   renderPatching(next || DEMO.nextPatch, cycles || DEMO.cycles, issues || DEMO.issues);
   renderCerts(certSummary || DEMO.certSummary, certs || DEMO.certificates);
   renderEol(eolSummary || DEMO.eolSummary, eolItems || DEMO.eolSoftware);
+
+  // Show/hide demo banner
+  const demoBanner = document.getElementById('demoBanner');
+  if (demoBanner) demoBanner.style.display = usingDemo ? '' : 'none';
 
   if (apiError) {
     document.getElementById('lastUpdated').textContent = apiError;

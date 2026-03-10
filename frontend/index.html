@@ -29,6 +29,10 @@
   <button data-page="eol">End of Life</button>
 </nav>
 
+<div id="demoBanner" class="demo-banner" style="display:none" role="alert">
+  DEMO MODE — API not reachable. Data shown is example only.
+</div>
+
 <main>
 
   <!-- HEALTH PAGE -->
@@ -48,6 +52,7 @@
   <!-- SERVERS PAGE -->
   <div id="servers" class="page">
     <div class="filter-bar">
+      <span id="serverCountIndicator" class="count-indicator"></span>
       <input type="text" id="serverSearch" placeholder="Search servers...">
       <select id="envFilter">
         <option value="">All Environments</option>
@@ -110,6 +115,7 @@
         <option value="ok">OK</option>
       </select>
       <input type="text" id="certServerSearch" placeholder="Filter by server...">
+      <span id="certCountIndicator" class="count-indicator"></span>
     </div>
     <div class="card">
       <table>
@@ -133,6 +139,7 @@
         <option value="supported">Supported</option>
       </select>
       <input type="text" id="eolProductSearch" placeholder="Filter by product...">
+      <span id="eolCountIndicator" class="count-indicator"></span>
     </div>
     <div class="card">
       <table>

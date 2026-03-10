@@ -17,7 +17,7 @@ public class PatchingController : ControllerBase
 
     /// <summary>Get a summary of the next upcoming patch cycle including server counts and known issues.</summary>
     [HttpGet("next")]
-    [ResponseCache(Duration = 60, Location = ResponseCacheLocation.Client)]
+    [ResponseCache(Duration = 60, Location = ResponseCacheLocation.Any)]
     [ProducesResponseType(200)]
     [ProducesResponseType(404)]
     public async Task<IActionResult> GetNextSummary()
@@ -83,7 +83,7 @@ public class PatchingController : ControllerBase
 
     /// <summary>Get configured patch maintenance windows.</summary>
     [HttpGet("windows")]
-    [ResponseCache(Duration = 300, Location = ResponseCacheLocation.Client)]
+    [ResponseCache(Duration = 300, Location = ResponseCacheLocation.Any)]
     [ProducesResponseType(200)]
     public async Task<IActionResult> GetWindows()
         => Ok(await _svc.GetPatchWindowsAsync());
