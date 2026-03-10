@@ -224,15 +224,33 @@ public class DatabaseFixture : IAsyncLifetime
 /// <summary>
 /// Base class for integration tests — skips all tests when Docker is unavailable.
 /// </summary>
-public abstract class IntegrationTestBase
+public abstract class IntegrationTestBase : IDisposable
 {
     protected readonly DatabaseFixture Db;
+    private readonly List<NpgsqlConnection> _connections = [];
 
     protected IntegrationTestBase(DatabaseFixture db)
     {
         Db = db;
         if (!db.IsAvailable)
             throw new InvalidOperationException(db.SkipReason ?? "Docker not available");
+    }
+
+    /// <summary>Opens a connection tracked for disposal when the test class is torn down.</summary>
+    protected NpgsqlConnection OpenConnection()
+    {
+        var conn = new NpgsqlConnection(Db.ConnectionString);
+        conn.Open();
+        _connections.Add(conn);
+        return conn;
+    }
+
+    public void Dispose()
+    {
+        foreach (var conn in _connections)
+            conn.Dispose();
+        _connections.Clear();
+        GC.SuppressFinalize(this);
     }
 }
 

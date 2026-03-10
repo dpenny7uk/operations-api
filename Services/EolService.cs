@@ -9,11 +9,14 @@ public class EolService : BaseService<EolService>, IEolService
 {
     private const string AlertLevelCase = @"
         CASE
-            WHEN eol_end_of_life IS NULL THEN 'unknown'
-            WHEN eol_end_of_life <= NOW() THEN 'eol'
-            WHEN eol_end_of_life <= NOW() + INTERVAL '6 months' THEN 'approaching'
+            WHEN {0} IS NULL THEN 'unknown'
+            WHEN {0} <= NOW() THEN 'eol'
+            WHEN {0} <= NOW() + INTERVAL '6 months' THEN 'approaching'
             ELSE 'supported'
         END";
+
+    private static string AlertLevel(string column = "eol_end_of_life")
+        => string.Format(AlertLevelCase, column);
 
     public EolService(IDbConnection db, ILogger<EolService> logger)
         : base(db, logger) { }
@@ -45,7 +48,7 @@ public class EolService : BaseService<EolService>, IEolService
                 eol_end_of_life AS EndOfLife,
                 eol_end_of_extended_support AS EndOfExtendedSupport,
                 eol_end_of_support AS EndOfSupport,
-                {AlertLevelCase} AS AlertLevel,
+                {AlertLevel()} AS AlertLevel,
                 COUNT(DISTINCT asset) AS AffectedAssets
             FROM {Sql.Tables.EolSoftware}
             WHERE is_active = TRUE";
@@ -90,7 +93,7 @@ public class EolService : BaseService<EolService>, IEolService
                 eol_end_of_extended_support AS EndOfExtendedSupport,
                 eol_end_of_support AS EndOfSupport,
                 MAX(tag) AS Tag,
-                {AlertLevelCase} AS AlertLevel,
+                {AlertLevel()} AS AlertLevel,
                 COUNT(DISTINCT asset) AS AffectedAssets
             FROM {Sql.Tables.EolSoftware}
             WHERE eol_product = @Product AND eol_product_version = @Version AND is_active = TRUE
@@ -120,7 +123,7 @@ public class EolService : BaseService<EolService>, IEolService
                 e.eol_end_of_life AS EndOfLife,
                 e.eol_end_of_extended_support AS EndOfExtendedSupport,
                 e.eol_end_of_support AS EndOfSupport,
-                {AlertLevelCase.Replace("eol_end_of_life", "e.eol_end_of_life")} AS AlertLevel,
+                {AlertLevel("e.eol_end_of_life")} AS AlertLevel,
                 (SELECT COUNT(DISTINCT e2.asset)::INT
                  FROM {Sql.Tables.EolSoftware} e2
                  WHERE e2.eol_product = e.eol_product

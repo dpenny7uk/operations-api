@@ -84,6 +84,7 @@ steps:
     displayName: 'Copy database scripts'
 
   - task: PublishBuildArtifacts@1
+    condition: succeeded()
     inputs:
       pathToPublish: '$(Build.ArtifactStagingDirectory)'
       artifactName: 'operations-api'

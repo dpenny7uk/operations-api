@@ -1,5 +1,4 @@
 using Microsoft.Extensions.Logging.Abstractions;
-using Npgsql;
 using OperationsApi.Services;
 using Xunit;
 
@@ -11,11 +10,7 @@ public class EolServiceTests : IntegrationTestBase
     public EolServiceTests(DatabaseFixture db) : base(db) { }
 
     private EolService CreateService()
-    {
-        var conn = new NpgsqlConnection(Db.ConnectionString);
-        conn.Open();
-        return new EolService(conn, NullLogger<EolService>.Instance);
-    }
+        => new(OpenConnection(), NullLogger<EolService>.Instance);
 
     // ── GetSummaryAsync ──────────────────────────────────────────────
 

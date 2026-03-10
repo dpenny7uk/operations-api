@@ -436,8 +436,29 @@ class SyncContext:
                             (f"Tracking failure: {e}", self.sync_name)
                         )
                     self.conn.commit()
-                except Exception:
-                    self.logger.error("Failed to update sync_status after tracking failure — status may be stuck at 'warning'")
+                except Exception as fallback_err:
+                    # Both the main and fallback tracking updates failed on the existing
+                    # connection (likely broken). Open a fresh connection as a last resort
+                    # to prevent sync_status being stuck at 'warning' permanently.
+                    self.logger.error("Fallback sync_status update failed: %s — attempting fresh connection", fallback_err)
+                    try:
+                        with get_database_connection(app_name=f"{self.app_name}_recovery") as recovery_conn:
+                            with recovery_conn.cursor() as cur:
+                                cur.execute(
+                                    "UPDATE system.sync_status SET status = 'error', "
+                                    "last_failure_at = CURRENT_TIMESTAMP, "
+                                    "consecutive_failures = consecutive_failures + 1, "
+                                    "last_error_message = %s WHERE sync_name = %s",
+                                    (f"Recovery update after double failure: {e}", self.sync_name)
+                                )
+                            recovery_conn.commit()
+                            self.logger.info("Recovery connection successfully updated sync_status to 'error'")
+                    except Exception as recovery_err:
+                        self.logger.critical(
+                            "MANUAL INTERVENTION REQUIRED: sync_status for '%s' is stuck at 'warning'. "
+                            "Run: UPDATE system.sync_status SET status = 'error' WHERE sync_name = '%s'; "
+                            "Recovery error: %s", self.sync_name, self.sync_name, recovery_err
+                        )
 
         if self.conn:
             self.conn.close()

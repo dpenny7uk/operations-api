@@ -26,8 +26,9 @@ CREATE TABLE IF NOT EXISTS certificates.inventory (
     is_expired          BOOLEAN DEFAULT FALSE,
     alert_level         VARCHAR(20) CHECK (alert_level IN ('CRITICAL', 'WARNING', 'OK')),
     
-    -- Location
-    server_id           INTEGER REFERENCES shared.servers(server_id),
+    -- Location (server_id may reference an is_active=FALSE server after soft-delete;
+    -- ON DELETE SET NULL handles hard-delete edge case)
+    server_id           INTEGER REFERENCES shared.servers(server_id) ON DELETE SET NULL,
     server_name         VARCHAR(255) NOT NULL,
     store_name          VARCHAR(100),
     store_location      VARCHAR(100),

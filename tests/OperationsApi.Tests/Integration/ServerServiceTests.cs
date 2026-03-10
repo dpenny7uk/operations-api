@@ -1,5 +1,4 @@
 using Microsoft.Extensions.Logging.Abstractions;
-using Npgsql;
 using OperationsApi.Services;
 using Xunit;
 
@@ -11,11 +10,7 @@ public class ServerServiceTests : IntegrationTestBase
     public ServerServiceTests(DatabaseFixture db) : base(db) { }
 
     private ServerService CreateService()
-    {
-        var conn = new NpgsqlConnection(Db.ConnectionString);
-        conn.Open();
-        return new ServerService(conn, NullLogger<ServerService>.Instance);
-    }
+        => new(OpenConnection(), NullLogger<ServerService>.Instance);
 
     // ── ListServersAsync ──────────────────────────────────────────────
 

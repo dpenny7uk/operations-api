@@ -1,5 +1,4 @@
 using Microsoft.Extensions.Logging.Abstractions;
-using Npgsql;
 using OperationsApi.Services;
 using Xunit;
 
@@ -11,11 +10,7 @@ public class CertificateServiceTests : IntegrationTestBase
     public CertificateServiceTests(DatabaseFixture db) : base(db) { }
 
     private CertificateService CreateService()
-    {
-        var conn = new NpgsqlConnection(Db.ConnectionString);
-        conn.Open();
-        return new CertificateService(conn, NullLogger<CertificateService>.Instance);
-    }
+        => new(OpenConnection(), NullLogger<CertificateService>.Instance);
 
     // ── GetSummaryAsync ──────────────────────────────────────────────
 

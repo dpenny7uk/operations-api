@@ -1,5 +1,4 @@
 using Microsoft.Extensions.Logging.Abstractions;
-using Npgsql;
 using OperationsApi.Services;
 using Xunit;
 
@@ -11,11 +10,7 @@ public class PatchingServiceTests : IntegrationTestBase
     public PatchingServiceTests(DatabaseFixture db) : base(db) { }
 
     private PatchingService CreateService()
-    {
-        var conn = new NpgsqlConnection(Db.ConnectionString);
-        conn.Open();
-        return new PatchingService(conn, NullLogger<PatchingService>.Instance);
-    }
+        => new(OpenConnection(), NullLogger<PatchingService>.Instance);
 
     // ── GetNextPatchingSummaryAsync ───────────────────────────────────
 

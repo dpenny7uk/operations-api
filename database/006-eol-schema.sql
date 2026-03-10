@@ -73,7 +73,7 @@ ORDER BY eol_end_of_life NULLS LAST;
 -- Assets running EOL or approaching-EOL software, joined to servers
 CREATE OR REPLACE VIEW eol.v_at_risk_servers AS
 SELECT
-    e.asset,
+    COALESCE(e.asset, '') AS asset,
     s.server_id,
     s.server_name,
     s.environment,
@@ -103,7 +103,7 @@ LEFT JOIN shared.servers s ON (UPPER(e.asset) = UPPER(s.server_name) OR (sa.cano
 LEFT JOIN shared.applications a ON s.primary_application_id = a.application_id
 WHERE e.is_active
   AND e.eol_end_of_life <= CURRENT_TIMESTAMP + INTERVAL '6 months'
-GROUP BY e.asset, s.server_id, s.server_name, s.environment, a.application_name, a.criticality
+GROUP BY COALESCE(e.asset, ''), s.server_id, s.server_name, s.environment, a.application_name, a.criticality
 ORDER BY impact_score DESC;
 
 -- ===========================================

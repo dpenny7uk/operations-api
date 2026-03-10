@@ -1,5 +1,4 @@
 using Microsoft.Extensions.Logging.Abstractions;
-using Npgsql;
 using OperationsApi.Services;
 using Xunit;
 
@@ -11,11 +10,7 @@ public class HealthServiceTests : IntegrationTestBase
     public HealthServiceTests(DatabaseFixture db) : base(db) { }
 
     private HealthService CreateService()
-    {
-        var conn = new NpgsqlConnection(Db.ConnectionString);
-        conn.Open();
-        return new HealthService(conn, NullLogger<HealthService>.Instance);
-    }
+        => new(OpenConnection(), NullLogger<HealthService>.Instance);
 
     // ── GetHealthSummaryAsync ────────────────────────────────────────
 

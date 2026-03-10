@@ -61,9 +61,7 @@ builder.Services.AddScoped<IDbConnection>(sp =>
     if (string.IsNullOrEmpty(connString))
         throw new InvalidOperationException("Connection string 'OperationsDb' is not configured. Set it in appsettings.json or environment variables.");
 
-    var conn = new NpgsqlConnection(connString);
-    conn.Open();
-    return conn;
+    return new NpgsqlConnection(connString);
 });
 
 // Services
@@ -154,6 +152,7 @@ if (!app.Environment.IsDevelopment())
 app.UseHttpsRedirection();
 app.UseCors();
 app.UseRateLimiter();
+app.UseSerilogRequestLogging();
 
 app.UseAuthentication();
 app.UseAuthorization();

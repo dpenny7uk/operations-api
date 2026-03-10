@@ -386,14 +386,14 @@ BEGIN
 
         -- Validate query is read-only (SELECT only).
         -- Blocks: non-SELECT statements, DDL/DML keywords, semicolons (multi-statement),
-        -- SQL comment syntax (-- and /* */), and dollar-quoting which could be used
+        -- SQL comment syntax (-- and /* */), and dollar-quoting ($tag$) which could be used
         -- to smuggle forbidden keywords past the keyword regex.
         IF v_rule.validation_query !~* '^\s*SELECT\s'
            OR v_rule.validation_query ~*  '\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|GRANT|REVOKE|COPY|EXECUTE|DO)\b'
            OR v_rule.validation_query ~ ';'
            OR v_rule.validation_query ~ '--'
            OR v_rule.validation_query ~ '/\*'
-           OR v_rule.validation_query ~ '\$\$' THEN
+           OR v_rule.validation_query ~ '\$[a-zA-Z_]*\$' THEN
             v_count := -1;
             v_sample := '[]'::jsonb;
             RAISE WARNING 'Validation rule % has unsafe query — skipped', v_rule.rule_name;

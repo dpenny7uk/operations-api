@@ -84,8 +84,8 @@ CREATE TABLE IF NOT EXISTS patching.patch_schedule (
     -- Server identification
     server_name         VARCHAR(255) NOT NULL,
     server_type         VARCHAR(20) NOT NULL CHECK (server_type IN ('onprem', 'azure')),
-    server_id           INTEGER REFERENCES shared.servers(server_id),
-    
+    server_id           INTEGER REFERENCES shared.servers(server_id) ON DELETE SET NULL, -- soft-delete pattern; see 003 comment
+
     -- From Ivanti (common fields)
     domain              VARCHAR(100),
     app                 VARCHAR(255),
