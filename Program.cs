@@ -80,6 +80,7 @@ builder.Services.AddScoped<IEolService, EolService>();
 builder.WebHost.ConfigureKestrel(options =>
     options.Limits.MaxRequestBodySize = 10 * 1024 * 1024); // 10 MB
 builder.Services.AddControllers();
+builder.Services.AddResponseCaching();
 builder.Services.AddOpenApi(options =>
 {
     options.AddDocumentTransformer((doc, ctx, ct) =>
@@ -156,10 +157,11 @@ if (!app.Environment.IsDevelopment())
 }
 app.UseHttpsRedirection();
 app.UseCors();
-app.UseRateLimiter();
 
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseRateLimiter();
+app.UseResponseCaching();
 app.UseSerilogRequestLogging();
 
 app.UseDefaultFiles();
