@@ -389,7 +389,7 @@ BEGIN
         -- SQL comment syntax (-- and /* */), and dollar-quoting ($$) which could be used
         -- to smuggle forbidden keywords past the keyword regex.
         IF v_rule.validation_query !~* '^\s*SELECT\s'
-           OR v_rule.validation_query ~*  '\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|GRANT|REVOKE|COPY|EXECUTE)\b'
+           OR v_rule.validation_query ~*  '\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|GRANT|REVOKE|COPY|EXECUTE|DO)\b'
            OR v_rule.validation_query ~ ';'
            OR v_rule.validation_query ~ '--'
            OR v_rule.validation_query ~ '/\*'
@@ -402,6 +402,7 @@ BEGIN
 
         -- Execute validation query
         BEGIN
+        SET LOCAL transaction_read_only = on;
             EXECUTE 'SELECT COUNT(*) FROM (' || v_rule.validation_query || ') sq'
             INTO v_count;
         EXCEPTION WHEN OTHERS THEN
@@ -411,6 +412,7 @@ BEGIN
         -- Get sample violations
         IF v_count > 0 THEN
             BEGIN
+                SET LOCAL transaction_read_only = on;
                 EXECUTE 'SELECT jsonb_agg(sq) FROM (SELECT * FROM (' ||
                         v_rule.validation_query || ') sq LIMIT 10) sq2'
                 INTO v_sample;
