@@ -355,6 +355,16 @@ function filterServers() {
 let cycleServerCache = {};
 
 function renderPatching(next, cycles, issues) {
+  if (!next && cycles.length === 0 && issues.length === 0) {
+    document.getElementById('nextPatchBanner').innerHTML = `
+      <div class="card" style="text-align:center;padding:2rem">
+        <h3 style="margin-bottom:0.5rem">No Patch Cycles Scheduled</h3>
+        <div class="color-muted">Patch cycles will appear here once they are created in the system.</div>
+      </div>`;
+    document.getElementById('cycleTable').innerHTML = '';
+    document.getElementById('issueTable').innerHTML = '';
+    return;
+  }
   if (next) {
     const urgency = next.daysUntil <= 3 ? 'red' : next.daysUntil <= 7 ? 'yellow' : 'green';
     document.getElementById('nextPatchBanner').innerHTML = `

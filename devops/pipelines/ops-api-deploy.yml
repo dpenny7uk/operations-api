@@ -78,7 +78,7 @@ stages:
                       }
                       Write-Host "Using pg_dump: $pgDump"
 
-                      $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
+                      $timestamp = (Get-Date).ToUniversalTime().ToString("yyyyMMdd-HHmmssZ")
                       $dumpFile = "$backupDir\ops-api-db-$timestamp.dump"
 
                       $pgpassFile = [System.IO.Path]::GetTempFileName()
@@ -187,16 +187,14 @@ stages:
                                   Write-Error "Migration failed on $($script.Name) — deployment aborted"
                                   exit 1
                               }
-                              # Compute SHA256 of the script so the tracking table can detect
-                              # if a previously-applied script has been modified on disk.
-                              $checksum = (Get-FileHash $script.FullName -Algorithm SHA256).Hash
-
                               # Record the script in the tracking table if it now exists
                               # (007 creates the table, so subsequent scripts in the same run are recorded).
                               $postCheck = & $psql -h "$(OPS_DB_HOST)" -p "$(OPS_DB_PORT)" -d "$(OPS_DB_NAME)" `
                                   -U "$(OPS_DB_MIGRATE_USER)" -t -c `
                                   "SELECT 1 FROM information_schema.tables WHERE table_schema='system' AND table_name='schema_migrations'"
                               if (($postCheck | Select-String '1') -ne $null) {
+                                  # Compute checksum after script has been fully read and applied
+                                  $checksum = (Get-FileHash $script.FullName -Algorithm SHA256).Hash
                                   $safeName = $script.Name -replace "'", "''"
                                   $safeChecksum = $checksum -replace "'", "''"
                                   & $psql -h "$(OPS_DB_HOST)" -p "$(OPS_DB_PORT)" -d "$(OPS_DB_NAME)" `
@@ -253,7 +251,7 @@ stages:
                       $deployPath = "$(deployPath)"
 
                       if (Test-Path $deployPath) {
-                          $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
+                          $timestamp = (Get-Date).ToUniversalTime().ToString("yyyyMMdd-HHmmssZ")
                           $backupPath = "${deployPath}.backup.${timestamp}"
                           Write-Host "Backing up to: $backupPath"
                           Copy-Item -Path $deployPath -Destination $backupPath -Recurse
@@ -377,11 +375,12 @@ stages:
                               if ($response.StatusCode -eq 200) {
                                   $body = $response.Content
                                   Write-Host "Response: $body"
-                                  if ($body -match "Healthy") {
+                                  $json = $body | ConvertFrom-Json
+                                  if ($json.status -eq "Healthy") {
                                       Write-Host "##[section]Deployment verified - API is healthy"
                                       exit 0
                                   } else {
-                                      Write-Warning "Status 200 but response was: $body"
+                                      Write-Warning "Status 200 but health status was: $($json.status)"
                                   }
                               }
                           } catch {
