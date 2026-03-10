@@ -497,6 +497,26 @@ table tr:hover td { background: var(--row-hover); }
   color: var(--text);
 }
 
+/* ── Count Indicators ────────────────────────────────────────────────────── */
+
+.count-indicator {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-left: auto;
+}
+
+/* ── Demo Banner ─────────────────────────────────────────────────────────── */
+
+.demo-banner {
+  background: var(--orange);
+  color: #000;
+  text-align: center;
+  padding: 0.5rem 1rem;
+  font-weight: 600;
+  font-size: 0.85rem;
+  letter-spacing: 0.02em;
+}
+
 /* ── Buttons ─────────────────────────────────────────────────────────────── */
 
 .refresh-btn {

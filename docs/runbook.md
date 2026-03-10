@@ -702,7 +702,40 @@ VALUES ('srv-web-01.contoso.com', 'srv-web-01', 'patching_html', 'FQDN used in p
 
 ---
 
-### 9.5 Health Check Failing After Deploy
+### 9.5 Resolving Unmatched Servers via API
+
+The Operations API provides write endpoints for managing server aliases and unmatched servers. These require OpsAdmin role (Windows auth).
+
+**Create a server alias** (maps an alternate name to a canonical server):
+
+```bash
+curl -X POST "https://<host>/api/servers/aliases" \
+  --negotiate -u : \
+  -H "Content-Type: application/json" \
+  -d '{"aliasName": "WEBPROD01", "canonicalName": "WEB-PROD-01", "sourceSystem": "SCCM"}'
+```
+
+**Resolve an unmatched server** (link it to a known server):
+
+```bash
+curl -X POST "https://<host>/api/servers/unmatched/<unmatchedId>/resolve" \
+  --negotiate -u : \
+  -H "Content-Type: application/json" \
+  -d '{"serverId": 42}'
+```
+
+**Ignore an unmatched server** (mark as not needing resolution):
+
+```bash
+curl -X POST "https://<host>/api/servers/unmatched/<unmatchedId>/ignore" \
+  --negotiate -u :
+```
+
+> **Note:** These endpoints require OpsAdmin role. On Windows, use `--negotiate -u :` with curl to pass Kerberos credentials. From PowerShell, use `Invoke-WebRequest -UseDefaultCredentials`.
+
+---
+
+### 9.6 Health Check Failing After Deploy
 
 **Symptoms:** Deploy pipeline health check step fails; IIS app pool may not start; API returns 5xx.
 
@@ -744,7 +777,7 @@ See [Section 5 — Rollback Procedure](#5-rollback-procedure).
 
 ---
 
-### 9.6 Database Connection Failure
+### 9.7 Database Connection Failure
 
 **Symptoms:** All syncs failing with `OperationalError: could not connect to server`.
 
@@ -793,7 +826,7 @@ WHERE datname = 'ops_platform'
 
 ---
 
-### 9.7 Databricks Unreachable
+### 9.8 Databricks Unreachable
 
 **Symptoms:** `sync_server_list` and `sync_eol_software` failing with `ConnectionError` or timeout against Databricks.
 
@@ -833,7 +866,7 @@ If `hours_since_success > 48`, consider escalating — server list may be signif
 
 ---
 
-### 9.8 Migration Failed Mid-Deploy
+### 9.9 Migration Failed Mid-Deploy
 
 **Symptoms:** Deploy pipeline failed on "Run database migrations" step. IIS was not stopped; no application files were changed.
 

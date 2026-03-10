@@ -117,11 +117,17 @@ public class EolService : BaseService<EolService>, IEolService
     public async Task<IEnumerable<EolSoftware>> GetByServerAsync(string serverName, int limit = 500)
     {
         return await Db.QueryAsync<EolSoftware>($@"
-            WITH product_counts AS (
-                SELECT eol_product, eol_product_version, COUNT(DISTINCT asset)::INT AS affected_count
+            WITH server_products AS (
+                SELECT DISTINCT eol_product, eol_product_version
                 FROM {Sql.Tables.EolSoftware}
-                WHERE is_active = TRUE
-                GROUP BY eol_product, eol_product_version
+                WHERE UPPER(asset) = UPPER(@Server) AND is_active = TRUE
+            ),
+            product_counts AS (
+                SELECT e.eol_product, e.eol_product_version, COUNT(DISTINCT e.asset)::INT AS affected_count
+                FROM {Sql.Tables.EolSoftware} e
+                JOIN server_products sp ON sp.eol_product = e.eol_product AND sp.eol_product_version = e.eol_product_version
+                WHERE e.is_active = TRUE
+                GROUP BY e.eol_product, e.eol_product_version
             )
             SELECT
                 e.eol_product AS Product,
