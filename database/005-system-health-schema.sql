@@ -371,22 +371,22 @@ RETURNS TABLE (
     result VARCHAR(20),
     violation_count INTEGER,
     execution_time_ms INTEGER
-) AS $$
+) AS $fn$
 DECLARE
     v_rule RECORD;
     v_start TIMESTAMP;
     v_count INTEGER;
     v_sample JSONB;
 BEGIN
-    FOR v_rule IN 
+    FOR v_rule IN
         SELECT * FROM system.validation_rules vr
         WHERE vr.is_active AND (p_rule_name IS NULL OR vr.rule_name = p_rule_name)
     LOOP
         v_start := clock_timestamp();
-        
+
         -- Validate query is read-only (SELECT only).
         -- Blocks: non-SELECT statements, DDL/DML keywords, semicolons (multi-statement),
-        -- SQL comment syntax (-- and /* */), and dollar-quoting ($$) which could be used
+        -- SQL comment syntax (-- and /* */), and dollar-quoting which could be used
         -- to smuggle forbidden keywords past the keyword regex.
         IF v_rule.validation_query !~* '^\s*SELECT\s'
            OR v_rule.validation_query ~*  '\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|GRANT|REVOKE|COPY|EXECUTE|DO)\b'
@@ -449,7 +449,7 @@ BEGIN
         RETURN NEXT;
     END LOOP;
 END;
-$$ LANGUAGE plpgsql;
+$fn$ LANGUAGE plpgsql;
 
 -- ===========================================
 -- VIEWS
