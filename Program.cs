@@ -74,6 +74,8 @@ builder.Services.AddScoped<ICertificateService, CertificateService>();
 builder.Services.AddScoped<IEolService, EolService>();
 
 // API configuration
+builder.WebHost.ConfigureKestrel(options =>
+    options.Limits.MaxRequestBodySize = 10 * 1024 * 1024); // 10 MB
 builder.Services.AddControllers();
 builder.Services.AddOpenApi(options =>
 {

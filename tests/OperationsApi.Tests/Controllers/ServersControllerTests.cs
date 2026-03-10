@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 using Moq;
 using OperationsApi.Controllers;
 using OperationsApi.Models;
@@ -10,7 +11,8 @@ namespace OperationsApi.Tests.Controllers;
 public class ServersControllerTests
 {
     private readonly Mock<IServerService> _svc = new();
-    private ServersController Controller => new(_svc.Object);
+    private readonly Mock<ILogger<ServersController>> _logger = new();
+    private ServersController Controller => new(_svc.Object, _logger.Object);
 
     [Fact]
     public async Task List_clamps_limit_to_max_1000()

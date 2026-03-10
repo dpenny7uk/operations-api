@@ -424,6 +424,20 @@ class SyncContext:
                     self.conn.rollback()
                 except Exception as rb_err:
                     self.logger.warning(f"Rollback after tracking failure also failed: {rb_err}")
+                # Ensure sync_status is updated even if full tracking failed,
+                # so the health dashboard and circuit breaker reflect reality.
+                try:
+                    with self.conn.cursor() as cur:
+                        cur.execute(
+                            "UPDATE system.sync_status SET status = 'error', "
+                            "last_failure_at = CURRENT_TIMESTAMP, "
+                            "consecutive_failures = consecutive_failures + 1, "
+                            "last_error_message = %s WHERE sync_name = %s",
+                            (f"Tracking failure: {e}", self.sync_name)
+                        )
+                    self.conn.commit()
+                except Exception:
+                    self.logger.error("Failed to update sync_status after tracking failure — status may be stuck at 'warning'")
 
         if self.conn:
             self.conn.close()

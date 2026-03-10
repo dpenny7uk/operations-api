@@ -7,19 +7,24 @@ namespace OperationsApi.Services;
 
 public class PatchingService : BaseService<PatchingService>, IPatchingService
 {
-    public PatchingService(IDbConnection db, ILogger<PatchingService> logger) 
+    // Typed DTOs for intermediate query results (replaces dynamic)
+    private record NextCycleRow(int CycleId, DateOnly CycleDate, int? ServersOnprem, string? Status, int? DaysUntil);
+    private record GroupCount(string? PatchGroup, int Count);
+    private record SeverityCount(string? Severity, int ServerCount);
+
+    public PatchingService(IDbConnection db, ILogger<PatchingService> logger)
         : base(db, logger) { }
 
     public async Task<NextPatchingSummary?> GetNextPatchingSummaryAsync()
     {
         // Get next active cycle
-        var cycle = await Db.QueryFirstOrDefaultAsync<dynamic>($@"
+        var cycle = await Db.QueryFirstOrDefaultAsync<NextCycleRow>($@"
             SELECT
-                cycle_id,
-                cycle_date,
-                servers_onprem,
-                status,
-                (cycle_date - CURRENT_DATE)::INT AS days_until
+                cycle_id AS CycleId,
+                cycle_date AS CycleDate,
+                servers_onprem AS ServersOnprem,
+                status AS Status,
+                (cycle_date - CURRENT_DATE)::INT AS DaysUntil
             FROM {Sql.Tables.PatchCycles}
             WHERE cycle_date >= CURRENT_DATE AND status = 'active'
             ORDER BY cycle_date
@@ -31,41 +36,41 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
 
         // Get servers by group and issues by severity in a single roundtrip
         using var multi = await Db.QueryMultipleAsync($@"
-            SELECT patch_group, COUNT(*)::INT AS count
+            SELECT patch_group AS PatchGroup, COUNT(*)::INT AS Count
             FROM {Sql.Tables.PatchSchedule}
             WHERE cycle_id = @CycleId
             GROUP BY patch_group;
 
-            SELECT ki.severity, COUNT(DISTINCT ps.server_name)::INT AS server_count
+            SELECT ki.severity AS Severity, COUNT(DISTINCT ps.server_name)::INT AS ServerCount
             FROM {Sql.Tables.PatchSchedule} ps
             JOIN {Sql.Tables.KnownIssues} ki ON ki.is_active
                 AND (ps.app = ANY(COALESCE(ki.affected_apps, ARRAY[]::TEXT[])) OR ps.service = ANY(COALESCE(ki.affected_services, ARRAY[]::TEXT[])))
             WHERE ps.cycle_id = @CycleId
             GROUP BY ki.severity;
-        ", new { CycleId = (int)cycle.cycle_id });
+        ", new { CycleId = cycle.CycleId });
 
-        var groups = await multi.ReadAsync<dynamic>();
-        var issues = await multi.ReadAsync<dynamic>();
+        var groups = await multi.ReadAsync<GroupCount>();
+        var issues = (await multi.ReadAsync<SeverityCount>()).ToList();
 
         return new NextPatchingSummary
         {
             Cycle = new PatchCycle
             {
-                CycleId = (int)cycle.cycle_id,
-                CycleDate = cycle.cycle_date is DateOnly d ? d : DateOnly.FromDateTime((DateTime)cycle.cycle_date),
-                ServerCount = (int?)cycle.servers_onprem ?? 0,
-                Status = (string?)cycle.status ?? "unknown"
+                CycleId = cycle.CycleId,
+                CycleDate = cycle.CycleDate,
+                ServerCount = cycle.ServersOnprem ?? 0,
+                Status = cycle.Status ?? "unknown"
             },
-            DaysUntil = (int?)cycle.days_until ?? 0,
+            DaysUntil = cycle.DaysUntil ?? 0,
             ServersByGroup = groups.ToDictionary(
-                g => (string?)g.patch_group ?? "Unassigned",
-                g => (int)(g.count ?? 0)
+                g => g.PatchGroup ?? "Unassigned",
+                g => g.Count
             ),
             IssuesBySeverity = issues.ToDictionary(
-                i => (string?)i.severity ?? "Unknown",
-                i => (int)(i.server_count ?? 0)
+                i => i.Severity ?? "Unknown",
+                i => i.ServerCount
             ),
-            TotalIssuesAffectingServers = issues.Sum(i => (int)(i.server_count ?? 0))
+            TotalIssuesAffectingServers = issues.Sum(i => i.ServerCount)
         };
     }
 
