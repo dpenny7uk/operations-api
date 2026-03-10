@@ -53,8 +53,8 @@
   <div id="servers" class="page">
     <div class="filter-bar">
       <span id="serverCountIndicator" class="count-indicator"></span>
-      <input type="text" id="serverSearch" placeholder="Search servers...">
-      <select id="envFilter">
+      <input type="text" id="serverSearch" placeholder="Search servers..." aria-label="Search servers">
+      <select id="envFilter" aria-label="Filter by environment">
         <option value="">All Environments</option>
         <option value="Production">Production</option>
         <option value="Staging">Staging</option>
@@ -108,13 +108,13 @@
     <div class="grid grid-4" id="certCards"></div>
     <div class="cert-timeline" id="certTimeline" style="margin-bottom:1rem"></div>
     <div class="filter-bar">
-      <select id="alertFilter">
+      <select id="alertFilter" aria-label="Filter by alert level">
         <option value="">All Levels</option>
         <option value="critical">Critical</option>
         <option value="warning">Warning</option>
         <option value="ok">OK</option>
       </select>
-      <input type="text" id="certServerSearch" placeholder="Filter by server...">
+      <input type="text" id="certServerSearch" placeholder="Filter by server..." aria-label="Filter certificates by server">
       <span id="certCountIndicator" class="count-indicator"></span>
     </div>
     <div class="card">
@@ -132,13 +132,13 @@
     <div class="grid grid-4" id="eolCards"></div>
     <div class="cert-timeline" id="eolTimeline" style="margin-bottom:1rem"></div>
     <div class="filter-bar">
-      <select id="eolAlertFilter">
+      <select id="eolAlertFilter" aria-label="Filter by EOL status">
         <option value="">All Statuses</option>
         <option value="eol">End of Life</option>
         <option value="approaching">Approaching EOL</option>
         <option value="supported">Supported</option>
       </select>
-      <input type="text" id="eolProductSearch" placeholder="Filter by product...">
+      <input type="text" id="eolProductSearch" placeholder="Filter by product..." aria-label="Filter by product">
       <span id="eolCountIndicator" class="count-indicator"></span>
     </div>
     <div class="card">

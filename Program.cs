@@ -59,14 +59,20 @@ builder.Services.AddAuthorization(options =>
         options.AddPolicy("OpsAdmin", policy => policy.RequireAuthenticatedUser());
 });
 
-// Database connection
+// Database connection — explicit pool settings for production predictability
 builder.Services.AddScoped<IDbConnection>(sp =>
 {
     var connString = config.GetConnectionString("OperationsDb");
     if (string.IsNullOrEmpty(connString))
         throw new InvalidOperationException("Connection string 'OperationsDb' is not configured. Set it in appsettings.json or environment variables.");
 
-    return new NpgsqlConnection(connString);
+    var csb = new NpgsqlConnectionStringBuilder(connString)
+    {
+        MaxPoolSize = 20,
+        MinPoolSize = 2,
+        ConnectionIdleLifetime = 300,
+    };
+    return new NpgsqlConnection(csb.ConnectionString);
 });
 
 // Services
