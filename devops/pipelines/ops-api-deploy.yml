@@ -197,9 +197,11 @@ stages:
                                   -U "$(OPS_DB_MIGRATE_USER)" -t -c `
                                   "SELECT 1 FROM information_schema.tables WHERE table_schema='system' AND table_name='schema_migrations'"
                               if (($postCheck | Select-String '1') -ne $null) {
+                                  $safeName = $script.Name -replace "'", "''"
+                                  $safeChecksum = $checksum -replace "'", "''"
                                   & $psql -h "$(OPS_DB_HOST)" -p "$(OPS_DB_PORT)" -d "$(OPS_DB_NAME)" `
                                       -U "$(OPS_DB_MIGRATE_USER)" -c `
-                                      "INSERT INTO system.schema_migrations (script_name, checksum) VALUES ('$($script.Name)', '$checksum') ON CONFLICT (script_name) DO NOTHING" | Out-Null
+                                      "INSERT INTO system.schema_migrations (script_name, checksum) VALUES ('$safeName', '$safeChecksum') ON CONFLICT (script_name) DO NOTHING" | Out-Null
                               }
                               Write-Host "  OK"
                               $ran++
