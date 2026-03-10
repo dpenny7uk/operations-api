@@ -64,6 +64,7 @@ param(
 
     [int]$CriticalDays = 7,
 
+    [ValidateRange(1, 65535)]
     [int[]]$Ports = @(443),
 
     [int]$ThrottleLimit = 20

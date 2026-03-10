@@ -12,8 +12,21 @@ namespace OperationsApi.Controllers;
 public class ServersController : ControllerBase
 {
     private readonly IServerService _svc;
+    private readonly ILogger<ServersController> _logger;
 
-    public ServersController(IServerService svc) => _svc = svc;
+    public ServersController(IServerService svc, ILogger<ServersController> logger)
+    {
+        _svc = svc;
+        _logger = logger;
+    }
+
+    private string GetUserName()
+    {
+        var name = User.Identity?.Name;
+        if (name is null)
+            _logger.LogWarning("User identity could not be resolved — attributing action to 'api'");
+        return name ?? "api";
+    }
 
     /// <summary>List servers with optional filtering by environment, application, or search term.</summary>
     [HttpGet]
@@ -82,7 +95,7 @@ public class ServersController : ControllerBase
         if (req.SourceSystem?.Length > 100)
             return BadRequest("SourceSystem must be 100 characters or less.");
 
-        var user = User.Identity?.Name ?? "api";
+        var user = GetUserName();
         await _svc.CreateAliasAsync(req.CanonicalName.Trim(), req.AliasName.Trim(), req.SourceSystem?.Trim(), user);
         return StatusCode(201);
     }
@@ -105,7 +118,7 @@ public class ServersController : ControllerBase
         if (target == null)
             return BadRequest($"Server with ID {req.ServerId} does not exist.");
 
-        var user = User.Identity?.Name ?? "api";
+        var user = GetUserName();
         var rows = await _svc.ResolveUnmatchedServerAsync(serverNameRaw, req.ServerId, req.SourceSystem?.Trim(), user);
         if (rows == 0)
             return NotFound($"No pending unmatched server entry found for '{serverNameRaw}'.");
@@ -124,7 +137,7 @@ public class ServersController : ControllerBase
         if (req?.SourceSystem?.Length > 100)
             return BadRequest("SourceSystem must be 100 characters or less.");
 
-        var user = User.Identity?.Name ?? "api";
+        var user = GetUserName();
         await _svc.IgnoreUnmatchedServerAsync(serverNameRaw, req?.SourceSystem?.Trim(), user);
         return Ok();
     }
