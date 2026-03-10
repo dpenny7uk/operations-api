@@ -152,10 +152,10 @@ if (!app.Environment.IsDevelopment())
 app.UseHttpsRedirection();
 app.UseCors();
 app.UseRateLimiter();
-app.UseSerilogRequestLogging();
 
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseSerilogRequestLogging();
 
 app.UseDefaultFiles();
 app.UseStaticFiles();

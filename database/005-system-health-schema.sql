@@ -393,7 +393,7 @@ BEGIN
            OR v_rule.validation_query ~ ';'
            OR v_rule.validation_query ~ '--'
            OR v_rule.validation_query ~ '/\*'
-           OR v_rule.validation_query ~ '\$[a-zA-Z_]*\$' THEN
+           OR v_rule.validation_query ~ '\$[a-zA-Z0-9_]*\$' THEN
             v_count := -1;
             v_sample := '[]'::jsonb;
             RAISE WARNING 'Validation rule % has unsafe query — skipped', v_rule.rule_name;

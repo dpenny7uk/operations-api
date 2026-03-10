@@ -20,12 +20,12 @@ DROP FUNCTION IF EXISTS system.run_validation(VARCHAR);
 DROP FUNCTION IF EXISTS system.record_unmatched_server(VARCHAR, VARCHAR, VARCHAR);
 DROP FUNCTION IF EXISTS system.resolve_server_name(TEXT);
 DROP FUNCTION IF EXISTS system.clear_scan_failure(VARCHAR, VARCHAR);
-DROP FUNCTION IF EXISTS system.record_scan_failure(VARCHAR, VARCHAR, TEXT);
+DROP FUNCTION IF EXISTS system.record_scan_failure(VARCHAR, VARCHAR, TEXT, VARCHAR);
 
 -- Tables (ordered to respect FK constraints)
 DROP TABLE IF EXISTS system.validation_results CASCADE;
 DROP TABLE IF EXISTS system.validation_rules CASCADE;
-DROP TABLE IF EXISTS system.server_name_aliases CASCADE;
+DROP TABLE IF EXISTS system.server_aliases CASCADE;
 DROP TABLE IF EXISTS system.unmatched_servers CASCADE;
 DROP TABLE IF EXISTS system.scan_failures CASCADE;
 DROP TABLE IF EXISTS system.sync_history CASCADE;
