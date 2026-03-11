@@ -17,7 +17,7 @@ public class CertificatesController : ControllerBase
 
     /// <summary>Get certificate summary with counts by alert level.</summary>
     [HttpGet("summary")]
-    [ResponseCache(Duration = 60, Location = ResponseCacheLocation.Any)]
+    [ResponseCache(Duration = 60, Location = ResponseCacheLocation.Client)]
     [ProducesResponseType(200)]
     public async Task<IActionResult> GetSummary()
         => Ok(await _svc.GetSummaryAsync());

@@ -161,7 +161,8 @@ stages:
                           }
 
                           if ((Get-WebAppPoolState -Name $pool).Value -ne 'Stopped') {
-                              Write-Warning "App pool did not stop within ${timeout}s — proceeding anyway"
+                              Write-Error "App pool did not stop within ${timeout}s — aborting rollback"
+                              exit 1
                           } else {
                               Write-Host "App pool stopped"
                           }

@@ -62,6 +62,14 @@ export function timeAgo(iso) {
   return fmtDate(iso);
 }
 
+export function debounce(fn, ms = 300) {
+  let timer;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), ms);
+  };
+}
+
 export function durationStr(iso) {
   if (!iso) return '\u2014';
   const ms = Date.now() - new Date(iso).getTime();

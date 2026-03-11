@@ -234,7 +234,8 @@ stages:
                           }
 
                           if ((Get-WebAppPoolState -Name $pool).Value -ne 'Stopped') {
-                              Write-Warning "App pool did not stop within ${timeout}s — proceeding anyway"
+                              Write-Error "App pool did not stop within ${timeout}s — aborting deployment"
+                              exit 1
                           } else {
                               Write-Host "App pool stopped"
                           }
@@ -349,7 +350,8 @@ stages:
                           Copy-Item "$($frontendDir.FullName)\*" $wwwroot -Recurse -Force
                           Write-Host "Frontend deployed to $wwwroot ($(Get-ChildItem $wwwroot | Measure-Object).Count files)"
                       } else {
-                          Write-Host "##[warning]No frontend found in artifact - skipping"
+                          Write-Error "No frontend found in artifact — aborting deployment"
+                          exit 1
                       }
 
                 # ── Start IIS app pool ───────────────────────────────────
