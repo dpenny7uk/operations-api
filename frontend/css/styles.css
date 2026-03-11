@@ -831,6 +831,16 @@ table tr:hover td { background: var(--row-hover); }
 .status-dot.red    { background: var(--red);    box-shadow: 0 0 8px rgba(239, 68, 68, 0.5); }
 .status-dot.orange { background: var(--orange); box-shadow: 0 0 8px rgba(251, 111, 26, 0.5); }
 
+/* Visually hidden text for screen readers on status dots */
+.status-dot::after {
+  content: attr(aria-label);
+  position: absolute;
+  width: 1px; height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
 /* ── Charts & timeline ───────────────────────────────────────────────────── */
 
 .cert-timeline {

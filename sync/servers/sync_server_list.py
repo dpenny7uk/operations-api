@@ -144,7 +144,10 @@ def sync_servers(ctx, servers: list):
         rows = cur.fetchall()
         ctx.stats.inserted, ctx.stats.updated = count_upsert_results(rows)
 
-        # Deactivate servers no longer in source
+        # Deactivate servers missing from source for 2+ consecutive syncs.
+        # Grace period: only deactivate if synced_at is >24h old (i.e. already
+        # missing from the previous run). Prevents a single bad sync from
+        # mass-deactivating servers.
         cur.execute("""
             UPDATE shared.servers SET
                 is_active = FALSE,
@@ -152,8 +155,23 @@ def sync_servers(ctx, servers: list):
             WHERE source_system = 'databricks'
               AND is_active = TRUE
               AND server_name NOT IN (SELECT server_name FROM tmp_servers)
+              AND synced_at < NOW() - INTERVAL '24 hours'
         """)
         ctx.stats.deactivated = cur.rowcount
+        # Log servers that are missing but within the grace period
+        cur.execute("""
+            SELECT COUNT(*) AS cnt FROM shared.servers
+            WHERE source_system = 'databricks'
+              AND is_active = TRUE
+              AND server_name NOT IN (SELECT server_name FROM tmp_servers)
+              AND synced_at >= NOW() - INTERVAL '24 hours'
+        """)
+        grace_count = cur.fetchone()['cnt']
+        if grace_count > 0:
+            logger.info(
+                "Grace period: %d server(s) missing from source but within 24h window — will deactivate on next sync if still absent",
+                grace_count
+            )
 
         if not ctx.dry_run:
             ctx.conn.commit()

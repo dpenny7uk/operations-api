@@ -23,6 +23,10 @@ variables:
     value: 'C:\inetpub\operations-api'
   - name: dbBackupPath
     value: 'C:\backups\ops-api-db'
+  - name: healthCheckUrl
+    value: 'http://localhost/healthz'
+  - name: backupMinAgeDays
+    value: '7'
 
 stages:
   - stage: Deploy
@@ -101,11 +105,17 @@ stages:
                       Write-Host "DB dump written to: $dumpFile"
                       Write-Host "##vso[task.setvariable variable=dbDumpFile]$dumpFile"
 
-                      # Keep last 5 dumps, remove older ones
+                      # Keep last 5 dumps, but never delete dumps younger than backupMinAgeDays
+                      $minAge = [int]"$(backupMinAgeDays)"
+                      $cutoff = (Get-Date).AddDays(-$minAge)
                       $dumps = Get-ChildItem "$backupDir\ops-api-db-*.dump" |
                           Sort-Object Name -Descending |
                           Select-Object -Skip 5
                       foreach ($old in $dumps) {
+                          if ($old.LastWriteTime -gt $cutoff) {
+                              Write-Host "Keeping recent dump (< ${minAge}d old): $($old.Name)"
+                              continue
+                          }
                           Write-Host "Removing old dump: $($old.Name)"
                           Remove-Item $old.FullName -Force
                       }
@@ -373,7 +383,7 @@ stages:
                   inputs:
                     targetType: inline
                     script: |
-                      $url = "http://localhost/healthz"
+                      $url = "$(healthCheckUrl)"
                       $maxRetries = 3
                       $retryDelay = 10
 
