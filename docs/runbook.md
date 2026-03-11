@@ -1,7 +1,7 @@
 # Operations API — Production Runbook
 
-**Version:** 1.0
-**Last Updated:** 2026-03-08
+**Version:** 1.1
+**Last Updated:** 2026-03-11
 **Audience:** Operations Engineers, DevOps Engineers, On-Call Engineers
 **Scope:** Production environment — Operations API platform
 
@@ -36,12 +36,12 @@ The Operations API is an internal platform that centralises server inventory, pa
 | Component | Technology |
 |-----------|-----------|
 | API | .NET 10, IIS on Windows Server |
-| Database | PostgreSQL 16 |
+| Database | PostgreSQL 18 |
 | Data sync | Python 3.13 (scheduled via Azure DevOps) |
 | Frontend | Static HTML/CSS/JS served from IIS |
 | Alerting | Microsoft Teams (incoming webhooks) |
 | CI/CD | Azure DevOps Pipelines |
-| Source data | Databricks (server list, EOL data), Confluence (known issues), internal HTML page (patching schedule) |
+| Source data | Databricks (server list, EOL data via asset_inventory JOIN), Confluence (known issues), internal HTML page (patching schedule) |
 
 ### Key Paths & URLs
 
@@ -75,7 +75,7 @@ The Operations API is an internal platform that centralises server inventory, pa
               └──────────┬──────────┘
                          │ psycopg2 / ADO.NET
               ┌──────────▼──────────┐
-              │   PostgreSQL 16     │
+              │   PostgreSQL 18     │
               │   ops_platform DB   │
               │                     │
               │  shared.*           │  ◄── Server inventory
@@ -302,6 +302,7 @@ Was a database migration included in this deployment?
 psql -h <OPS_DB_HOST> -p <OPS_DB_PORT> -d ops_platform -U ops_migrate
 
 # Apply rollback scripts in REVERSE order (newest first)
+\i database/rollback/008-eol-add-machine-name.sql
 \i database/rollback/007-migration-tracking.sql
 \i database/rollback/006-eol-schema.sql
 # ... continue for each migration that was in this deployment
@@ -491,7 +492,7 @@ On the next successful run, `consecutive_failures` is automatically reset to 0.
 
 | Environment Variable | Default | Effect |
 |---------------------|---------|--------|
-| `CIRCUIT_BREAKER_THRESHOLD` | `3` | Number of consecutive failures to open the circuit |
+| `CIRCUIT_BREAKER_THRESHOLD` | `3` | Number of consecutive failures to open the circuit (minimum: 1) |
 | `CIRCUIT_BREAKER_TIMEOUT_SECONDS` | `7200` | Seconds to keep circuit open (2 hours) |
 
 Both are set in the Azure DevOps variable group `operations-sync-secrets` or as pipeline variables.
@@ -1045,7 +1046,8 @@ SELECT * FROM system.check_pending_migrations(ARRAY[
     '004-patching-schema.sql',
     '005-system-health-schema.sql',
     '006-eol-schema.sql',
-    '007-migration-tracking.sql'
+    '007-migration-tracking.sql',
+    '008-eol-add-machine-name.sql'
 ]);
 -- Returns: script_name | status (applied / pending / rolled_back)
 ```
@@ -1108,7 +1110,8 @@ All secrets are stored in the Azure DevOps variable group **`operations-api-prod
 
 | Variable | Default | Used By | Notes |
 |----------|---------|---------|-------|
-| `CIRCUIT_BREAKER_THRESHOLD` | `3` | All sync scripts | Consecutive failures to open circuit |
+| `CIRCUIT_BREAKER_THRESHOLD` | `3` | All sync scripts | Consecutive failures to open circuit (floor: 1) |
+| `DATABRICKS_MIN_SERVERS` | `50` | Server sync | Minimum server count to accept from Databricks (floor: 10) |
 | `CIRCUIT_BREAKER_TIMEOUT_SECONDS` | `7200` | All sync scripts | Seconds to keep circuit open (2h) |
 
 ### IIS / Deployment (pipeline variables, not secrets)

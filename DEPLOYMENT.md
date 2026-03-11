@@ -2,7 +2,7 @@
 
 **Target:** Windows Server with IIS, .NET 10, PostgreSQL
 **Server:** Group Application Server (self-hosted Azure DevOps agent)
-**Version:** 1.1.4
+**Version:** 1.2.0
 
 This guide walks through every step of deploying the Operations API from scratch on the Group Application Server. It covers installing prerequisites, setting up the database, publishing the .NET API, configuring IIS, setting up the Python sync environment, and scheduling automated data sync pipelines.
 
@@ -55,7 +55,7 @@ This section is a condensed checklist for getting the Operations API running on 
 | **.NET 10 Hosting Bundle** | 10.0.x | Runs the ASP.NET Core API inside IIS |
 | **.NET 10 SDK** | 10.0.x | Builds/publishes the application |
 | **IIS** | 10+ | Web server — reverse proxy + Windows Auth + static files |
-| **Python** | 3.11+ | Runs scheduled sync scripts |
+| **Python** | 3.13+ | Runs scheduled sync scripts |
 | **Azure DevOps Agent** | Latest | Self-hosted agent for CI/CD pipelines |
 
 ### Deploy order (do these in sequence)
@@ -65,7 +65,7 @@ Phase 1 — Database                         Phase 2 — API + Frontend
 ─────────────────────────────               ──────────────────────────
 1. Install PostgreSQL          [Step 1]     6. Install .NET Hosting Bundle  [Step 6]
 2. Create database + users     [Step 2]     7. Install .NET SDK             [Step 7]
-3. Run schema scripts (000-007)[Step 3]     8. Publish the API              [Step 8]
+3. Run schema scripts (000-008)[Step 3]     8. Publish the API              [Step 8]
 4. Grant permissions           [Step 4]     9. Configure appsettings.json   [Step 9]
 5. Verify DB connectivity      [Step 5]    10. Enable IIS features          [Step 10]
                                            11. Create IIS app pool          [Step 11]
@@ -91,9 +91,9 @@ Run these on the Group App Server to confirm everything is working:
 
 ```cmd
 :: ── Prerequisites ──
-psql --version                        & REM Should show PostgreSQL 16+
+psql --version                        & REM Should show PostgreSQL 18+
 dotnet --list-runtimes                & REM Should show Microsoft.AspNetCore.App 10.0.x
-python --version                      & REM Should show Python 3.11+
+python --version                      & REM Should show Python 3.13+
 
 :: ── Database ──
 psql -U ops_api -d ops_platform -c "SELECT table_schema, COUNT(*) FROM information_schema.tables WHERE table_schema IN ('shared','certificates','patching','eol','system') GROUP BY table_schema ORDER BY table_schema;"
@@ -122,10 +122,10 @@ python servers/sync_server_list.py --dry-run --verbose
 | **Production config** | `C:\inetpub\operations-api\appsettings.Production.json` |
 | **IIS stdout logs** | `C:\inetpub\operations-api\logs\stdout` |
 | **Python venv** | `C:\Dev\GitHub\operations-api\sync\venv` |
-| **Database schemas** | `C:\Dev\GitHub\operations-api\database\000-*.sql` through `007-*.sql` |
+| **Database schemas** | `C:\Dev\GitHub\operations-api\database\000-*.sql` through `008-*.sql` |
 | **Deployment backups** | `C:\inetpub\operations-api.backup.*` |
 | **Azure DevOps Agent** | Check Services for `vstsagent.*` |
-| **PostgreSQL data** | `C:\Program Files\PostgreSQL\16\data` |
+| **PostgreSQL data** | `C:\Program Files\PostgreSQL\18\data` |
 
 ### Ports and networking
 
@@ -173,7 +173,7 @@ The Operations API is a full-stack platform with four main components:
                     +----------|----------+
                                |
                     +----------v----------+
-                    |    PostgreSQL 16+    |
+                    |    PostgreSQL 18+    |
                     |    (ops_platform)    |
                     +----------^----------+
                                |
@@ -192,8 +192,8 @@ The Operations API is a full-stack platform with four main components:
 |-----------|-----------|---------|
 | **Frontend** | Single HTML file (HTML/CSS/JS) | Dashboard UI — Health, Servers, Patching, Certificates, EOL tabs |
 | **API** | .NET 10, Dapper ORM, Npgsql | REST endpoints consumed by the frontend |
-| **Database** | PostgreSQL 16+ | 5 schemas: `system`, `shared`, `certificates`, `patching`, `eol` |
-| **Sync Scripts** | Python 3.11+ | Scheduled data pipelines from Databricks, HTML pages, Confluence, PowerShell CSVs |
+| **Database** | PostgreSQL 18+ | 5 schemas: `system`, `shared`, `certificates`, `patching`, `eol` |
+| **Sync Scripts** | Python 3.13+ | Scheduled data pipelines from Databricks, HTML pages, Confluence, PowerShell CSVs |
 | **CI/CD** | Azure DevOps Pipelines | Scheduled triggers running sync scripts on the self-hosted agent |
 
 ---
@@ -217,15 +217,15 @@ PostgreSQL is the database that stores all operational data.
 
 ### 1.1 Download the installer
 
-Go to https://www.postgresql.org/download/windows/ and download **PostgreSQL 16** or later. Click "Download the installer" (this uses the EnterpriseDB installer which is the easiest for Windows).
+Go to https://www.postgresql.org/download/windows/ and download **PostgreSQL 18** or later. Click "Download the installer" (this uses the EnterpriseDB installer which is the easiest for Windows).
 
 ### 1.2 Run the installer
 
 Double-click the downloaded `.exe` and follow the wizard:
 
-1. **Installation directory:** Accept the default (`C:\Program Files\PostgreSQL\16`) or choose your standard location
+1. **Installation directory:** Accept the default (`C:\Program Files\PostgreSQL\18`) or choose your standard location
 2. **Select components:** Keep all checked (PostgreSQL Server, pgAdmin 4, Stack Builder, Command Line Tools)
-3. **Data directory:** Accept the default (`C:\Program Files\PostgreSQL\16\data`)
+3. **Data directory:** Accept the default (`C:\Program Files\PostgreSQL\18\data`)
 4. **Password:** Set a strong password for the `postgres` superuser account. **Save this password** — you will need it in the next steps
 5. **Port:** `5432` (the default — keep this unless you have a conflict)
 6. **Locale:** Accept the default
@@ -246,7 +246,7 @@ This lets you run `psql` from any command prompt:
 1. Press `Win+R`, type `sysdm.cpl`, press Enter
 2. Click **Advanced** tab > **Environment Variables**
 3. Under **System variables**, find `Path`, click **Edit**
-4. Click **New** and add: `C:\Program Files\PostgreSQL\16\bin`
+4. Click **New** and add: `C:\Program Files\PostgreSQL\18\bin`
    (adjust the path if you installed to a different location or version)
 5. Click **OK** on all dialogs
 
@@ -334,9 +334,13 @@ Wait for the output. You should see `NOTICE: All extensions installed successful
 \i 'C:/Dev/GitHub/operations-api/database/004-patching-schema.sql'
 \i 'C:/Dev/GitHub/operations-api/database/005-system-health-schema.sql'
 \i 'C:/Dev/GitHub/operations-api/database/006-eol-schema.sql'
+\i 'C:/Dev/GitHub/operations-api/database/007-migration-tracking.sql'
+\i 'C:/Dev/GitHub/operations-api/database/008-eol-add-machine-name.sql'
 ```
 
 > **Adjust the paths** if your repository is cloned to a different location than `C:\Dev\GitHub\operations-api`.
+>
+> **Note:** Migration 008 is idempotent — safe to re-run. On first run it adds the `machine_name` column to `eol.end_of_life_software` and clears old databricks rows for a clean sync. On subsequent runs the block is a no-op.
 
 Each script will output `CREATE TABLE`, `CREATE INDEX`, `CREATE FUNCTION`, `INSERT`, etc. as it runs. If you see any `ERROR` messages, stop and fix the issue before continuing to the next script.
 
@@ -861,7 +865,7 @@ The sync scripts are written in Python and pull data from various sources into t
 
 ### 16.1 Download Python
 
-Go to https://www.python.org/downloads/ and download **Python 3.11** or later (3.12 or 3.13 are also fine).
+Go to https://www.python.org/downloads/ and download **Python 3.13** or later.
 
 ### 16.2 Run the installer
 
@@ -877,7 +881,7 @@ Open a **new** command prompt and run:
 python --version
 ```
 
-You should see `Python 3.11.x` (or whichever version you installed).
+You should see `Python 3.13.x` (or whichever version you installed).
 
 Also verify pip:
 
@@ -1572,6 +1576,9 @@ psql -U postgres -d ops_platform
 
 -- Example: re-apply EOL schema (updated v_at_risk_servers view with alias resolution)
 \i 'C:/Dev/GitHub/operations-api/database/006-eol-schema.sql'
+
+-- Example: add machine_name to EOL software table (idempotent — safe to re-run)
+\i 'C:/Dev/GitHub/operations-api/database/008-eol-add-machine-name.sql'
 ```
 
 > **Important:** Always run scripts in numerical order. If you need to re-run `003`, `005`, and `006`, run them in that order.
@@ -1584,7 +1591,8 @@ After applying scripts, update the migration tracking table:
 INSERT INTO system.schema_migrations (script_name, description) VALUES
     ('003-certificates-schema.sql', 'Updated: NULL valid_to flagged as CRITICAL, view includes NULL certs'),
     ('005-system-health-schema.sql', 'Updated: Added certs_server_id_mismatch validation rule'),
-    ('006-eol-schema.sql', 'Updated: v_at_risk_servers resolves server aliases')
+    ('006-eol-schema.sql', 'Updated: v_at_risk_servers resolves server aliases'),
+    ('008-eol-add-machine-name.sql', 'Added machine_name column, updated unique index and views')
 ON CONFLICT (script_name) DO UPDATE SET
     applied_at = CURRENT_TIMESTAMP,
     applied_by = CURRENT_USER,
@@ -1671,5 +1679,5 @@ GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA certificates TO ops_sync;
 |---------|-------|-----|
 | **"No agents found in pool 'Default'"** | Agent offline or wrong pool name | Check the agent is running (Services > look for `vstsagent`). Verify the pool name in the YAML matches the agent's pool |
 | **"Variable group not authorized"** | Pipeline hasn't been granted access to the variable group | Click **Permit** when prompted, or go to Library > variable group > Pipeline permissions > Allow |
-| **"Python was not found"** | `UsePythonVersion` task can't find Python 3.11 | Install Python 3.11 on the agent machine (Step 16). Or remove the `UsePythonVersion` task and ensure Python is in PATH |
+| **"Python was not found"** | `UsePythonVersion` task can't find Python 3.13 | Install Python 3.13 on the agent machine (Step 16). Or remove the `UsePythonVersion` task and ensure Python is in PATH |
 | **Pipeline never runs on schedule** | Schedule only triggers on commits to the specified branch | Make sure the YAML has `always: true` under the schedule. Push at least one commit to the `main` branch |

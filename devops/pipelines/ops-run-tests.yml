@@ -24,8 +24,8 @@ pool:
 steps:
   - task: UsePythonVersion@0
     inputs:
-      versionSpec: '>=3.11'
-    displayName: 'Use Python 3.11+'
+      versionSpec: '>=3.13'
+    displayName: 'Use Python 3.13+'
 
   - script: |
       pip install -r "$(Build.SourcesDirectory)/operations-api/sync/requirements.txt"
