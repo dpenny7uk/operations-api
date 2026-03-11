@@ -142,6 +142,8 @@ function renderCycleServers(cycleId) {
       </div>`;
   }
 
+  console.log('[cycle-debug]', { cycleId, totalCount: page.totalCount, items: servers.length, limit: page.limit, offset: page.offset, totalPages });
+
   container.innerHTML = `
     ${servers.length === 0
       ? '<div class="empty-state">No servers found</div>'
