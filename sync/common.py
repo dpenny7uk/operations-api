@@ -102,6 +102,9 @@ def http_request(
     raise last_exception  # type: ignore[misc]
 
 
+ALLOWED_QUERY_OVERRIDES = {'DATABRICKS_QUERY', 'DATABRICKS_EOL_QUERY'}
+
+
 def query_databricks(query: str, env_var_override: str = None) -> list:
     """Execute a SQL query against Databricks and return rows as dicts.
 
@@ -115,6 +118,11 @@ def query_databricks(query: str, env_var_override: str = None) -> list:
     validate_env_vars(['DATABRICKS_HOST', 'DATABRICKS_TOKEN', 'DATABRICKS_WAREHOUSE_ID'])
 
     if env_var_override:
+        if env_var_override not in ALLOWED_QUERY_OVERRIDES:
+            raise ValueError(
+                f"Invalid env_var_override '{env_var_override}' — "
+                f"must be one of {sorted(ALLOWED_QUERY_OVERRIDES)}"
+            )
         query = os.environ.get(env_var_override, query)
 
     logger = logging.getLogger('databricks')
@@ -159,6 +167,11 @@ def query_databricks(query: str, env_var_override: str = None) -> list:
             f"Databricks 'manifest.schema.columns' is not a list "
             f"(got {type(columns_raw).__name__}) — unexpected API response structure."
         )
+    for i, col in enumerate(columns_raw):
+        if not isinstance(col, dict) or 'name' not in col:
+            raise RuntimeError(
+                f"Databricks column at index {i} missing 'name' key — got {col!r}"
+            )
     columns = [col['name'].lower() for col in columns_raw]
 
     rows = [dict(zip(columns, row)) for row in result.get('result', {}).get('data_array', [])]
