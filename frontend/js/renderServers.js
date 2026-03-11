@@ -100,8 +100,8 @@ function renderUnmatchedTable(items) {
       </div>`;
     const prev = pag.querySelector('#unmatchedPrev');
     const next = pag.querySelector('#unmatchedNext');
-    if (prev) prev.addEventListener('click', () => { unmatchedPage--; renderUnmatchedTable(_filteredUnmatched); });
-    if (next) next.addEventListener('click', () => { unmatchedPage++; renderUnmatchedTable(_filteredUnmatched); });
+    if (prev) prev.onclick = () => { unmatchedPage--; renderUnmatchedTable(_filteredUnmatched); };
+    if (next) next.onclick = () => { unmatchedPage++; renderUnmatchedTable(_filteredUnmatched); };
   } else if (pag) {
     pag.remove();
   }
@@ -140,8 +140,8 @@ function renderServerTable(servers) {
       </div>`;
     const prev = pag.querySelector('#serverPrev');
     const next = pag.querySelector('#serverNext');
-    if (prev) prev.addEventListener('click', () => { serverPage--; renderServerTable(_filteredServers); });
-    if (next) next.addEventListener('click', () => { serverPage++; renderServerTable(_filteredServers); });
+    if (prev) prev.onclick = () => { serverPage--; renderServerTable(_filteredServers); };
+    if (next) next.onclick = () => { serverPage++; renderServerTable(_filteredServers); };
   } else if (pag) {
     pag.remove();
   }

@@ -1,8 +1,7 @@
 -- DEPLOYMENT ORDER: This migration MUST run BEFORE deploying the updated sync script
 -- and API code. The new sync writes machine_name which requires the column to exist.
 -- After migration, run the EOL sync immediately to populate machine_name values.
--- First sync will deactivate old rows (NULL machine_name won't match) and reinsert
--- them with machine_name populated — this is expected and harmless.
+-- This migration is idempotent — safe to re-run without data loss.
 
 BEGIN;
 
@@ -12,22 +11,29 @@ BEGIN;
 -- Previously, 'asset' held the software description (e.g. "SQL Server 2017 Database Engine Services"),
 -- not the actual server name. machine_name is the real server identifier.
 
-ALTER TABLE eol.end_of_life_software ADD COLUMN IF NOT EXISTS machine_name VARCHAR(255);
-
--- Clear existing databricks-sourced rows so the first sync after migration does a clean
--- insert rather than deactivating all old rows (which have NULL machine_name and won't
--- match the new unique key). This is safe because the sync will repopulate immediately.
-DELETE FROM eol.end_of_life_software WHERE source_system = 'databricks';
+-- Add column and clear old rows in one atomic block.
+-- The DELETE only runs if machine_name doesn't exist yet (first migration run).
+-- Re-running this migration is safe — the block is a no-op if column already exists.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'eol' AND table_name = 'end_of_life_software' AND column_name = 'machine_name'
+  ) THEN
+    ALTER TABLE eol.end_of_life_software ADD COLUMN machine_name VARCHAR(255);
+    DELETE FROM eol.end_of_life_software WHERE source_system = 'databricks';
+  END IF;
+END $$;
 
 -- Drop old unique index keyed on (product, version, asset)
 DROP INDEX IF EXISTS eol.uq_eol_product_asset;
 
 -- New unique index keyed on (product, version, machine_name)
-CREATE UNIQUE INDEX uq_eol_product_machine
+CREATE UNIQUE INDEX IF NOT EXISTS uq_eol_product_machine
     ON eol.end_of_life_software (eol_product, eol_product_version, COALESCE(machine_name, ''));
 
 -- Index for server lookups by machine_name
-CREATE INDEX idx_eol_machine_name_active
+CREATE INDEX IF NOT EXISTS idx_eol_machine_name_active
     ON eol.end_of_life_software (machine_name)
     WHERE is_active = TRUE AND machine_name IS NOT NULL;
 

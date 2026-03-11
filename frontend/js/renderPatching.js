@@ -156,9 +156,9 @@ function renderCycleServers(cycleId) {
     ${paginationHtml}`;
 
   container.querySelectorAll('.page-prev, .page-next').forEach(btn => {
-    btn.addEventListener('click', (e) => {
+    btn.onclick = (e) => {
       e.stopPropagation();
       loadCycleServersPage(parseInt(btn.dataset.cycle), parseInt(btn.dataset.offset));
-    });
+    };
   });
 }

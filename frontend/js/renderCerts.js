@@ -91,8 +91,8 @@ function renderCertTable(certs) {
       </div>`;
     const prev = pag.querySelector('#certPrev');
     const next = pag.querySelector('#certNext');
-    if (prev) prev.addEventListener('click', () => { certPage--; renderCertTable(_filteredCerts); });
-    if (next) next.addEventListener('click', () => { certPage++; renderCertTable(_filteredCerts); });
+    if (prev) prev.onclick = () => { certPage--; renderCertTable(_filteredCerts); };
+    if (next) next.onclick = () => { certPage++; renderCertTable(_filteredCerts); };
   } else if (pag) {
     pag.remove();
   }
