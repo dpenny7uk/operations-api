@@ -894,6 +894,7 @@ table tr:hover td { background: var(--row-hover); }
   font-size: var(--text-xs);
   color: var(--text-muted);
   margin-top: 0.4rem;
+  margin-bottom: 1rem;
 }
 .timeline-legend-item {
   display: flex;
@@ -910,6 +911,7 @@ table tr:hover td { background: var(--row-hover); }
 /* ── Filter bar ──────────────────────────────────────────────────────────── */
 
 .filter-bar {
+  margin-top: 0.5rem;
   margin-bottom: 1rem;
 }
 
