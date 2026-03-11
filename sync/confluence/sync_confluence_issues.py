@@ -147,10 +147,11 @@ class ConfluencePageParser(HTMLParser):
 SERVICE_NAME_RE = re.compile(
     r'\b([A-Z][a-zA-Z]+(?:\.[A-Z][a-zA-Z]+)+)\b'  # Dotted names: Rms.MRIService
     r'|'
-    # PascalCase with at least 2 components before the suffix (e.g. RmsMonitorService).
-    # Requiring >=2 components prevents single-word generics like "WindowsService" matching.
-    r'\b([A-Z][a-z]+(?:[A-Z][a-z]+)+(?:Service|Host|Engine|Agent)s?)\b'
+    # PascalCase compound name ending in a service-like suffix (e.g. RmsEngines, RmsMonitorService).
+    r'\b([A-Z][a-z]+(?:[A-Z][a-z]+)*(?:Service|Host|Engine|Agent)s?)\b'
 )
+# Generic words that match the PascalCase pattern but aren't actual service names
+_SERVICE_NAME_STOPLIST = frozenset({'WindowsService', 'WindowsAgent'})
 
 # Category to patch type mapping
 CATEGORY_MAP = {
@@ -248,7 +249,7 @@ def parse_issue_page(page: dict) -> dict:
     for text in (issue.get('fix') or '', issue.get('signature') or ''):
         for match in SERVICE_NAME_RE.finditer(text):
             svc = match.group(1) or match.group(2)
-            if svc:
+            if svc and svc not in _SERVICE_NAME_STOPLIST:
                 services.add(svc)
 
     # Scan all table cells (service tables inside Fix have names in cells)
@@ -258,7 +259,7 @@ def parse_issue_page(page: dict) -> dict:
             for cell in row:
                 for match in SERVICE_NAME_RE.finditer(cell):
                     svc = match.group(1) or match.group(2)
-                    if svc:
+                    if svc and svc not in _SERVICE_NAME_STOPLIST:
                         services.add(svc)
 
     issue['affected_services'] = sorted(services)
