@@ -260,6 +260,7 @@ Before starting, confirm you have:
 - [ ] A hostname or URL decided for the site (e.g. `ops-api.contoso.com`)
 - [ ] An SSL certificate for HTTPS (if using HTTPS — strongly recommended)
 - [ ] Access to Azure DevOps for creating pipelines (for scheduled sync jobs)
+- [ ] `OPS_DB_SSLMODE=verify-full` and `OPS_DB_SSLROOTCERT` set in the ADO variable group (see Step 18)
 
 ---
 
