@@ -10,7 +10,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from common import (
     SyncStats, validate_env_vars, get_current_user,
     create_argument_parser, configure_verbosity, http_request,
-    SyncContext, CircuitBreakerOpenError,
+    SyncContext, CircuitBreakerOpenError, ALLOWED_QUERY_OVERRIDES,
+    query_databricks,
 )
 
 
@@ -311,6 +312,102 @@ class TestCircuitBreaker:
             # 1h window: 90m is outside — should not raise
             ctx2.check_circuit_breaker()
 
+# ── query_databricks env_var_override whitelist ─────────────────────────────
+
+class TestQueryDatabricksOverrideWhitelist:
+    def test_invalid_override_raises(self):
+        """env_var_override not in ALLOWED_QUERY_OVERRIDES raises ValueError."""
+        env = {
+            'DATABRICKS_HOST': 'host',
+            'DATABRICKS_TOKEN': 'tok',
+            'DATABRICKS_WAREHOUSE_ID': 'wh',
+        }
+        with patch.dict(os.environ, env, clear=True):
+            try:
+                query_databricks("SELECT 1", env_var_override='PATH')
+                assert False, "Should have raised ValueError"
+            except ValueError as e:
+                assert 'PATH' in str(e)
+                assert 'ALLOWED' not in str(e) or 'must be one of' in str(e)
+
+    def test_valid_override_accepted(self):
+        """env_var_override in ALLOWED_QUERY_OVERRIDES proceeds (mocked HTTP)."""
+        env = {
+            'DATABRICKS_HOST': 'host',
+            'DATABRICKS_TOKEN': 'tok',
+            'DATABRICKS_WAREHOUSE_ID': 'wh',
+            'DATABRICKS_QUERY': 'SELECT 2',
+        }
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            'status': {'state': 'SUCCEEDED'},
+            'manifest': {'schema': {'columns': [{'name': 'id'}]}},
+            'result': {'data_array': [['1']]},
+        }
+        with patch.dict(os.environ, env, clear=True):
+            with patch('common.http_request', return_value=mock_resp):
+                rows = query_databricks("SELECT 1", env_var_override='DATABRICKS_QUERY')
+                assert len(rows) == 1
+
+
+# ── query_databricks column validation ──────────────────────────────────────
+
+class TestQueryDatabricksColumnValidation:
+    """Validates that Databricks response columns have a 'name' key."""
+
+    def _mock_databricks_env(self):
+        return {
+            'DATABRICKS_HOST': 'host',
+            'DATABRICKS_TOKEN': 'tok',
+            'DATABRICKS_WAREHOUSE_ID': 'wh',
+        }
+
+    def _mock_response(self, columns):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            'status': {'state': 'SUCCEEDED'},
+            'manifest': {'schema': {'columns': columns}},
+            'result': {'data_array': []},
+        }
+        return mock_resp
+
+    def test_column_missing_name_raises(self):
+        with patch.dict(os.environ, self._mock_databricks_env(), clear=True):
+            with patch('common.http_request', return_value=self._mock_response([{'type': 'INT'}])):
+                try:
+                    query_databricks("SELECT 1")
+                    assert False, "Should have raised RuntimeError"
+                except RuntimeError as e:
+                    assert 'index 0' in str(e)
+                    assert "'name'" in str(e)
+
+    def test_column_not_a_dict_raises(self):
+        with patch.dict(os.environ, self._mock_databricks_env(), clear=True):
+            with patch('common.http_request', return_value=self._mock_response(["just_a_string"])):
+                try:
+                    query_databricks("SELECT 1")
+                    assert False, "Should have raised RuntimeError"
+                except RuntimeError as e:
+                    assert 'index 0' in str(e)
+
+
+class TestCircuitBreakerContinued:
+    """Continuation of circuit breaker tests (split by inserted test class above)."""
+
+    def _make_ctx(self, dry_run=False):
+        ctx = SyncContext.__new__(SyncContext)
+        ctx.sync_name = 'test_sync'
+        ctx.display_name = 'Test Sync'
+        ctx.dry_run = dry_run
+        ctx.conn = MagicMock()
+        ctx.history_id = None
+        ctx.stats = SyncStats()
+        ctx.logger = MagicMock()
+        ctx._error_message = None
+        return ctx
+
     def test_dry_run_skips_check(self):
         """In dry-run mode the circuit breaker check is skipped entirely."""
         ctx = self._make_ctx(dry_run=True)
@@ -353,3 +450,95 @@ class TestCircuitBreaker:
         assert 'cancelled' in sql
         assert params[1] == 42  # history_id is the second bind parameter
         ctx.conn.commit.assert_called_once()
+
+
+# ── __exit__ sync_status recovery fallback (P0-3) ──────────────────────────
+
+class TestExitSyncStatusRecovery:
+    """Tests for the 3-level fallback when _complete_sync() fails in __exit__."""
+
+    def _make_ctx(self):
+        ctx = SyncContext.__new__(SyncContext)
+        ctx.sync_name = 'test_sync'
+        ctx.display_name = 'Test Sync'
+        ctx.dry_run = False
+        ctx.conn = MagicMock()
+        ctx.history_id = 99
+        ctx.stats = SyncStats()
+        ctx.logger = MagicMock()
+        ctx._error_message = None
+        ctx.app_name = 'test_app'
+        return ctx
+
+    def test_complete_sync_fails_fallback_succeeds(self):
+        """_complete_sync fails → rollback + direct UPDATE succeeds."""
+        ctx = self._make_ctx()
+        ctx._complete_sync = MagicMock(side_effect=Exception("tracking broke"))
+
+        mock_cur = MagicMock()
+        ctx.conn.cursor.return_value.__enter__.return_value = mock_cur
+        ctx.conn.cursor.return_value.__exit__.return_value = False
+
+        ctx.__exit__(RuntimeError, RuntimeError("sync failed"), None)
+
+        # Rollback was called, then fallback UPDATE executed
+        ctx.conn.rollback.assert_called()
+        mock_cur.execute.assert_called_once()
+        sql = mock_cur.execute.call_args[0][0]
+        assert "status = 'error'" in sql
+        ctx.conn.commit.assert_called()
+
+    def test_complete_sync_and_fallback_fail_recovery_succeeds(self):
+        """_complete_sync fails → fallback fails → fresh recovery connection succeeds."""
+        ctx = self._make_ctx()
+        ctx._complete_sync = MagicMock(side_effect=Exception("tracking broke"))
+
+        # First rollback succeeds, but the fallback cursor.execute fails
+        call_count = [0]
+        def cursor_side_effect():
+            call_count[0] += 1
+            if call_count[0] <= 1:
+                # First cursor call (fallback UPDATE) — commit raises
+                mock_cm = MagicMock()
+                mock_cm.__enter__ = MagicMock(return_value=MagicMock())
+                mock_cm.__exit__ = MagicMock(return_value=False)
+                return mock_cm
+            raise Exception("connection dead")
+
+        ctx.conn.cursor.side_effect = cursor_side_effect
+        ctx.conn.commit.side_effect = Exception("commit failed")
+
+        # Mock recovery connection
+        recovery_cur = MagicMock()
+        recovery_conn = MagicMock()
+        recovery_conn.cursor.return_value.__enter__.return_value = recovery_cur
+        recovery_conn.cursor.return_value.__exit__.return_value = False
+        recovery_conn.__enter__ = MagicMock(return_value=recovery_conn)
+        recovery_conn.__exit__ = MagicMock(return_value=False)
+
+        with patch('common.get_database_connection', return_value=recovery_conn):
+            ctx.__exit__(RuntimeError, RuntimeError("sync failed"), None)
+
+        recovery_cur.execute.assert_called_once()
+        sql = recovery_cur.execute.call_args[0][0]
+        assert "status = 'error'" in sql
+        recovery_conn.commit.assert_called_once()
+
+    def test_all_three_levels_fail_logs_critical(self):
+        """All 3 fallback levels fail → CRITICAL logged with manual intervention msg."""
+        ctx = self._make_ctx()
+        ctx._complete_sync = MagicMock(side_effect=Exception("tracking broke"))
+
+        # Fallback UPDATE also fails
+        mock_cur = MagicMock()
+        mock_cur.execute.side_effect = Exception("fallback failed")
+        ctx.conn.cursor.return_value.__enter__.return_value = mock_cur
+        ctx.conn.cursor.return_value.__exit__.return_value = False
+
+        # Recovery connection also fails
+        with patch('common.get_database_connection', side_effect=Exception("no recovery")):
+            ctx.__exit__(RuntimeError, RuntimeError("sync failed"), None)
+
+        ctx.logger.critical.assert_called_once()
+        critical_msg = ctx.logger.critical.call_args[0][0]
+        assert 'MANUAL INTERVENTION REQUIRED' in critical_msg
