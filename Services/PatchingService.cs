@@ -58,7 +58,7 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
             {
                 CycleId = cycle.CycleId,
                 CycleDate = cycle.CycleDate,
-                ServerCount = cycle.ServersOnprem ?? 0,
+                ServerCount = groups.Sum(g => g.Count),
                 Status = cycle.Status ?? "unknown"
             },
             DaysUntil = cycle.DaysUntil ?? 0,
@@ -78,20 +78,20 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
     {
         var sql = $@"
             SELECT
-                cycle_id AS CycleId,
-                cycle_date AS CycleDate,
-                servers_onprem AS ServerCount,
-                status AS Status
-            FROM {Sql.Tables.PatchCycles}";
+                pc.cycle_id AS CycleId,
+                pc.cycle_date AS CycleDate,
+                COALESCE((SELECT COUNT(*)::INT FROM {Sql.Tables.PatchSchedule} ps WHERE ps.cycle_id = pc.cycle_id), 0) AS ServerCount,
+                pc.status AS Status
+            FROM {Sql.Tables.PatchCycles} pc";
 
         if (upcomingOnly)
         {
-            sql += " WHERE cycle_date >= CURRENT_DATE AND status = 'active'";
-            sql += " ORDER BY cycle_date LIMIT @Limit";
+            sql += " WHERE pc.cycle_date >= CURRENT_DATE AND pc.status = 'active'";
+            sql += " ORDER BY pc.cycle_date LIMIT @Limit";
         }
         else
         {
-            sql += " ORDER BY cycle_date DESC LIMIT @Limit";
+            sql += " ORDER BY pc.cycle_date DESC LIMIT @Limit";
         }
 
         return await Db.QueryAsync<PatchCycle>(sql, new { Limit = limit });
