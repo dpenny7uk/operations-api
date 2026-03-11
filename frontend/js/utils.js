@@ -62,11 +62,11 @@ export function timeAgo(iso) {
   return fmtDate(iso);
 }
 
-export function debounce(fn, ms = 300) {
+export function debounce(fn, delay = 250) {
   let timer;
   return (...args) => {
     clearTimeout(timer);
-    timer = setTimeout(() => fn(...args), ms);
+    timer = setTimeout(() => fn(...args), delay);
   };
 }
 
@@ -77,9 +77,4 @@ export function durationStr(iso) {
   if (ms < 3600000) return `${Math.floor(ms/60000)} min`;
   if (ms < 86400000) return `${Math.floor(ms/3600000)}h ${Math.floor((ms%3600000)/60000)}m`;
   return `${Math.floor(ms/86400000)}d`;
-}
-
-export function debounce(fn, delay = 250) {
-  let t;
-  return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), delay); };
 }

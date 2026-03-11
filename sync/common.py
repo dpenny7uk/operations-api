@@ -6,6 +6,7 @@ import logging
 import argparse
 import re
 import socket
+import random
 import time
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
@@ -95,7 +96,7 @@ def http_request(
             )
 
         if attempt < retries:
-            wait = backoff ** attempt
+            wait = backoff ** attempt + random.uniform(0, 1)
             logger.info("Retrying in %.1f seconds...", wait)
             time.sleep(wait)
 

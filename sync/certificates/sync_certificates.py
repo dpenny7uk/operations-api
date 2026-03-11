@@ -281,6 +281,26 @@ def sync_certificates(ctx, records: list):
         )
 
 
+def validate_csv_path(csv_path: str) -> None:
+    """Reject paths that contain directory traversal sequences or absolute paths to unexpected locations."""
+    # Normalise separators for consistent checking
+    norm = os.path.normpath(csv_path)
+    # Block absolute paths outside the working directory on non-Windows paths (e.g. /etc/passwd)
+    if os.path.isabs(norm):
+        # Allow Windows absolute paths to expected share/scan directories only
+        allowed_prefixes = [r'C:\Scans', r'C:\CertScans', r'\\']
+        if not any(norm.startswith(p) for p in allowed_prefixes):
+            raise ValueError(
+                f"CERT_CSV_PATH '{csv_path}' is an absolute path outside allowed directories. "
+                "Expected a relative path or a path under C:\\Scans or a UNC share."
+            )
+    # Block traversal sequences regardless of platform
+    if '..' in norm.split(os.sep):
+        raise ValueError(
+            f"CERT_CSV_PATH '{csv_path}' contains directory traversal sequence (..)."
+        )
+
+
 def main():
     parser = create_argument_parser("Sync certificate scan results from CSV to PostgreSQL")
     parser.add_argument(
@@ -290,6 +310,8 @@ def main():
     )
     args = parser.parse_args()
     configure_verbosity(args.verbose)
+
+    validate_csv_path(args.csv)
 
     with SyncContext("certificate_scan", "Certificate Scan Sync", dry_run=args.dry_run) as ctx:
         ctx.check_circuit_breaker()

@@ -3,12 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
 <title>GES Operations Dashboard</title>
 <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
 
-<div id="demoBanner" class="demo-banner" style="display:none" role="alert" aria-live="assertive" aria-atomic="true">
+<div id="demoBanner" class="demo-banner" style="display:none" role="status" aria-live="polite" aria-atomic="true">
   DEMO MODE — API not reachable. Data shown is example only.
 </div>
 
@@ -26,8 +27,8 @@
   </div>
   <div class="header-right flex-center gap-md">
     <span id="lastUpdated" class="last-updated"></span>
-    <button id="themeToggle" class="theme-toggle" title="Toggle light/dark mode" aria-label="Toggle theme">&#9790;</button>
-    <button id="refreshBtn" class="refresh-btn">Refresh</button>
+    <button id="themeToggle" class="theme-toggle" title="Toggle light/dark theme" aria-label="Toggle light/dark theme">&#9790;</button>
+    <button id="refreshBtn" class="refresh-btn" aria-label="Refresh dashboard data">Refresh</button>
   </div>
 </header>
 

@@ -212,7 +212,7 @@ To run the application on your dev machine without a full server deployment:
 
 1. **Clone the repo:**
    ```cmd
-   git clone https://github.com/YOUR_ORG/operations-api.git
+   git clone https://github.com/dpenny7uk/operations-api.git
    cd operations-api
    ```
 
