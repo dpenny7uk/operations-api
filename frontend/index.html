@@ -13,8 +13,8 @@
   DEMO MODE — API not reachable. Data shown is example only.
 </div>
 
-<header>
-  <div class="header-left">
+<header class="flex-between">
+  <div class="header-left flex-center gap-md">
     <h1>GES Operations Dashboard</h1>
     <span id="overallStatus"></span>
     <nav>
@@ -25,7 +25,7 @@
       <button data-page="eol">End of Life</button>
     </nav>
   </div>
-  <div class="header-right">
+  <div class="header-right flex-center gap-md">
     <span id="lastUpdated" class="last-updated"></span>
     <button id="themeToggle" class="theme-toggle" title="Toggle light/dark mode" aria-label="Toggle theme">&#9790;</button>
     <button id="refreshBtn" class="refresh-btn">Refresh</button>
@@ -36,7 +36,52 @@
 
   <!-- HEALTH PAGE -->
   <div id="health" class="page active">
-    <div class="grid grid-4" id="healthCards"></div>
+    <!-- Top: System Status + Critical Issues -->
+    <div class="dashboard-grid">
+      <div class="card dash-status-card overflow-hidden" id="systemStatusCard"></div>
+      <div class="dash-critical-wrap min-w-0">
+        <h3 class="dash-section-label text-heading">Critical Issues</h3>
+        <div class="dash-critical-grid" id="criticalCards"></div>
+      </div>
+    </div>
+
+    <!-- Mid: Recent Alerts + Key Metrics -->
+    <div class="dashboard-grid equal">
+      <div class="card dash-panel dash-panel-alerts">
+        <h3 class="dash-panel-title">Recent Alerts</h3>
+        <div id="recentAlerts" class="alert-feed flex-col"></div>
+      </div>
+      <div class="card dash-panel dash-panel-metrics">
+        <h3 class="dash-panel-title">Key Metrics</h3>
+        <div id="keyMetrics" class="metrics-grid"></div>
+      </div>
+    </div>
+
+    <!-- Bottom: Unreachable + Unmatched summary tables -->
+    <div class="dashboard-grid equal">
+      <div class="card dash-panel">
+        <div class="dash-panel-header flex-between">
+          <h3 class="dash-panel-title">Unreachable Servers</h3>
+          <button class="view-all-link" data-goto="servers">View All &rsaquo;</button>
+        </div>
+        <table>
+          <thead><tr><th>Name</th><th>Environment</th><th>Last Seen</th><th>Duration</th></tr></thead>
+          <tbody id="unreachableTable"></tbody>
+        </table>
+      </div>
+      <div class="card dash-panel">
+        <div class="dash-panel-header flex-between">
+          <h3 class="dash-panel-title">Unmatched Servers</h3>
+          <button class="view-all-link" data-goto="servers">View All &rsaquo;</button>
+        </div>
+        <table>
+          <thead><tr><th>Raw Name</th><th>Source</th><th>First Seen</th></tr></thead>
+          <tbody id="dashUnmatchedTable"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Sync Statuses -->
     <h2 class="section-title">Sync Statuses</h2>
     <div class="card">
       <table>
@@ -50,13 +95,24 @@
 
   <!-- SERVERS PAGE -->
   <div id="servers" class="page">
-    <div class="filter-bar">
+    <!-- Summary row -->
+    <div class="dashboard-grid">
+      <div class="card dash-status-card overflow-hidden" id="serverSummaryCard"></div>
+      <div class="dash-critical-wrap min-w-0">
+        <h3 class="dash-section-label text-heading">By Environment</h3>
+        <div class="dash-critical-grid" id="serverEnvCards"></div>
+      </div>
+    </div>
+
+    <div class="filter-bar flex flex-wrap gap-sm">
       <input type="text" id="serverSearch" placeholder="Search servers..." aria-label="Search servers">
       <select id="envFilter" aria-label="Filter by environment">
         <option value="">All Environments</option>
         <option value="Production">Production</option>
         <option value="Staging">Staging</option>
+        <option value="UAT">UAT</option>
         <option value="Development">Development</option>
+        <option value="SIT">SIT</option>
       </select>
       <span id="serverCountIndicator" class="count-indicator"></span>
     </div>
@@ -68,6 +124,7 @@
         <tbody id="serverTable"></tbody>
       </table>
     </div>
+
     <h2 class="section-title">Unmatched Servers</h2>
     <div class="card">
       <table>
@@ -81,9 +138,9 @@
 
   <!-- PATCHING PAGE -->
   <div id="patching" class="page">
-    <div id="nextPatchBanner"></div>
-    <h2 class="section-title">Patch Cycles</h2>
-    <div class="card">
+    <div id="nextPatchBanner" class="mb-md"></div>
+    <div class="card dash-panel mb-md">
+      <h3 class="dash-panel-title">Patch Cycles</h3>
       <table>
         <thead><tr>
           <th>Cycle Date</th><th>Servers</th><th>Status</th>
@@ -91,23 +148,31 @@
         <tbody id="cycleTable"></tbody>
       </table>
     </div>
-    <h2 class="section-title">Known Issues</h2>
-    <div class="card">
-      <table>
-        <thead><tr>
-          <th>Title</th><th>Severity</th><th>Application</th><th>Windows</th><th>SQL</th><th>Fix</th>
-        </tr></thead>
-        <tbody id="issueTable"></tbody>
-      </table>
+    <div class="card dash-panel">
+      <h3 class="dash-panel-title">Known Issues</h3>
+      <div class="scroll-wrap">
+        <table>
+          <thead><tr>
+            <th>Title</th><th>Severity</th><th>Application</th><th>Windows</th><th>SQL</th><th>Fix</th>
+          </tr></thead>
+          <tbody id="issueTable"></tbody>
+        </table>
+      </div>
     </div>
   </div>
 
   <!-- CERTIFICATES PAGE -->
   <div id="certificates" class="page">
-    <div class="grid grid-4" id="certCards"></div>
+    <div class="dashboard-grid">
+      <div class="card dash-status-card overflow-hidden" id="certStatusCard"></div>
+      <div class="dash-critical-wrap min-w-0">
+        <h3 class="dash-section-label text-heading">Certificate Status</h3>
+        <div class="dash-critical-grid" id="certCards"></div>
+      </div>
+    </div>
     <div class="cert-timeline" id="certTimeline"></div>
     <div class="timeline-legend" id="certTimelineLegend"></div>
-    <div class="filter-bar">
+    <div class="filter-bar flex flex-wrap gap-sm">
       <select id="alertFilter" aria-label="Filter by alert level">
         <option value="">All Levels</option>
         <option value="critical">Critical</option>
@@ -129,10 +194,14 @@
 
   <!-- END OF LIFE PAGE -->
   <div id="eol" class="page">
-    <div class="grid grid-4" id="eolCards"></div>
-    <div class="cert-timeline" id="eolTimeline"></div>
-    <div class="timeline-legend" id="eolTimelineLegend"></div>
-    <div class="filter-bar">
+    <div class="dashboard-grid">
+      <div class="card dash-status-card overflow-hidden" id="eolStatusCard"></div>
+      <div class="dash-critical-wrap min-w-0">
+        <h3 class="dash-section-label text-heading">EOL Status</h3>
+        <div class="dash-critical-grid" id="eolCards"></div>
+      </div>
+    </div>
+    <div class="filter-bar flex flex-wrap gap-sm">
       <select id="eolAlertFilter" aria-label="Filter by EOL status">
         <option value="">All Statuses</option>
         <option value="eol">End of Life</option>

@@ -3,113 +3,188 @@ const API_BASE = window.location.hostname === 'localhost'
     ? 'http://localhost:5000/api'
     : window.location.origin + '/api';
 
-// --- Demo data (used when the API is unreachable) ---
-const DEMO = {
-  health: {
-    overallStatus: 'healthy',
-    syncStatuses: [
-      { syncName: 'databricks_servers', status: 'success', lastSuccessAt: new Date(Date.now() - 3600000).toISOString(), hoursSinceSuccess: 1.0, freshnessStatus: 'healthy', recordsProcessed: 342, consecutiveFailures: 0, expectedSchedule: 'Every 6 hours' },
-      { syncName: 'patching_schedule_html', status: 'success', lastSuccessAt: new Date(Date.now() - 7200000).toISOString(), hoursSinceSuccess: 2.0, freshnessStatus: 'healthy', recordsProcessed: 156, consecutiveFailures: 0, expectedSchedule: 'Every 12 hours' },
-      { syncName: 'confluence_issues', status: 'warning', lastSuccessAt: new Date(Date.now() - 86400000).toISOString(), hoursSinceSuccess: 24.0, freshnessStatus: 'stale', recordsProcessed: 28, consecutiveFailures: 2, lastErrorMessage: 'Sync error occurred \u2014 check server logs', expectedSchedule: 'Every 6 hours' },
-      { syncName: 'certificate_scan', status: 'success', lastSuccessAt: new Date(Date.now() - 14400000).toISOString(), hoursSinceSuccess: 4.0, freshnessStatus: 'healthy', recordsProcessed: 89, consecutiveFailures: 0, expectedSchedule: 'Daily' },
+// --- Demo data generator (used when the API is unreachable) ---
+const DEMO = (() => {
+  // Seeded pseudo-random for deterministic demo data
+  let _seed = 42;
+  const rand = () => { _seed = (_seed * 16807 + 0) % 2147483647; return (_seed - 1) / 2147483646; };
+  const pick = arr => arr[Math.floor(rand() * arr.length)];
+  const pad = (n, w = 2) => String(n).padStart(w, '0');
+  const DAY = 86400000;
+
+  // --- Generate 520 servers ---
+  const envSpec = [
+    ['Production', 'PROD', 200], ['Staging', 'STG', 80], ['UAT', 'UAT', 80],
+    ['Development', 'DEV', 100], ['SIT', 'SIT', 60]
+  ];
+  const prefixes = ['WEB','SQL','APP','API','SVC','BATCH','ETL','RPT','MON','DC',
+                     'FILE','CACHE','MSG','LOG','AUTH','VPN','DNS','NTP','SCAN','BACKUP'];
+  const apps = ['Customer Portal','API Gateway','Database Cluster','Monitoring','CI/CD',
+                'Admin Panel','Reporting','Data Warehouse','Message Broker','Identity Service',
+                'File Share','Backup Service','DNS Service','VPN Gateway','Cache Layer',
+                'ETL Pipeline','Batch Processing','Log Aggregator','Security Scanner','Mail Relay'];
+  const groups = ['Group-A','Group-B','Group-C','Group-D'];
+
+  const servers = [];
+  let serverId = 1;
+  for (const [env, envShort, count] of envSpec) {
+    for (let i = 1; i <= count; i++) {
+      const prefix = prefixes[(i - 1) % prefixes.length];
+      const name = `${prefix}-${envShort}-${pad(i)}`;
+      servers.push({
+        serverId: serverId++,
+        serverName: name,
+        fqdn: `${name.toLowerCase()}.corp.local`,
+        environment: env,
+        applicationName: apps[(i - 1) % apps.length],
+        patchGroup: env === 'Development' && rand() < 0.3 ? null : pick(groups),
+        isActive: rand() > 0.05
+      });
+    }
+  }
+
+  // --- Generate 1000 certificates ---
+  const cnPrefixes = ['*.corp.local','api.corp.com','mail.corp.com','admin.corp.local',
+    'monitor.corp.local','db.corp.local','ldap.corp.local','intranet.corp.local',
+    'vpn.corp.com','sso.corp.com','tableau.corp.com','grafana.corp.local',
+    'jenkins.corp.local','nexus.corp.local','sonar.corp.local','jira.corp.com',
+    'confluence.corp.com','bitbucket.corp.com','artifactory.corp.local','vault.corp.local',
+    'consul.corp.local','redis.corp.local','kafka.corp.local','elastic.corp.local',
+    'kibana.corp.local','prometheus.corp.local','alertmanager.corp.local','minio.corp.local',
+    'harbor.corp.local','keycloak.corp.local'];
+
+  const certs = [];
+  // 30 critical, 120 warning, 850 ok
+  const certDist = [
+    [30, 1, 14, 'critical'],
+    [120, 15, 60, 'warning'],
+    [850, 61, 365, 'ok']
+  ];
+  let certId = 1;
+  for (const [count, minDays, maxDays, level] of certDist) {
+    for (let i = 0; i < count; i++) {
+      const days = minDays + Math.floor(rand() * (maxDays - minDays + 1));
+      const cn = i < cnPrefixes.length ? cnPrefixes[i] : `svc-${pad(certId, 4)}.corp.local`;
+      certs.push({
+        certId: certId++,
+        subjectCn: cn,
+        serverName: pick(servers).serverName,
+        validTo: new Date(Date.now() + days * DAY).toISOString(),
+        daysUntilExpiry: days,
+        alertLevel: level
+      });
+    }
+  }
+  const certSummary = { criticalCount: 30, warningCount: 120, okCount: 850, totalCount: 1000 };
+
+  // --- Unreachable servers (12) ---
+  const unreachable = [];
+  const usedIdx = new Set();
+  while (unreachable.length < 12) {
+    const idx = Math.floor(rand() * servers.length);
+    if (usedIdx.has(idx)) continue;
+    usedIdx.add(idx);
+    const s = servers[idx];
+    unreachable.push({
+      serverName: s.serverName, environment: s.environment,
+      lastSeen: new Date(Date.now() - Math.floor(rand() * 3600000)).toISOString()
+    });
+  }
+
+  // --- Unmatched servers (15) ---
+  const unmatchedRaw = ['WEBPROD01','SQLPRD1','APPPRD02','SVCPROD3','MONPROD1',
+    'unknown-host-42','unknown-host-99','DEVBLD01','ETLSVR1','RPTPRD02',
+    'CACHEPRD1','MSGPROD1','FILEPRD02','DNSPRD1','BKUPPROD1'];
+  const sources = ['SCCM','Qualys','Splunk','CrowdStrike'];
+  const unmatched = unmatchedRaw.map((raw, i) => ({
+    serverNameRaw: raw,
+    sourceSystem: sources[i % sources.length],
+    occurrenceCount: 1 + Math.floor(rand() * 30),
+    firstSeenAt: new Date(Date.now() - Math.floor(rand() * 90 * DAY)).toISOString(),
+    lastSeenAt: new Date().toISOString(),
+    closestMatch: raw.startsWith('unknown') ? null : servers[Math.floor(rand() * 50)].serverName
+  }));
+
+  // --- Cycle servers for patching (20 from prod/staging) ---
+  const patchServers = servers.filter(s => s.environment === 'Production' || s.environment === 'Staging').slice(0, 20);
+  const cycleItems = patchServers.map((s, i) => ({
+    scheduleId: i + 1, serverName: s.serverName, patchGroup: s.patchGroup || 'Group-A',
+    scheduledTime: `0${2 + Math.floor(i / 5)}:00`.slice(-5), application: s.applicationName,
+    hasKnownIssue: rand() < 0.2, issueCount: rand() < 0.2 ? 1 + Math.floor(rand() * 2) : 0
+  }));
+
+  // --- EOL detail using generated server names ---
+  const pickN = (n) => { const out = []; for (let i = 0; i < n; i++) out.push(pick(servers).serverName); return [...new Set(out)]; };
+
+  return {
+    health: {
+      overallStatus: 'healthy',
+      syncStatuses: [
+        { syncName: 'databricks_servers', status: 'success', lastSuccessAt: new Date(Date.now() - 3600000).toISOString(), hoursSinceSuccess: 1.0, freshnessStatus: 'healthy', recordsProcessed: 520, consecutiveFailures: 0, expectedSchedule: 'Every 6 hours' },
+        { syncName: 'patching_schedule_html', status: 'success', lastSuccessAt: new Date(Date.now() - 7200000).toISOString(), hoursSinceSuccess: 2.0, freshnessStatus: 'healthy', recordsProcessed: 260, consecutiveFailures: 0, expectedSchedule: 'Every 12 hours' },
+        { syncName: 'confluence_issues', status: 'warning', lastSuccessAt: new Date(Date.now() - 86400000).toISOString(), hoursSinceSuccess: 24.0, freshnessStatus: 'stale', recordsProcessed: 28, consecutiveFailures: 2, lastErrorMessage: 'Sync error occurred \u2014 check server logs', expectedSchedule: 'Every 6 hours' },
+        { syncName: 'certificate_scan', status: 'success', lastSuccessAt: new Date(Date.now() - 14400000).toISOString(), hoursSinceSuccess: 4.0, freshnessStatus: 'healthy', recordsProcessed: 1000, consecutiveFailures: 0, expectedSchedule: 'Daily' },
+      ],
+      unmatchedServersCount: 15,
+      unreachableServersCount: 12,
+      lastUpdated: new Date().toISOString()
+    },
+    unreachableServers: unreachable,
+    servers,
+    unmatched,
+    nextPatch: {
+      cycle: { cycleId: 12, cycleDate: new Date(Date.now() + 5 * DAY).toISOString(), serverCount: 260, status: 'Scheduled' },
+      daysUntil: 5,
+      serversByGroup: { 'Group-A': 72, 'Group-B': 68, 'Group-C': 65, 'Group-D': 55 },
+      issuesBySeverity: { 'High': 2, 'Medium': 5, 'Low': 3 },
+      totalIssuesAffectingServers: 48
+    },
+    cycles: [
+      { cycleId: 12, cycleDate: new Date(Date.now() + 5 * DAY).toISOString(), serverCount: 260, status: 'Scheduled' },
+      { cycleId: 11, cycleDate: new Date(Date.now() - 25 * DAY).toISOString(), serverCount: 255, status: 'Completed' },
+      { cycleId: 10, cycleDate: new Date(Date.now() - 55 * DAY).toISOString(), serverCount: 248, status: 'Completed' },
     ],
-    unmatchedServersCount: 7,
-    unreachableServersCount: 4,
-    lastUpdated: new Date().toISOString()
-  },
-  servers: [
-    { serverId: 1, serverName: 'WEB-PROD-01', fqdn: 'web-prod-01.corp.local', environment: 'Production', applicationName: 'Customer Portal', patchGroup: 'Group-A', isActive: true },
-    { serverId: 2, serverName: 'WEB-PROD-02', fqdn: 'web-prod-02.corp.local', environment: 'Production', applicationName: 'Customer Portal', patchGroup: 'Group-A', isActive: true },
-    { serverId: 3, serverName: 'SQL-PROD-01', fqdn: 'sql-prod-01.corp.local', environment: 'Production', applicationName: 'Database Cluster', patchGroup: 'Group-B', isActive: true },
-    { serverId: 4, serverName: 'APP-STG-01', fqdn: 'app-stg-01.corp.local', environment: 'Staging', applicationName: 'API Gateway', patchGroup: 'Group-C', isActive: true },
-    { serverId: 5, serverName: 'DEV-BUILD-01', fqdn: 'dev-build-01.corp.local', environment: 'Development', applicationName: 'CI/CD', patchGroup: null, isActive: true },
-    { serverId: 6, serverName: 'WEB-PROD-03', fqdn: 'web-prod-03.corp.local', environment: 'Production', applicationName: 'Admin Panel', patchGroup: 'Group-A', isActive: false },
-    { serverId: 7, serverName: 'SQL-STG-01', fqdn: 'sql-stg-01.corp.local', environment: 'Staging', applicationName: 'Database Cluster', patchGroup: 'Group-C', isActive: true },
-    { serverId: 8, serverName: 'MONITOR-01', fqdn: 'monitor-01.corp.local', environment: 'Production', applicationName: 'Monitoring', patchGroup: 'Group-B', isActive: true },
-  ],
-  unmatched: [
-    { serverNameRaw: 'WEBPROD01', sourceSystem: 'SCCM', occurrenceCount: 15, firstSeenAt: '2025-12-01T00:00:00Z', lastSeenAt: new Date().toISOString(), closestMatch: 'WEB-PROD-01' },
-    { serverNameRaw: 'unknown-host-42', sourceSystem: 'Qualys', occurrenceCount: 3, firstSeenAt: '2026-02-15T00:00:00Z', lastSeenAt: new Date().toISOString(), closestMatch: null },
-    { serverNameRaw: 'SQLPROD1', sourceSystem: 'SCCM', occurrenceCount: 8, firstSeenAt: '2026-01-10T00:00:00Z', lastSeenAt: new Date().toISOString(), closestMatch: 'SQL-PROD-01' },
-  ],
-  nextPatch: {
-    cycle: { cycleId: 12, cycleDate: new Date(Date.now() + 5 * 86400000).toISOString(), serverCount: 45, status: 'Scheduled' },
-    daysUntil: 5,
-    serversByGroup: { 'Group-A': 22, 'Group-B': 18, 'Group-C': 15, 'Group-D': 13 },
-    issuesBySeverity: { 'High': 2, 'Medium': 5, 'Low': 3 },
-    totalIssuesAffectingServers: 12
-  },
-  cycles: [
-    { cycleId: 12, cycleDate: new Date(Date.now() + 5 * 86400000).toISOString(), serverCount: 45, status: 'Scheduled' },
-    { cycleId: 11, cycleDate: new Date(Date.now() - 25 * 86400000).toISOString(), serverCount: 44, status: 'Completed' },
-    { cycleId: 10, cycleDate: new Date(Date.now() - 55 * 86400000).toISOString(), serverCount: 43, status: 'Completed' },
-  ],
-  issues: [
-    { issueId: 1, title: 'KB5034441 fails on small recovery partition', severity: 'High', application: null, appliesToWindows: true, appliesToSql: false, fix: 'Resize recovery partition to 1GB' },
-    { issueId: 2, title: 'SQL CU requires SSMS restart', severity: 'Medium', application: 'SQL Server', appliesToWindows: false, appliesToSql: true, fix: 'Restart SSMS after patching' },
-    { issueId: 3, title: '.NET 8 runtime conflict with legacy app', severity: 'High', application: 'Legacy CRM', appliesToWindows: true, appliesToSql: false, fix: 'Pin .NET runtime version' },
-    { issueId: 4, title: 'Cluster failover during patch window', severity: 'Medium', application: 'Database Cluster', appliesToWindows: true, appliesToSql: true, fix: 'Drain node before patching' },
-    { issueId: 5, title: 'TLS 1.0 disabled after security update', severity: 'Low', application: null, appliesToWindows: true, appliesToSql: false, fix: 'Update legacy clients' },
-  ],
-  cycleServers: {
-    12: {
-      items: [
-        { scheduleId: 1, serverName: 'WEB-PROD-01', patchGroup: 'Group-A', scheduledTime: '02:00', application: 'Customer Portal', hasKnownIssue: true, issueCount: 1 },
-        { scheduleId: 2, serverName: 'WEB-PROD-02', patchGroup: 'Group-A', scheduledTime: '02:00', application: 'Customer Portal', hasKnownIssue: false, issueCount: 0 },
-        { scheduleId: 3, serverName: 'SQL-PROD-01', patchGroup: 'Group-B', scheduledTime: '03:00', application: 'Database Cluster', hasKnownIssue: true, issueCount: 2 },
-        { scheduleId: 4, serverName: 'MONITOR-01', patchGroup: 'Group-B', scheduledTime: '03:00', application: 'Monitoring', hasKnownIssue: false, issueCount: 0 },
-        { scheduleId: 5, serverName: 'APP-STG-01', patchGroup: 'Group-C', scheduledTime: '06:00', application: 'API Gateway', hasKnownIssue: false, issueCount: 0 },
-      ],
-      totalCount: 5, limit: 100, offset: 0
+    issues: [
+      { issueId: 1, title: 'KB5034441 fails on small recovery partition', severity: 'High', application: null, appliesToWindows: true, appliesToSql: false, fix: 'Resize recovery partition to 1GB' },
+      { issueId: 2, title: 'SQL CU requires SSMS restart', severity: 'Medium', application: 'SQL Server', appliesToWindows: false, appliesToSql: true, fix: 'Restart SSMS after patching' },
+      { issueId: 3, title: '.NET 8 runtime conflict with legacy app', severity: 'High', application: 'Legacy CRM', appliesToWindows: true, appliesToSql: false, fix: 'Pin .NET runtime version' },
+      { issueId: 4, title: 'Cluster failover during patch window', severity: 'Medium', application: 'Database Cluster', appliesToWindows: true, appliesToSql: true, fix: 'Drain node before patching' },
+      { issueId: 5, title: 'TLS 1.0 disabled after security update', severity: 'Low', application: null, appliesToWindows: true, appliesToSql: false, fix: 'Update legacy clients' },
+    ],
+    cycleServers: {
+      12: { items: cycleItems, totalCount: cycleItems.length, limit: 100, offset: 0 },
+      11: { items: cycleItems.slice(0, 5), totalCount: 5, limit: 100, offset: 0 },
+      10: { items: [], totalCount: 0, limit: 100, offset: 0 },
     },
-    11: {
-      items: [
-        { scheduleId: 9, serverName: 'WEB-PROD-01', patchGroup: 'Group-A', scheduledTime: '02:00', application: 'Customer Portal', hasKnownIssue: false, issueCount: 0 },
-      ],
-      totalCount: 1, limit: 100, offset: 0
+    eolSummary: { eolCount: 4, approachingCount: 6, supportedCount: 35, unknownCount: 0, totalCount: 45, affectedServers: 180 },
+    eolSoftware: [
+      { product: 'Windows Server', version: '2012 R2', endOfLife: '2023-10-10T00:00:00Z', endOfExtendedSupport: '2026-10-13T00:00:00Z', endOfSupport: '2023-10-10T00:00:00Z', alertLevel: 'eol', affectedAssets: 25 },
+      { product: 'SQL Server', version: '2014', endOfLife: '2024-07-09T00:00:00Z', endOfExtendedSupport: '2024-07-09T00:00:00Z', endOfSupport: '2019-07-09T00:00:00Z', alertLevel: 'eol', affectedAssets: 18 },
+      { product: '.NET Framework', version: '4.6.1', endOfLife: '2022-04-26T00:00:00Z', endOfExtendedSupport: null, endOfSupport: '2022-04-26T00:00:00Z', alertLevel: 'eol', affectedAssets: 40 },
+      { product: 'Windows Server', version: '2016', endOfLife: '2027-01-12T00:00:00Z', endOfExtendedSupport: '2027-01-12T00:00:00Z', endOfSupport: '2022-01-11T00:00:00Z', alertLevel: 'approaching', affectedAssets: 65 },
+      { product: 'SQL Server', version: '2016', endOfLife: '2026-07-14T00:00:00Z', endOfExtendedSupport: '2026-07-14T00:00:00Z', endOfSupport: '2021-07-13T00:00:00Z', alertLevel: 'approaching', affectedAssets: 30 },
+      { product: 'IIS', version: '10.0', endOfLife: '2026-10-13T00:00:00Z', endOfExtendedSupport: null, endOfSupport: '2026-10-13T00:00:00Z', alertLevel: 'approaching', affectedAssets: 22 },
+      { product: 'Windows Server', version: '2019', endOfLife: '2029-01-09T00:00:00Z', endOfExtendedSupport: '2029-01-09T00:00:00Z', endOfSupport: '2024-01-09T00:00:00Z', alertLevel: 'supported', affectedAssets: 110 },
+      { product: 'SQL Server', version: '2019', endOfLife: '2030-01-08T00:00:00Z', endOfExtendedSupport: '2030-01-08T00:00:00Z', endOfSupport: '2025-01-07T00:00:00Z', alertLevel: 'supported', affectedAssets: 75 },
+      { product: 'Windows Server', version: '2022', endOfLife: '2031-10-14T00:00:00Z', endOfExtendedSupport: '2031-10-14T00:00:00Z', endOfSupport: '2026-10-13T00:00:00Z', alertLevel: 'supported', affectedAssets: 150 },
+      { product: '.NET', version: '8.0', endOfLife: '2026-11-10T00:00:00Z', endOfExtendedSupport: null, endOfSupport: '2026-11-10T00:00:00Z', alertLevel: 'approaching', affectedAssets: 70 },
+    ],
+    eolDetail: {
+      'Windows Server|2012 R2': { assets: pickN(25) },
+      'SQL Server|2014': { assets: pickN(18) },
+      '.NET Framework|4.6.1': { assets: pickN(40) },
+      'Windows Server|2016': { assets: pickN(65) },
+      'SQL Server|2016': { assets: pickN(30) },
+      'IIS|10.0': { assets: pickN(22) },
+      'Windows Server|2019': { assets: pickN(110) },
+      'SQL Server|2019': { assets: pickN(75) },
+      'Windows Server|2022': { assets: pickN(150) },
+      '.NET|8.0': { assets: pickN(70) },
     },
-    10: { items: [], totalCount: 0, limit: 100, offset: 0 },
-  },
-  eolSummary: { eolCount: 4, approachingCount: 6, supportedCount: 35, unknownCount: 0, totalCount: 45, affectedServers: 18 },
-  eolSoftware: [
-    { product: 'Windows Server', version: '2012 R2', endOfLife: '2023-10-10T00:00:00Z', endOfExtendedSupport: '2026-10-13T00:00:00Z', endOfSupport: '2023-10-10T00:00:00Z', alertLevel: 'eol', affectedAssets: 5 },
-    { product: 'SQL Server', version: '2014', endOfLife: '2024-07-09T00:00:00Z', endOfExtendedSupport: '2024-07-09T00:00:00Z', endOfSupport: '2019-07-09T00:00:00Z', alertLevel: 'eol', affectedAssets: 3 },
-    { product: '.NET Framework', version: '4.6.1', endOfLife: '2022-04-26T00:00:00Z', endOfExtendedSupport: null, endOfSupport: '2022-04-26T00:00:00Z', alertLevel: 'eol', affectedAssets: 8 },
-    { product: 'Windows Server', version: '2016', endOfLife: '2027-01-12T00:00:00Z', endOfExtendedSupport: '2027-01-12T00:00:00Z', endOfSupport: '2022-01-11T00:00:00Z', alertLevel: 'approaching', affectedAssets: 12 },
-    { product: 'SQL Server', version: '2016', endOfLife: '2026-07-14T00:00:00Z', endOfExtendedSupport: '2026-07-14T00:00:00Z', endOfSupport: '2021-07-13T00:00:00Z', alertLevel: 'approaching', affectedAssets: 6 },
-    { product: 'IIS', version: '10.0', endOfLife: '2026-10-13T00:00:00Z', endOfExtendedSupport: null, endOfSupport: '2026-10-13T00:00:00Z', alertLevel: 'approaching', affectedAssets: 4 },
-    { product: 'Windows Server', version: '2019', endOfLife: '2029-01-09T00:00:00Z', endOfExtendedSupport: '2029-01-09T00:00:00Z', endOfSupport: '2024-01-09T00:00:00Z', alertLevel: 'supported', affectedAssets: 22 },
-    { product: 'SQL Server', version: '2019', endOfLife: '2030-01-08T00:00:00Z', endOfExtendedSupport: '2030-01-08T00:00:00Z', endOfSupport: '2025-01-07T00:00:00Z', alertLevel: 'supported', affectedAssets: 15 },
-    { product: 'Windows Server', version: '2022', endOfLife: '2031-10-14T00:00:00Z', endOfExtendedSupport: '2031-10-14T00:00:00Z', endOfSupport: '2026-10-13T00:00:00Z', alertLevel: 'supported', affectedAssets: 30 },
-    { product: '.NET', version: '8.0', endOfLife: '2026-11-10T00:00:00Z', endOfExtendedSupport: null, endOfSupport: '2026-11-10T00:00:00Z', alertLevel: 'approaching', affectedAssets: 14 },
-  ],
-  eolDetail: {
-    'Windows Server|2012 R2': { assets: ['SQL-PROD-01', 'WEB-PROD-03', 'APP-LEGACY-01', 'FILE-SVR-02', 'PRINT-SVR-01'] },
-    'SQL Server|2014': { assets: ['SQL-PROD-01', 'SQL-STG-01', 'RPT-SVR-01'] },
-    '.NET Framework|4.6.1': { assets: ['WEB-PROD-01', 'WEB-PROD-02', 'WEB-PROD-03', 'APP-STG-01', 'APP-LEGACY-01', 'SVC-PROD-01', 'SVC-PROD-02', 'BATCH-01'] },
-    'Windows Server|2016': { assets: ['WEB-PROD-01', 'WEB-PROD-02', 'WEB-PROD-03', 'SQL-PROD-01', 'SQL-STG-01', 'APP-STG-01', 'MONITOR-01', 'DC-01', 'DC-02', 'FILE-SVR-01', 'FILE-SVR-02', 'PRINT-SVR-01'] },
-    'SQL Server|2016': { assets: ['SQL-PROD-01', 'SQL-STG-01', 'RPT-SVR-01', 'DW-PROD-01', 'DW-PROD-02', 'ETL-SVR-01'] },
-    'IIS|10.0': { assets: ['WEB-PROD-01', 'WEB-PROD-02', 'WEB-PROD-03', 'APP-STG-01'] },
-    'Windows Server|2019': { assets: ['APP-PROD-01', 'APP-PROD-02', 'APP-PROD-03', 'SVC-PROD-01', 'SVC-PROD-02', 'API-PROD-01', 'API-PROD-02', 'BATCH-01', 'BATCH-02', 'CI-BUILD-01', 'CI-BUILD-02', 'VPN-01', 'AUTH-01', 'MAIL-01', 'DNS-01', 'DNS-02', 'NTP-01', 'LOG-01', 'LOG-02', 'BACKUP-01', 'BACKUP-02', 'SCAN-01'] },
-    'SQL Server|2019': { assets: ['SQL-PROD-02', 'SQL-PROD-03', 'SQL-DEV-01', 'DW-PROD-03', 'DW-STG-01', 'ETL-SVR-02', 'RPT-SVR-02', 'RPT-SVR-03', 'SSAS-01', 'SSIS-01', 'SSRS-01', 'LOG-DB-01', 'AUDIT-DB-01', 'CONFIG-DB-01', 'CACHE-DB-01'] },
-    'Windows Server|2022': { assets: Array.from({length: 30}, (_, i) => `SRV-2022-${String(i+1).padStart(2,'0')}`) },
-    '.NET|8.0': { assets: ['API-PROD-01', 'API-PROD-02', 'API-STG-01', 'SVC-PROD-01', 'SVC-PROD-02', 'SVC-STG-01', 'WEB-PROD-01', 'WEB-PROD-02', 'WEB-PROD-03', 'APP-PROD-01', 'APP-PROD-02', 'BATCH-01', 'BATCH-02', 'CI-BUILD-01'] },
-  },
-  certSummary: { criticalCount: 3, warningCount: 8, okCount: 79, totalCount: 90 },
-  certificates: [
-    { certId: 1, subjectCn: '*.corp.local', serverName: 'WEB-PROD-01', validTo: new Date(Date.now() + 5 * 86400000).toISOString(), daysUntilExpiry: 5, alertLevel: 'critical' },
-    { certId: 2, subjectCn: 'api.corp.com', serverName: 'WEB-PROD-02', validTo: new Date(Date.now() + 12 * 86400000).toISOString(), daysUntilExpiry: 12, alertLevel: 'critical' },
-    { certId: 3, subjectCn: 'mail.corp.com', serverName: 'MAIL-01', validTo: new Date(Date.now() + 8 * 86400000).toISOString(), daysUntilExpiry: 8, alertLevel: 'critical' },
-    { certId: 4, subjectCn: 'admin.corp.local', serverName: 'WEB-PROD-03', validTo: new Date(Date.now() + 22 * 86400000).toISOString(), daysUntilExpiry: 22, alertLevel: 'warning' },
-    { certId: 5, subjectCn: 'monitor.corp.local', serverName: 'MONITOR-01', validTo: new Date(Date.now() + 35 * 86400000).toISOString(), daysUntilExpiry: 35, alertLevel: 'warning' },
-    { certId: 6, subjectCn: 'db.corp.local', serverName: 'SQL-PROD-01', validTo: new Date(Date.now() + 45 * 86400000).toISOString(), daysUntilExpiry: 45, alertLevel: 'ok' },
-    { certId: 7, subjectCn: 'ldap.corp.local', serverName: 'DC-01', validTo: new Date(Date.now() + 180 * 86400000).toISOString(), daysUntilExpiry: 180, alertLevel: 'ok' },
-    { certId: 8, subjectCn: 'intranet.corp.local', serverName: 'WEB-PROD-01', validTo: new Date(Date.now() + 250 * 86400000).toISOString(), daysUntilExpiry: 250, alertLevel: 'ok' },
-    { certId: 9, subjectCn: 'vpn.corp.com', serverName: 'VPN-01', validTo: new Date(Date.now() + 28 * 86400000).toISOString(), daysUntilExpiry: 28, alertLevel: 'warning' },
-    { certId: 10, subjectCn: 'sso.corp.com', serverName: 'AUTH-01', validTo: new Date(Date.now() + 90 * 86400000).toISOString(), daysUntilExpiry: 90, alertLevel: 'ok' },
-    { certId: 11, subjectCn: 'tableau.contoso.com', serverName: 'Tableau-Prod', validTo: new Date(Date.now() + 42 * 86400000).toISOString(), daysUntilExpiry: 42, alertLevel: 'ok' },
-  ]
-};
+    certSummary,
+    certificates: certs
+  };
+})();
 
 // --- State ---
 let allServers = [];
@@ -272,8 +347,57 @@ function wireCardFilters(containerId, filterFn) {
   });
 }
 
-// --- Render: Health ---
-function renderHealth(data) {
+// Wire up clickable critical-card grids (gradient cards)
+function wireCriticalCardFilters(containerId, filterFn) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  container.querySelectorAll('.critical-card[data-filter]').forEach(card => {
+    card.addEventListener('click', () => {
+      const filter = card.dataset.filter;
+      const isActive = card.classList.contains('card-selected');
+      container.querySelectorAll('.critical-card').forEach(c => c.classList.remove('card-selected'));
+      if (isActive) {
+        filterFn(null);
+      } else {
+        card.classList.add('card-selected');
+        filterFn(filter);
+      }
+    });
+  });
+}
+
+// Sync critical card selection state
+function syncCriticalCardSelection(containerId, level) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  container.querySelectorAll('.critical-card').forEach(c => c.classList.remove('card-selected'));
+  if (level) {
+    const match = Array.from(container.querySelectorAll('.critical-card[data-filter]'))
+      .find(c => c.dataset.filter === level);
+    if (match) match.classList.add('card-selected');
+  }
+}
+
+// --- Render: Health (Dashboard) ---
+function timeAgo(iso) {
+  if (!iso) return '\u2014';
+  const ms = Date.now() - new Date(iso).getTime();
+  if (ms < 60000) return 'just now';
+  if (ms < 3600000) return `${Math.floor(ms/60000)} min ago`;
+  if (ms < 86400000) return `${Math.floor(ms/3600000)}h ago`;
+  return fmtDate(iso);
+}
+
+function durationStr(iso) {
+  if (!iso) return '\u2014';
+  const ms = Date.now() - new Date(iso).getTime();
+  if (ms < 60000) return '<1 min';
+  if (ms < 3600000) return `${Math.floor(ms/60000)} min`;
+  if (ms < 86400000) return `${Math.floor(ms/3600000)}h ${Math.floor((ms%3600000)/60000)}m`;
+  return `${Math.floor(ms/86400000)}d`;
+}
+
+function renderHealth(data, servers, unmatched, certSummary, certs, nextPatch) {
   const syncs = data.syncStatuses || [];
   const failCount = syncs.filter(s => s.status === 'error' || s.consecutiveFailures > 0).length;
   const status = (data.overallStatus || '').toLowerCase();
@@ -282,34 +406,131 @@ function renderHealth(data) {
   document.getElementById('overallStatus').innerHTML = `${dot(overallColor)}<span class="header-status">${esc(data.overallStatus)}</span>`;
   document.getElementById('lastUpdated').textContent = `Updated ${fmtTime(data.lastUpdated)}`;
 
-  const statusAlert = status === 'error' ? ' card-alert-red' : status === 'warning' ? ' card-alert-orange' : '';
-  document.getElementById('healthCards').innerHTML = `
-    <div class="card${statusAlert}">
-      <h3>Overall Status</h3>
-      <div class="value color-${overallColor}">${esc(data.overallStatus)}</div>
-    </div>
-    <div class="card">
-      <h3>Active Syncs</h3>
-      <div class="value">${syncs.length}</div>
-      <div class="sub">${syncs.filter(s=>s.freshnessStatus==='healthy').length} healthy</div>
-    </div>
-    <div class="card${cardAlert(data.unmatchedServersCount, {red: 10, orange: 5, yellow: 1})}">
-      <h3>Unmatched Servers</h3>
-      <div class="value">${num(data.unmatchedServersCount)}</div>
-      <div class="sub">Need resolution</div>
-    </div>
-    <div class="card${cardAlert(data.unreachableServersCount, {red: 5, orange: 1})}">
-      <h3>Unreachable</h3>
-      <div class="value ${num(data.unreachableServersCount) ? 'color-orange' : 'color-green'}">${num(data.unreachableServersCount)}</div>
-      <div class="sub">Scan failures</div>
-    </div>
-    <div class="card${cardAlert(failCount, {red: 1})}">
-      <h3>Sync Failures</h3>
-      <div class="value ${failCount ? 'color-red' : 'color-green'}">${failCount}</div>
-      <div class="sub">Consecutive failures</div>
-    </div>
-  `;
+  // System Status card
+  const statusClass = status === 'healthy' ? 'status-healthy' : status === 'error' ? 'status-error' : 'status-warning';
+  const statusIcon = status === 'healthy' ? '\u2705' : status === 'error' ? '\u274C' : '\u26A0\uFE0F';
+  document.getElementById('systemStatusCard').className = `card dash-status-card overflow-hidden ${statusClass}`;
+  document.getElementById('systemStatusCard').innerHTML = `
+    <h3>System Status</h3>
+    <div class="dash-status-value">
+      <span class="status-icon">${statusIcon}</span>
+      <span class="color-${overallColor}">${esc(data.overallStatus)}</span>
+    </div>`;
 
+  // Critical Issues cards
+  document.getElementById('criticalCards').innerHTML = `
+    <div class="critical-card critical-teal">
+      <div class="critical-num">${num(data.unreachableServersCount)}</div>
+      <div class="critical-label">Unreachable</div>
+      <div class="critical-delta"><span class="delta-icon">\u25B2</span> ${num(data.unreachableServersCount)} today</div>
+    </div>
+    <div class="critical-card critical-orange">
+      <div class="critical-num">${num(data.unmatchedServersCount)}</div>
+      <div class="critical-label">Unmatched Servers</div>
+      <div class="critical-delta"><span class="delta-icon">\u25B2</span> ${num(data.unmatchedServersCount)} today</div>
+    </div>
+    <div class="critical-card critical-red">
+      <div class="critical-num">${failCount}</div>
+      <div class="critical-label">Sync Failures</div>
+      <div class="critical-delta"><span class="delta-icon">\u25C6</span> ${failCount > 0 ? '+' : ''}${failCount} today</div>
+    </div>`;
+
+  // Recent Alerts — synthesize from certs, syncs, unreachable
+  const alerts = [];
+  const unreachable = usingDemo ? (DEMO.unreachableServers || []) : [];
+  unreachable.forEach(s => {
+    alerts.push({
+      icon: 'icon-red', iconChar: '\u25A0',
+      title: `<strong>${esc(s.serverName)}</strong> <span class="alert-status color-red">unreachable</span>`,
+      sub: `\u25B2 ${num(data.unreachableServersCount)} total`,
+      time: timeAgo(s.lastSeen)
+    });
+  });
+  syncs.filter(s => s.consecutiveFailures > 0).forEach(s => {
+    alerts.push({
+      icon: 'icon-orange', iconChar: '\u25A0',
+      title: `<strong>${esc(s.syncName)}</strong> <span class="alert-status color-orange">sync failed</span>`,
+      sub: `\u25B2 ${num(s.consecutiveFailures)} failures`,
+      time: timeAgo(s.lastSuccessAt)
+    });
+  });
+  (certs || []).filter(c => (c.alertLevel || '').toLowerCase() === 'critical').slice(0, 2).forEach(c => {
+    alerts.push({
+      icon: 'icon-yellow', iconChar: '\u25C6',
+      title: `<strong>${esc(c.serverName)}</strong> cert <span class="alert-status color-orange">expires in ${num(c.daysUntilExpiry)} days</span>`,
+      sub: `\u25B2 1 total`,
+      time: timeAgo(c.validTo)
+    });
+  });
+
+  document.getElementById('recentAlerts').innerHTML = alerts.length === 0
+    ? '<div class="empty-state">No active alerts</div>'
+    : alerts.slice(0, 5).map(a => `
+      <div class="alert-item">
+        <div class="alert-icon ${a.icon}">${a.iconChar}</div>
+        <div class="alert-body">
+          <div class="alert-title">${a.title}</div>
+          <div class="alert-sub">${a.sub}</div>
+        </div>
+        <div class="alert-time">${a.time}</div>
+      </div>`).join('');
+
+  // Key Metrics
+  const serverList = servers || [];
+  const envCounts = {};
+  serverList.forEach(s => { envCounts[s.environment || 'Unknown'] = (envCounts[s.environment || 'Unknown'] || 0) + 1; });
+
+  const cs = certSummary || {};
+  const np = nextPatch || {};
+  const patchServers = np.cycle ? num(np.cycle.serverCount) : 0;
+  const patchGroups = np.serversByGroup || {};
+
+  document.getElementById('keyMetrics').innerHTML = `
+    <div class="metric-card">
+      <h4>Servers</h4>
+      <div class="metric-big">${serverList.length}<span> total</span></div>
+      <div class="metric-detail">
+        ${Object.entries(envCounts).map(([env, count]) => `<div class="metric-row"><span class="color-${env === 'Production' ? 'red' : env === 'Staging' ? 'yellow' : 'blue'}">${count}</span> <span>${esc(env)}</span></div>`).join('')}
+      </div>
+    </div>
+    <div class="metric-card metric-green">
+      <h4><span class="metric-icon">\u2705</span> Patch Compliance</h4>
+      <div class="metric-big">${patchServers > 0 ? Math.round((patchServers / Math.max(serverList.length, 1)) * 100) : '\u2014'}${patchServers > 0 ? '<span>%</span>' : ''}</div>
+      <div class="metric-detail">
+        <div>Scheduled: ${patchServers} servers</div>
+        ${Object.entries(patchGroups).map(([g, c]) => `<div class="metric-row"><span>${esc(g)}:</span> <strong>${c}</strong></div>`).join('')}
+      </div>
+    </div>
+    <div class="metric-card metric-accent">
+      <h4>Certificates</h4>
+      <div class="metric-big">${num(cs.totalCount)}<span> total</span></div>
+      <div class="metric-detail">
+        <div class="color-red">${num(cs.criticalCount)} Expiring Soon</div>
+        ${(certs || []).filter(c => c.alertLevel === 'critical').slice(0, 3).map(c => `<div class="metric-row"><span class="color-red">\u25CF</span> ${esc(c.serverName)}</div>`).join('')}
+      </div>
+    </div>`;
+
+  // Unreachable servers table
+  document.getElementById('unreachableTable').innerHTML = unreachable.length === 0
+    ? `<tr><td colspan="4" class="empty-state">No unreachable servers</td></tr>`
+    : unreachable.map(s => `<tr>
+      <td><strong>${esc(s.serverName)}</strong></td>
+      <td>${badge(s.environment || 'Unknown', s.environment === 'Production' ? 'red' : 'blue')}</td>
+      <td class="color-muted">${timeAgo(s.lastSeen)}</td>
+      <td class="color-muted">${durationStr(s.lastSeen)}</td>
+    </tr>`).join('');
+
+  // Unmatched servers summary
+  const unmatchedList = unmatched || [];
+  document.getElementById('dashUnmatchedTable').innerHTML = unmatchedList.length === 0
+    ? `<tr><td colspan="3" class="empty-state">No unmatched servers</td></tr>`
+    : unmatchedList.slice(0, 5).map(u => `<tr>
+      <td><strong>${esc(u.serverNameRaw)}</strong></td>
+      <td>${badge(u.sourceSystem, 'blue')}</td>
+      <td class="color-muted">${fmtDate(u.firstSeenAt)}</td>
+    </tr>`).join('');
+
+  // Sync table
   document.getElementById('syncTable').innerHTML = syncs.map(s => `<tr>
     <td><strong>${esc(s.syncName)}</strong></td>
     <td>${statusBadge(s.freshnessStatus)}</td>
@@ -323,21 +544,86 @@ function renderHealth(data) {
 // --- Render: Servers ---
 function renderServers(servers, unmatched) {
   allServers = servers;
-  renderServerTable(servers);
 
-  document.getElementById('unmatchedTable').innerHTML = unmatched.map(u => `<tr>
+  // Summary cards
+  const active = servers.filter(s => s.isActive).length;
+  const inactive = servers.length - active;
+  const envCounts = {};
+  servers.forEach(s => { envCounts[s.environment || 'Unknown'] = (envCounts[s.environment || 'Unknown'] || 0) + 1; });
+  const envColors = { Production: 'critical-red', Staging: 'critical-yellow', UAT: 'critical-orange', Development: 'critical-blue', SIT: 'critical-teal' };
+
+  document.getElementById('serverSummaryCard').className = 'card dash-status-card overflow-hidden status-healthy';
+  document.getElementById('serverSummaryCard').innerHTML = `
+    <h3>Server Inventory</h3>
+    <div class="dash-status-value">${servers.length}</div>
+    <div class="sub" style="margin-top:0.5rem">${active} active \u00B7 ${inactive} inactive</div>`;
+
+  document.getElementById('serverEnvCards').innerHTML = Object.entries(envCounts).map(([env, count]) => `
+    <div class="critical-card ${envColors[env] || 'critical-blue'}">
+      <div class="critical-num">${count}</div>
+      <div class="critical-label">${esc(env)}</div>
+      <div class="critical-delta">${servers.filter(s => s.environment === env && s.isActive).length} active</div>
+    </div>`).join('');
+
+  renderServerTable(servers);
+  allUnmatched = unmatched;
+  renderUnmatchedTable(unmatched);
+}
+
+const SERVER_PAGE_SIZE = 20;
+let unmatchedPage = 0;
+let allUnmatched = [];
+let _filteredUnmatched = [];
+
+function renderUnmatchedTable(items) {
+  _filteredUnmatched = items;
+  const total = items.length;
+  const totalPages = Math.ceil(total / SERVER_PAGE_SIZE);
+  const start = unmatchedPage * SERVER_PAGE_SIZE;
+  const page = items.slice(start, start + SERVER_PAGE_SIZE);
+
+  document.getElementById('unmatchedTable').innerHTML = page.map(u => `<tr>
     <td><code>${esc(u.serverNameRaw)}</code></td>
     <td>${badge(u.sourceSystem, 'blue')}</td>
     <td>${num(u.occurrenceCount)}</td>
     <td>${fmtDate(u.firstSeenAt)}</td>
     <td>${u.closestMatch ? `<span class="color-green">${esc(u.closestMatch)}</span>` : '<span class="color-muted">None</span>'}</td>
   </tr>`).join('');
+
+  const tableCard = document.getElementById('unmatchedTable').closest('.card');
+  let pag = tableCard.querySelector('.pagination');
+  if (totalPages > 1) {
+    if (!pag) { pag = document.createElement('div'); pag.className = 'pagination flex-between'; tableCard.appendChild(pag); }
+    pag.innerHTML = `
+      <span>Page ${unmatchedPage + 1} of ${totalPages}</span>
+      <div class="page-btns flex">
+        <button ${unmatchedPage === 0 ? 'disabled' : ''} id="unmatchedPrev">\u2190 Prev</button>
+        <button ${unmatchedPage >= totalPages - 1 ? 'disabled' : ''} id="unmatchedNext">Next \u2192</button>
+      </div>`;
+    const prev = pag.querySelector('#unmatchedPrev');
+    const next = pag.querySelector('#unmatchedNext');
+    if (prev) prev.addEventListener('click', () => { unmatchedPage--; renderUnmatchedTable(_filteredUnmatched); });
+    if (next) next.addEventListener('click', () => { unmatchedPage++; renderUnmatchedTable(_filteredUnmatched); });
+  } else if (pag) {
+    pag.remove();
+  }
 }
+let serverPage = 0;
+let _filteredServers = [];
 
 function renderServerTable(servers) {
+  _filteredServers = servers;
+  const total = servers.length;
+  const totalPages = Math.ceil(total / SERVER_PAGE_SIZE);
+  const start = serverPage * SERVER_PAGE_SIZE;
+  const page = servers.slice(start, start + SERVER_PAGE_SIZE);
+  const showFrom = total === 0 ? 0 : start + 1;
+  const showTo = Math.min(start + SERVER_PAGE_SIZE, total);
+
   const indicator = document.getElementById('serverCountIndicator');
-  if (indicator) indicator.textContent = allServers.length >= 200 ? `Showing ${servers.length} of 200+ servers` : `${servers.length} servers`;
-  document.getElementById('serverTable').innerHTML = servers.map(s => `<tr>
+  if (indicator) indicator.textContent = `Showing ${showFrom}\u2013${showTo} of ${total} servers`;
+
+  document.getElementById('serverTable').innerHTML = page.map(s => `<tr>
     <td><strong>${esc(s.serverName)}</strong></td>
     <td class="color-muted">${esc(s.fqdn) || '\u2014'}</td>
     <td>${badge(s.environment || 'Unknown', s.environment === 'Production' ? 'red' : s.environment === 'Staging' ? 'yellow' : 'blue')}</td>
@@ -345,9 +631,29 @@ function renderServerTable(servers) {
     <td>${s.patchGroup ? badge(s.patchGroup, 'muted') : '\u2014'}</td>
     <td>${s.isActive ? dot('green') + 'Yes' : dot('red') + 'No'}</td>
   </tr>`).join('');
+
+  // Pagination controls
+  const tableCard = document.getElementById('serverTable').closest('.card');
+  let pag = tableCard.querySelector('.pagination');
+  if (totalPages > 1) {
+    if (!pag) { pag = document.createElement('div'); pag.className = 'pagination flex-between'; tableCard.appendChild(pag); }
+    pag.innerHTML = `
+      <span>Page ${serverPage + 1} of ${totalPages}</span>
+      <div class="page-btns flex">
+        <button ${serverPage === 0 ? 'disabled' : ''} id="serverPrev">\u2190 Prev</button>
+        <button ${serverPage >= totalPages - 1 ? 'disabled' : ''} id="serverNext">Next \u2192</button>
+      </div>`;
+    const prev = pag.querySelector('#serverPrev');
+    const next = pag.querySelector('#serverNext');
+    if (prev) prev.addEventListener('click', () => { serverPage--; renderServerTable(_filteredServers); });
+    if (next) next.addEventListener('click', () => { serverPage++; renderServerTable(_filteredServers); });
+  } else if (pag) {
+    pag.remove();
+  }
 }
 
 function filterServers() {
+  serverPage = 0;
   const search = document.getElementById('serverSearch').value.toLowerCase().trim();
   const env = document.getElementById('envFilter').value;
   const filtered = allServers.filter(s => {
@@ -376,7 +682,7 @@ function renderPatching(next, cycles, issues) {
     const urgency = next.daysUntil <= 3 ? 'red' : next.daysUntil <= 7 ? 'yellow' : 'green';
     document.getElementById('nextPatchBanner').innerHTML = `
       <div class="card patch-banner patch-banner-${urgency}">
-        <div class="patch-banner-layout">
+        <div class="patch-banner-layout flex-between gap-xl">
           <div class="patch-banner-main">
             <h3>Next Patch Cycle</h3>
             <div class="value">${num(next.daysUntil)} days</div>
@@ -425,7 +731,7 @@ function renderPatching(next, cycles, issues) {
   </tr>`).join('');
 }
 
-const CYCLE_PAGE_SIZE = 100;
+const CYCLE_PAGE_SIZE = 20;
 
 async function toggleCycleDetail(cycleId, row, detailRow) {
   const isOpen = detailRow.classList.contains('visible');
@@ -446,7 +752,7 @@ async function toggleCycleDetail(cycleId, row, detailRow) {
 
 async function loadCycleServersPage(cycleId, offset) {
   const container = document.getElementById(`cycleDetail-${cycleId}`);
-  container.innerHTML = '<div class="loading-state"><span class="loading"></span> Loading servers\u2026</div>';
+  container.innerHTML = '<div class="loading-state flex-center gap-sm"><span class="loading"></span> Loading servers\u2026</div>';
 
   const data = await api(`/patching/cycles/${cycleId}/servers?limit=${CYCLE_PAGE_SIZE}&offset=${offset}`);
   if (data) {
@@ -477,9 +783,9 @@ function renderCycleServers(cycleId) {
     const prevOffset = Math.max(0, page.offset - page.limit);
     const nextOffset = page.offset + page.limit;
     paginationHtml = `
-      <div class="pagination">
+      <div class="pagination flex-between">
         <span>Showing ${showFrom}\u2013${showTo} of ${page.totalCount} servers</span>
-        <div class="page-btns">
+        <div class="page-btns flex">
           <button ${hasPrev ? '' : 'disabled'} data-cycle="${parseInt(cycleId)}" data-offset="${prevOffset}" class="page-prev">\u2190 Prev</button>
           <button ${hasNext ? '' : 'disabled'} data-cycle="${parseInt(cycleId)}" data-offset="${nextOffset}" class="page-next">Next \u2192</button>
         </div>
@@ -520,28 +826,33 @@ function renderCerts(summary, certs) {
   allCerts = certs;
   activeCertFilter = null;
 
+  // Status summary card
+  const certStatus = summary.criticalCount > 0 ? 'status-error' : summary.warningCount > 0 ? 'status-warning' : 'status-healthy';
+  const certStatusLabel = summary.criticalCount > 0 ? 'Action Required' : summary.warningCount > 0 ? 'Needs Attention' : 'All Clear';
+  const certStatusColor = summary.criticalCount > 0 ? 'red' : summary.warningCount > 0 ? 'orange' : 'green';
+  document.getElementById('certStatusCard').className = `card dash-status-card overflow-hidden ${certStatus}`;
+  document.getElementById('certStatusCard').innerHTML = `
+    <h3>Certificates</h3>
+    <div class="dash-status-value">${num(summary.totalCount)}</div>
+    <div class="sub color-${certStatusColor}" style="margin-top:0.5rem">${certStatusLabel}</div>`;
+
+  // Gradient cards with click-to-filter
   document.getElementById('certCards').innerHTML = `
-    <div class="card clickable${cardAlert(summary.criticalCount, {red: 1})}" data-filter="critical">
-      <h3>Critical</h3>
-      <div class="value color-red">${num(summary.criticalCount)}</div>
-      <div class="sub">Expiring soon</div>
+    <div class="critical-card critical-red clickable" data-filter="critical">
+      <div class="critical-num">${num(summary.criticalCount)}</div>
+      <div class="critical-label">Critical</div>
+      <div class="critical-delta">Expiring soon</div>
     </div>
-    <div class="card clickable${cardAlert(summary.warningCount, {orange: 1})}" data-filter="warning">
-      <h3>Warning</h3>
-      <div class="value color-orange">${num(summary.warningCount)}</div>
-      <div class="sub">Needs attention</div>
+    <div class="critical-card critical-orange clickable" data-filter="warning">
+      <div class="critical-num">${num(summary.warningCount)}</div>
+      <div class="critical-label">Warning</div>
+      <div class="critical-delta">Needs attention</div>
     </div>
-    <div class="card clickable" data-filter="ok">
-      <h3>OK</h3>
-      <div class="value color-green">${num(summary.okCount)}</div>
-      <div class="sub">Valid</div>
-    </div>
-    <div class="card">
-      <h3>Total</h3>
-      <div class="value">${num(summary.totalCount)}</div>
-      <div class="sub">All certificates</div>
-    </div>
-  `;
+    <div class="critical-card critical-green clickable" data-filter="ok">
+      <div class="critical-num">${num(summary.okCount)}</div>
+      <div class="critical-label">OK</div>
+      <div class="critical-delta">Valid</div>
+    </div>`;
 
   const total = summary.totalCount || 1;
   renderTimeline('certTimeline', [
@@ -551,7 +862,7 @@ function renderCerts(summary, certs) {
   ]);
 
   // Wire up card click filters
-  wireCardFilters('certCards', (filter) => {
+  wireCriticalCardFilters('certCards', (filter) => {
     activeCertFilter = filter;
     document.getElementById('alertFilter').value = filter || '';
     filterCerts();
@@ -560,10 +871,23 @@ function renderCerts(summary, certs) {
   renderCertTable(certs);
 }
 
+const CERT_PAGE_SIZE = 20;
+let certPage = 0;
+let _filteredCerts = [];
+
 function renderCertTable(certs) {
+  _filteredCerts = certs;
+  const total = certs.length;
+  const totalPages = Math.ceil(total / CERT_PAGE_SIZE);
+  const start = certPage * CERT_PAGE_SIZE;
+  const page = certs.slice(start, start + CERT_PAGE_SIZE);
+  const showFrom = total === 0 ? 0 : start + 1;
+  const showTo = Math.min(start + CERT_PAGE_SIZE, total);
+
   const indicator = document.getElementById('certCountIndicator');
-  if (indicator) indicator.textContent = allCerts.length >= 200 ? `Showing ${certs.length} of 200+ certificates` : `${certs.length} certificates`;
-  document.getElementById('certTable').innerHTML = certs.map(c => {
+  if (indicator) indicator.textContent = `Showing ${showFrom}\u2013${showTo} of ${total} certificates`;
+
+  document.getElementById('certTable').innerHTML = page.map(c => {
     const days = c.daysUntilExpiry != null ? num(c.daysUntilExpiry) : null;
     const daysClass = days != null && days <= 14 ? 'color-red'
                     : days != null && days <= 30 ? 'color-orange' : '';
@@ -575,9 +899,29 @@ function renderCertTable(certs) {
     <td>${alertBadge(c.alertLevel)}</td>
   </tr>`;
   }).join('');
+
+  // Pagination controls
+  const tableCard = document.getElementById('certTable').closest('.card');
+  let pag = tableCard.querySelector('.pagination');
+  if (totalPages > 1) {
+    if (!pag) { pag = document.createElement('div'); pag.className = 'pagination flex-between'; tableCard.appendChild(pag); }
+    pag.innerHTML = `
+      <span>Page ${certPage + 1} of ${totalPages}</span>
+      <div class="page-btns flex">
+        <button ${certPage === 0 ? 'disabled' : ''} id="certPrev">\u2190 Prev</button>
+        <button ${certPage >= totalPages - 1 ? 'disabled' : ''} id="certNext">Next \u2192</button>
+      </div>`;
+    const prev = pag.querySelector('#certPrev');
+    const next = pag.querySelector('#certNext');
+    if (prev) prev.addEventListener('click', () => { certPage--; renderCertTable(_filteredCerts); });
+    if (next) next.addEventListener('click', () => { certPage++; renderCertTable(_filteredCerts); });
+  } else if (pag) {
+    pag.remove();
+  }
 }
 
 function filterCerts() {
+  certPage = 0;
   const level = document.getElementById('alertFilter').value;
   const server = document.getElementById('certServerSearch').value.toLowerCase().trim();
   const filtered = allCerts.filter(c => {
@@ -586,7 +930,7 @@ function filterCerts() {
     return true;
   });
   renderCertTable(filtered);
-  syncCardSelection('certCards', level);
+  syncCriticalCardSelection('certCards', level);
 }
 
 // --- Render: End of Life ---
@@ -602,39 +946,35 @@ function renderEol(summary, items) {
   allEol = items;
   activeEolFilter = null;
 
-  document.getElementById('eolCards').innerHTML = `
-    <div class="card clickable${cardAlert(summary.eolCount, {red: 1})}" data-filter="eol">
-      <h3>End of Life</h3>
-      <div class="value color-red">${num(summary.eolCount)}</div>
-      <div class="sub">Past EOL date</div>
-    </div>
-    <div class="card clickable${cardAlert(summary.approachingCount, {orange: 1})}" data-filter="approaching">
-      <h3>Approaching EOL</h3>
-      <div class="value color-orange">${num(summary.approachingCount)}</div>
-      <div class="sub">Within 6 months</div>
-    </div>
-    <div class="card clickable" data-filter="supported">
-      <h3>Supported</h3>
-      <div class="value color-green">${num(summary.supportedCount)}</div>
-      <div class="sub">Currently supported</div>
-    </div>
-    <div class="card${cardAlert(summary.affectedServers, {red: 20, orange: 10, yellow: 1})}">
-      <h3>Affected Servers</h3>
-      <div class="value">${num(summary.affectedServers)}</div>
-      <div class="sub">Running EOL/approaching software</div>
-    </div>
-  `;
+  // Status summary card
+  const eolStatus = summary.eolCount > 0 ? 'status-error' : summary.approachingCount > 0 ? 'status-warning' : 'status-healthy';
+  const eolLabel = summary.eolCount > 0 ? `${num(summary.affectedServers)} affected servers` : summary.approachingCount > 0 ? 'Approaching deadlines' : 'All supported';
+  const eolColor = summary.eolCount > 0 ? 'red' : summary.approachingCount > 0 ? 'orange' : 'green';
+  document.getElementById('eolStatusCard').className = `card dash-status-card overflow-hidden ${eolStatus}`;
+  document.getElementById('eolStatusCard').innerHTML = `
+    <h3>End of Life</h3>
+    <div class="dash-status-value">${num(summary.totalCount)}</div>
+    <div class="sub color-${eolColor}" style="margin-top:0.5rem">${eolLabel}</div>`;
 
-  const total = summary.totalCount || 1;
-  renderTimeline('eolTimeline', [
-    { pct: summary.eolCount / total * 100, color: 'var(--red)', label: `EOL: ${summary.eolCount}` },
-    { pct: summary.approachingCount / total * 100, color: 'var(--orange)', label: `Approaching: ${summary.approachingCount}` },
-    { pct: summary.supportedCount / total * 100, color: 'var(--green)', label: `Supported: ${summary.supportedCount}` },
-    { pct: (summary.unknownCount || 0) / total * 100, color: 'var(--text-muted)', label: `Unknown: ${summary.unknownCount || 0}` },
-  ]);
+  document.getElementById('eolCards').innerHTML = `
+    <div class="critical-card critical-red clickable" data-filter="eol">
+      <div class="critical-num">${num(summary.eolCount)}</div>
+      <div class="critical-label">End of Life</div>
+      <div class="critical-delta">Past EOL date</div>
+    </div>
+    <div class="critical-card critical-orange clickable" data-filter="approaching">
+      <div class="critical-num">${num(summary.approachingCount)}</div>
+      <div class="critical-label">Approaching</div>
+      <div class="critical-delta">Within 6 months</div>
+    </div>
+    <div class="critical-card critical-green clickable" data-filter="supported">
+      <div class="critical-num">${num(summary.supportedCount)}</div>
+      <div class="critical-label">Supported</div>
+      <div class="critical-delta">Currently supported</div>
+    </div>`;
 
   // Wire up card click filters
-  wireCardFilters('eolCards', (filter) => {
+  wireCriticalCardFilters('eolCards', (filter) => {
     activeEolFilter = filter;
     document.getElementById('eolAlertFilter').value = filter || '';
     filterEol();
@@ -643,12 +983,25 @@ function renderEol(summary, items) {
   renderEolTable(items);
 }
 
+const EOL_PAGE_SIZE = 20;
+let eolPage = 0;
+let _filteredEol = [];
+
 function renderEolTable(items) {
+  _filteredEol = items;
+  const total = items.length;
+  const totalPages = Math.ceil(total / EOL_PAGE_SIZE);
+  const start = eolPage * EOL_PAGE_SIZE;
+  const page = items.slice(start, start + EOL_PAGE_SIZE);
+  const showFrom = total === 0 ? 0 : start + 1;
+  const showTo = Math.min(start + EOL_PAGE_SIZE, total);
+
   const indicator = document.getElementById('eolCountIndicator');
-  if (indicator) indicator.textContent = allEol.length >= 200 ? `Showing ${items.length} of 200+ entries` : `${items.length} entries`;
+  if (indicator) indicator.textContent = `Showing ${showFrom}\u2013${showTo} of ${total} products`;
+
   const tbody = document.getElementById('eolTable');
   tbody.innerHTML = '';
-  items.forEach(e => {
+  page.forEach(e => {
     const key = `${e.product}|${e.version}`;
     const row = document.createElement('tr');
     row.className = 'eol-row';
@@ -668,6 +1021,25 @@ function renderEolTable(items) {
     tbody.appendChild(row);
     tbody.appendChild(detailRow);
   });
+
+  // Pagination controls
+  const tableCard = document.getElementById('eolTable').closest('.card');
+  let pag = tableCard.querySelector('.pagination');
+  if (totalPages > 1) {
+    if (!pag) { pag = document.createElement('div'); pag.className = 'pagination flex-between'; tableCard.appendChild(pag); }
+    pag.innerHTML = `
+      <span>Page ${eolPage + 1} of ${totalPages}</span>
+      <div class="page-btns flex">
+        <button ${eolPage === 0 ? 'disabled' : ''} id="eolPrev">\u2190 Prev</button>
+        <button ${eolPage >= totalPages - 1 ? 'disabled' : ''} id="eolNext">Next \u2192</button>
+      </div>`;
+    const prev = pag.querySelector('#eolPrev');
+    const next = pag.querySelector('#eolNext');
+    if (prev) prev.addEventListener('click', () => { eolPage--; renderEolTable(_filteredEol); });
+    if (next) next.addEventListener('click', () => { eolPage++; renderEolTable(_filteredEol); });
+  } else if (pag) {
+    pag.remove();
+  }
 }
 
 async function toggleEolDetail(key, eolItem, row, detailRow) {
@@ -688,7 +1060,7 @@ async function toggleEolDetail(key, eolItem, row, detailRow) {
     return;
   }
 
-  container.innerHTML = '<div class="loading-state"><span class="loading"></span> Loading affected servers\u2026</div>';
+  container.innerHTML = '<div class="loading-state flex-center gap-sm"><span class="loading"></span> Loading affected servers\u2026</div>';
 
   const product = encodeURIComponent(eolItem.product);
   const version = encodeURIComponent(eolItem.version);
@@ -711,12 +1083,30 @@ function renderEolDetail(container, detail) {
     container.innerHTML = '<div class="empty-state">No affected servers found</div>';
     return;
   }
+  // Split into 3 columns for compact layout
+  const colSize = Math.ceil(assets.length / 3);
+  const cols = [assets.slice(0, colSize), assets.slice(colSize, colSize * 2), assets.slice(colSize * 2)];
+  const maxRows = cols[0].length;
+
   container.innerHTML = `
-    <div class="eol-detail-header">Affected Servers (${assets.length})</div>
-    <div class="server-chips">${assets.map(a => `<span class="server-chip">${esc(a)}</span>`).join('')}</div>`;
+    <div class="eol-detail-header text-label">Affected Servers (${assets.length})</div>
+    <div class="scroll-wrap">
+      <table class="eol-server-table">
+        <thead><tr><th>#</th><th>Server</th><th>#</th><th>Server</th><th>#</th><th>Server</th></tr></thead>
+        <tbody>${Array.from({length: maxRows}, (_, i) => {
+          const cells = cols.map((col, ci) => {
+            if (!col[i]) return '<td></td><td></td>';
+            const idx = ci * colSize + i + 1;
+            return `<td class="color-muted">${idx}</td><td><code>${esc(col[i])}</code></td>`;
+          }).join('');
+          return `<tr>${cells}</tr>`;
+        }).join('')}</tbody>
+      </table>
+    </div>`;
 }
 
 function filterEol() {
+  eolPage = 0;
   const level = document.getElementById('eolAlertFilter').value;
   const product = document.getElementById('eolProductSearch').value.toLowerCase().trim();
   const filtered = allEol.filter(e => {
@@ -725,7 +1115,7 @@ function filterEol() {
     return true;
   });
   renderEolTable(filtered);
-  syncCardSelection('eolCards', level);
+  syncCriticalCardSelection('eolCards', level);
 }
 
 // --- Load all data ---
@@ -754,7 +1144,7 @@ async function _loadAllDataInner() {
 
   if (!healthData) usingDemo = true;
 
-  renderHealth(healthData || DEMO.health);
+  renderHealth(healthData || DEMO.health, servers || DEMO.servers, unmatched || DEMO.unmatched, certSummary || DEMO.certSummary, certs || DEMO.certificates, next || DEMO.nextPatch);
   renderServers(servers || DEMO.servers, unmatched || DEMO.unmatched);
   cycleServerCache = {};
   eolDetailCache = {};
@@ -774,6 +1164,17 @@ async function _loadAllDataInner() {
 }
 
 // --- Wire up event handlers (no inline handlers) ---
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-goto]');
+  if (!btn) return;
+  e.preventDefault();
+  const page = btn.dataset.goto;
+  document.querySelectorAll('header nav button').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  const navBtn = document.querySelector(`header nav button[data-page="${page}"]`);
+  if (navBtn) navBtn.classList.add('active');
+  document.getElementById(page)?.classList.add('active');
+});
 document.getElementById('refreshBtn').addEventListener('click', loadAllData);
 document.getElementById('serverSearch').addEventListener('input', filterServers);
 document.getElementById('envFilter').addEventListener('change', filterServers);
