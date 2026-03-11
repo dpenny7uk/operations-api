@@ -86,6 +86,11 @@ def sync_servers(ctx, servers: list):
             "WHERE source_system = 'databricks' AND is_active = TRUE"
         )
         existing_count = cur.fetchone()['cnt']
+        churn_pct = (len(values) / existing_count * 100) if existing_count > 0 else 0
+        logger.info(
+            "Churn guard: incoming=%d active_baseline=%d ratio=%.0f%%",
+            len(values), existing_count, churn_pct
+        )
         if existing_count == 0:
             logger.warning(
                 "First deploy detected (0 existing servers) — "

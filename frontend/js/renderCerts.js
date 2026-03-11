@@ -104,7 +104,7 @@ export function filterCerts() {
   const server = document.getElementById('certServerSearch').value.toLowerCase().trim();
   const filtered = allCerts.filter(c => {
     if (level && (c.alertLevel || '').toLowerCase() !== level) return false;
-    if (server && !c.serverName.toLowerCase().includes(server)) return false;
+    if (server && !(c.serverName||'').toLowerCase().includes(server)) return false;
     return true;
   });
   renderCertTable(filtered);

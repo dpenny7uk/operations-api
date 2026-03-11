@@ -42,6 +42,10 @@ public class ServersController : ControllerBase
     {
         if (environment?.Length > 100 || application?.Length > 255 || patchGroup?.Length > 50 || search?.Length > 255)
             return BadRequest("Query parameter exceeds maximum length.");
+        // Reject control characters to prevent log injection (newline, carriage return, etc.)
+        if (ContainsControlChars(environment) || ContainsControlChars(application) ||
+            ContainsControlChars(patchGroup) || ContainsControlChars(search))
+            return BadRequest("Query parameter contains invalid characters.");
 
         var servers = await _svc.ListServersAsync(environment, application, patchGroup, search,
             Math.Clamp(limit, 1, 1000), Math.Clamp(offset, 0, 100000));
@@ -78,6 +82,8 @@ public class ServersController : ControllerBase
         [FromQuery] string? sourceSystem,
         [FromQuery] int limit = 50)
     {
+        if (sourceSystem?.Length > 100 || ContainsControlChars(sourceSystem))
+            return BadRequest("sourceSystem parameter is invalid.");
         return Ok(await _svc.GetUnmatchedServersAsync(sourceSystem, Math.Clamp(limit, 1, 500)));
     }
 
@@ -141,6 +147,10 @@ public class ServersController : ControllerBase
         await _svc.IgnoreUnmatchedServerAsync(serverNameRaw, req?.SourceSystem?.Trim(), user);
         return Ok();
     }
+
+    /// <summary>Returns true if the string contains ASCII control characters (tab, newline, CR, etc.).</summary>
+    private static bool ContainsControlChars(string? s) =>
+        s != null && s.Any(c => c < 0x20 || c == 0x7F);
 
     public record AliasRequest(string CanonicalName, string AliasName, string? SourceSystem);
     public record ResolveRequest(int ServerId, string? SourceSystem = null);

@@ -171,6 +171,14 @@ app.UseRateLimiter();
 app.UseResponseCaching();
 app.UseSerilogRequestLogging();
 
+// Expose application version in every response for observability and post-deploy verification
+var appVersion = typeof(Program).Assembly.GetName().Version?.ToString() ?? "unknown";
+app.Use(async (ctx, next) =>
+{
+    ctx.Response.Headers["X-App-Version"] = appVersion;
+    await next();
+});
+
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
