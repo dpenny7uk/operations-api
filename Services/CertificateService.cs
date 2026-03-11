@@ -7,12 +7,11 @@ namespace OperationsApi.Services;
 
 public class CertificateService : BaseService<CertificateService>, ICertificateService
 {
-    public CertificateService(IDbConnection db, ILogger<CertificateService> logger) 
+    public CertificateService(IDbConnection db, ILogger<CertificateService> logger)
         : base(db, logger) { }
 
-    public async Task<CertificateSummary> GetSummaryAsync()
-    {
-        return await Db.QueryFirstAsync<CertificateSummary>($@"
+    public Task<CertificateSummary> GetSummaryAsync() => RunDbAsync(() =>
+        Db.QueryFirstAsync<CertificateSummary>($@"
             SELECT
                 COUNT(*) FILTER (WHERE alert_level = 'CRITICAL' OR is_expired) AS CriticalCount,
                 COUNT(*) FILTER (WHERE alert_level = 'WARNING' AND NOT is_expired) AS WarningCount,
@@ -20,17 +19,17 @@ public class CertificateService : BaseService<CertificateService>, ICertificateS
                 COUNT(*) AS TotalCount
             FROM {Sql.Tables.Certificates}
             WHERE is_active = TRUE
-        ");
-    }
+        ")
+    );
 
-    public async Task<IEnumerable<Certificate>> ListCertificatesAsync(
+    public Task<IEnumerable<Certificate>> ListCertificatesAsync(
         string? alertLevel,
         string? server,
         int? daysUntil,
-        int limit)
+        int limit) => RunDbAsync(async () =>
     {
         var sql = $@"
-            SELECT 
+            SELECT
                 certificate_id AS CertId,
                 subject_cn AS SubjectCn,
                 server_name AS ServerName,
@@ -64,12 +63,11 @@ public class CertificateService : BaseService<CertificateService>, ICertificateS
         p.Add("Limit", limit);
 
         return await Db.QueryAsync<Certificate>(sql, p);
-    }
+    });
 
-    public async Task<CertificateDetail?> GetByIdAsync(int id)
-    {
-        return await Db.QueryFirstOrDefaultAsync<CertificateDetail>($@"
-            SELECT 
+    public Task<CertificateDetail?> GetByIdAsync(int id) => RunDbAsync(() =>
+        Db.QueryFirstOrDefaultAsync<CertificateDetail>($@"
+            SELECT
                 certificate_id AS CertId,
                 subject_cn AS SubjectCn,
                 server_name AS ServerName,
@@ -85,12 +83,11 @@ public class CertificateService : BaseService<CertificateService>, ICertificateS
                 last_seen_at AS LastScannedAt
             FROM {Sql.Tables.Certificates}
             WHERE certificate_id = @Id
-        ", new { Id = id });
-    }
+        ", new { Id = id })
+    );
 
-    public async Task<IEnumerable<Certificate>> GetByServerAsync(string server, int limit = 500)
-    {
-        return await Db.QueryAsync<Certificate>($@"
+    public Task<IEnumerable<Certificate>> GetByServerAsync(string server, int limit = 500) => RunDbAsync(() =>
+        Db.QueryAsync<Certificate>($@"
             SELECT
                 certificate_id AS CertId,
                 subject_cn AS SubjectCn,
@@ -102,6 +99,6 @@ public class CertificateService : BaseService<CertificateService>, ICertificateS
             WHERE is_active = TRUE AND UPPER(server_name) = UPPER(@Server)
             ORDER BY valid_to
             LIMIT @Limit
-        ", new { Server = server, Limit = limit });
-    }
+        ", new { Server = server, Limit = limit })
+    );
 }

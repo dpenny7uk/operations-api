@@ -36,6 +36,41 @@ public abstract class BaseService<TService> where TService : class
     }
 
     /// <summary>
+    /// Execute a database operation with error logging. Logs the caller context
+    /// and re-throws so the global exception handler still returns 500.
+    /// </summary>
+    protected async Task<T> RunDbAsync<T>(Func<Task<T>> operation,
+        [System.Runtime.CompilerServices.CallerMemberName] string caller = "")
+    {
+        try
+        {
+            return await operation();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Database error in {Service}.{Method}", typeof(TService).Name, caller);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Execute a void database operation with error logging.
+    /// </summary>
+    protected async Task RunDbAsync(Func<Task> operation,
+        [System.Runtime.CompilerServices.CallerMemberName] string caller = "")
+    {
+        try
+        {
+            await operation();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Database error in {Service}.{Method}", typeof(TService).Name, caller);
+            throw;
+        }
+    }
+
+    /// <summary>
     /// Escape PostgreSQL LIKE/ILIKE metacharacters in user input.
     /// </summary>
     protected static string EscapeLike(string value)

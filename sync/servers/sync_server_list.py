@@ -86,6 +86,12 @@ def sync_servers(ctx, servers: list):
             "WHERE source_system = 'databricks' AND is_active = TRUE"
         )
         existing_count = cur.fetchone()['cnt']
+        if existing_count == 0:
+            logger.warning(
+                "First deploy detected (0 existing servers) — "
+                "50%% churn guard not applicable, using minimum threshold only (%d servers)",
+                min_servers
+            )
         if existing_count > 0 and len(values) < existing_count * 0.5:
             raise RuntimeError(
                 f"Databricks returned {len(values)} servers but {existing_count} are currently active "

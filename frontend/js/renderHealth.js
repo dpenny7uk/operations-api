@@ -154,6 +154,7 @@ export async function renderHealth(data, servers, unmatched, certSummary, certs,
     <td>${fmtTime(s.lastSuccessAt)}</td>
     <td>${num(s.recordsProcessed).toLocaleString()}</td>
     <td>${num(s.consecutiveFailures) > 0 ? `<span class="color-red">${num(s.consecutiveFailures)}</span>` : '<span class="color-muted">0</span>'}</td>
+    <td>${s.lastErrorMessage ? `<span class="color-red">${esc(s.lastErrorMessage)}</span>` : '<span class="color-muted">\u2014</span>'}</td>
     <td class="color-muted">${esc(s.expectedSchedule) || '\u2014'}</td>
   </tr>`).join('');
 }

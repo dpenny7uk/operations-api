@@ -396,16 +396,23 @@ class SyncContext:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         # Circuit breaker fired — record the skip as 'cancelled' and exit cleanly.
-        # consecutive_failures is deliberately left unchanged so the breaker stays open.
         if exc_type is CircuitBreakerOpenError:
-            if self.history_id and self.conn:
+            if self.conn:
                 try:
                     with self.conn.cursor() as cur:
+                        if self.history_id:
+                            cur.execute(
+                                "UPDATE system.sync_history SET "
+                                "completed_at = CURRENT_TIMESTAMP, status = 'cancelled', "
+                                "error_message = %s WHERE history_id = %s",
+                                (str(exc_val), self.history_id)
+                            )
                         cur.execute(
-                            "UPDATE system.sync_history SET "
-                            "completed_at = CURRENT_TIMESTAMP, status = 'cancelled', "
-                            "error_message = %s WHERE history_id = %s",
-                            (str(exc_val), self.history_id)
+                            "UPDATE system.sync_status SET "
+                            "consecutive_failures = consecutive_failures + 1, "
+                            "last_failure_at = CURRENT_TIMESTAMP "
+                            "WHERE sync_name = %s",
+                            (self.sync_name,)
                         )
                     self.conn.commit()
                 except Exception as db_err:
@@ -638,6 +645,9 @@ def resolve_server_name(cur, server_name: str, source_system: str, context_id=No
                 (server_name, source_system, context_id)
             )
         except Exception as e:
-            logger.warning(f"Failed to record unmatched server {server_name}: {e}")
+            # DB function uses ON CONFLICT DO UPDATE, so unique violations
+            # should not occur. Log at error level for unexpected failures.
+            logger.error("Failed to record unmatched server '%s' (source=%s): %s",
+                         server_name, source_system, e)
 
     return server_id

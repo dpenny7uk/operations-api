@@ -205,6 +205,13 @@ stages:
                       $origins = "$(OPS_CORS_ORIGINS)".Split(",", [System.StringSplitOptions]::RemoveEmptyEntries) |
                           ForEach-Object { $_.Trim() }
 
+                      foreach ($origin in $origins) {
+                          if (-not [System.Uri]::IsWellFormedUriString($origin, [System.UriKind]::Absolute)) {
+                              Write-Error "Invalid CORS origin URI: $origin"
+                              exit 1
+                          }
+                      }
+
                       $settings = @{
                           ConnectionStrings = @{
                               OperationsDb = $env:OPS_CONNECTIONSTRING
@@ -259,7 +266,8 @@ stages:
                           Write-Host "Health check attempt $i of ${maxRetries}..."
                           try {
                               $response = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 15
-                              if ($response.StatusCode -eq 200 -and $response.Content -match "Healthy") {
+                              $json = $response.Content | ConvertFrom-Json
+                              if ($response.StatusCode -eq 200 -and $json.status -eq "Healthy") {
                                   Write-Host "##[section]Rollback verified — API is healthy"
                                   exit 0
                               } else {

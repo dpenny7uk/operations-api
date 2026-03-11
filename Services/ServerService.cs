@@ -7,19 +7,19 @@ namespace OperationsApi.Services;
 
 public class ServerService : BaseService<ServerService>, IServerService
 {
-    public ServerService(IDbConnection db, ILogger<ServerService> logger) 
+    public ServerService(IDbConnection db, ILogger<ServerService> logger)
         : base(db, logger) { }
 
-    public async Task<IEnumerable<Server>> ListServersAsync(
+    public Task<IEnumerable<Server>> ListServersAsync(
         string? environment,
         string? application,
         string? patchGroup,
         string? search,
         int limit,
-        int offset)
+        int offset) => RunDbAsync(async () =>
     {
         var sql = $@"
-            SELECT 
+            SELECT
                 s.server_id AS ServerId,
                 s.server_name AS ServerName,
                 s.fqdn AS Fqdn,
@@ -46,12 +46,11 @@ public class ServerService : BaseService<ServerService>, IServerService
         AddPagination(ref sql, p, limit, offset, "s.server_name");
 
         return await Db.QueryAsync<Server>(sql, p);
-    }
+    });
 
-    public async Task<ServerDetail?> GetServerByIdAsync(int id)
-    {
-        return await Db.QueryFirstOrDefaultAsync<ServerDetail>($@"
-            SELECT 
+    public Task<ServerDetail?> GetServerByIdAsync(int id) => RunDbAsync(() =>
+        Db.QueryFirstOrDefaultAsync<ServerDetail>($@"
+            SELECT
                 s.server_id AS ServerId,
                 s.server_name AS ServerName,
                 s.fqdn AS Fqdn,
@@ -66,25 +65,24 @@ public class ServerService : BaseService<ServerService>, IServerService
             FROM {Sql.Tables.Servers} s
             LEFT JOIN {Sql.Tables.Applications} a ON s.primary_application_id = a.application_id
             WHERE s.server_id = @Id
-        ", new { Id = id });
-    }
+        ", new { Id = id })
+    );
 
-    public async Task<ServerMatch?> ResolveServerNameAsync(string name)
-    {
-        return await Db.QueryFirstOrDefaultAsync<ServerMatch>(@"
-            SELECT 
+    public Task<ServerMatch?> ResolveServerNameAsync(string name) => RunDbAsync(() =>
+        Db.QueryFirstOrDefaultAsync<ServerMatch>(@"
+            SELECT
                 server_id AS ServerId,
                 server_name AS ServerName,
                 match_type AS MatchType
             FROM system.resolve_server_name(@Name)
             LIMIT 1
-        ", new { Name = name });
-    }
+        ", new { Name = name })
+    );
 
-    public async Task<IEnumerable<UnmatchedServer>> GetUnmatchedServersAsync(string? source, int limit)
+    public Task<IEnumerable<UnmatchedServer>> GetUnmatchedServersAsync(string? source, int limit) => RunDbAsync(async () =>
     {
         var sql = $@"
-            SELECT 
+            SELECT
                 server_name_raw AS ServerNameRaw,
                 server_name_normalized AS ServerNameNormalized,
                 source_system AS SourceSystem,
@@ -112,9 +110,9 @@ public class ServerService : BaseService<ServerService>, IServerService
         p.Add("Limit", limit);
 
         return await Db.QueryAsync<UnmatchedServer>(sql, p);
-    }
+    });
 
-    public async Task CreateAliasAsync(string canonical, string alias, string? source, string actingUser)
+    public Task CreateAliasAsync(string canonical, string alias, string? source, string actingUser) => RunDbAsync(async () =>
     {
         Logger.LogInformation("Creating server alias: {Alias} -> {Canonical} (source: {Source}, user: {User})", alias, canonical, source, actingUser);
         await Db.ExecuteAsync($@"
@@ -124,9 +122,9 @@ public class ServerService : BaseService<ServerService>, IServerService
             ON CONFLICT (alias_name) DO UPDATE SET
                 canonical_name = EXCLUDED.canonical_name
         ", new { Canonical = canonical, Alias = alias, Source = source, CreatedBy = actingUser });
-    }
+    });
 
-    public async Task<int> ResolveUnmatchedServerAsync(string raw, int serverId, string? sourceSystem = null, string? actingUser = null)
+    public Task<int> ResolveUnmatchedServerAsync(string raw, int serverId, string? sourceSystem = null, string? actingUser = null) => RunDbAsync(async () =>
     {
         Logger.LogInformation("Resolving unmatched server {ServerName} to ID {ServerId} by {User}", raw, serverId, actingUser ?? "unknown");
         var sql = $@"
@@ -149,9 +147,9 @@ public class ServerService : BaseService<ServerService>, IServerService
         }
 
         return await Db.ExecuteAsync(sql, p);
-    }
+    });
 
-    public async Task IgnoreUnmatchedServerAsync(string raw, string? sourceSystem = null, string? actingUser = null)
+    public Task IgnoreUnmatchedServerAsync(string raw, string? sourceSystem = null, string? actingUser = null) => RunDbAsync(async () =>
     {
         Logger.LogInformation("Ignoring unmatched server {ServerName} by {User}", raw, actingUser ?? "unknown");
         var sql = $@"
@@ -172,5 +170,5 @@ public class ServerService : BaseService<ServerService>, IServerService
         }
 
         await Db.ExecuteAsync(sql, p);
-    }
+    });
 }

@@ -21,9 +21,8 @@ public class EolService : BaseService<EolService>, IEolService
     public EolService(IDbConnection db, ILogger<EolService> logger)
         : base(db, logger) { }
 
-    public async Task<EolSummary> GetSummaryAsync()
-    {
-        return await Db.QueryFirstAsync<EolSummary>($@"
+    public Task<EolSummary> GetSummaryAsync() => RunDbAsync(() =>
+        Db.QueryFirstAsync<EolSummary>($@"
             SELECT
                 COUNT(*) FILTER (WHERE eol_end_of_life <= NOW()) AS EolCount,
                 COUNT(*) FILTER (WHERE eol_end_of_life > NOW() AND eol_end_of_life <= NOW() + INTERVAL '6 months') AS ApproachingCount,
@@ -33,13 +32,13 @@ public class EolService : BaseService<EolService>, IEolService
                 COUNT(DISTINCT asset) FILTER (WHERE eol_end_of_life <= NOW() + INTERVAL '6 months') AS AffectedServers
             FROM {Sql.Tables.EolSoftware}
             WHERE is_active = TRUE
-        ");
-    }
+        ")
+    );
 
-    public async Task<IEnumerable<EolSoftware>> ListEolSoftwareAsync(
+    public Task<IEnumerable<EolSoftware>> ListEolSoftwareAsync(
         string? alertLevel,
         string? product,
-        int limit)
+        int limit) => RunDbAsync(async () =>
     {
         var sql = $@"
             SELECT
@@ -81,9 +80,9 @@ public class EolService : BaseService<EolService>, IEolService
         p.Add("Limit", limit);
 
         return await Db.QueryAsync<EolSoftware>(sql, p);
-    }
+    });
 
-    public async Task<EolSoftwareDetail?> GetByProductVersionAsync(string product, string version)
+    public Task<EolSoftwareDetail?> GetByProductVersionAsync(string product, string version) => RunDbAsync(async () =>
     {
         var detail = await Db.QueryFirstOrDefaultAsync<EolSoftwareDetail>($@"
             SELECT
@@ -112,11 +111,10 @@ public class EolService : BaseService<EolService>, IEolService
         }
 
         return detail;
-    }
+    });
 
-    public async Task<IEnumerable<EolSoftware>> GetByServerAsync(string serverName, int limit = 500)
-    {
-        return await Db.QueryAsync<EolSoftware>($@"
+    public Task<IEnumerable<EolSoftware>> GetByServerAsync(string serverName, int limit = 500) => RunDbAsync(() =>
+        Db.QueryAsync<EolSoftware>($@"
             WITH server_products AS (
                 SELECT DISTINCT eol_product, eol_product_version
                 FROM {Sql.Tables.EolSoftware}
@@ -142,6 +140,6 @@ public class EolService : BaseService<EolService>, IEolService
             WHERE UPPER(e.asset) = UPPER(@Server) AND e.is_active = TRUE
             ORDER BY e.eol_end_of_life NULLS LAST
             LIMIT @Limit
-        ", new { Server = serverName, Limit = limit });
-    }
+        ", new { Server = serverName, Limit = limit })
+    );
 }

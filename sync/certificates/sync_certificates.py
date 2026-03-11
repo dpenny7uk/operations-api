@@ -114,9 +114,10 @@ def sync_certificates(ctx, records: list):
     failure_servers = set()
     success_servers = set()
 
-    for r in records:
-        status = (r.get('Status') or '').strip().upper()
-        server_name = (r.get('Name') or '').strip()
+    for raw in records:
+        r = {k.lower(): v for k, v in raw.items()}
+        status = (r.get('status') or '').strip().upper()
+        server_name = (r.get('name') or '').strip()
 
         if not server_name:
             ctx.stats.add_error(f"Skipping record with missing server name: {r}")
@@ -126,24 +127,24 @@ def sync_certificates(ctx, records: list):
         if status in ('UNREACHABLE', 'ERROR'):
             failure_servers.add((
                 server_name,
-                (r.get('Error') or '')[:1000],
-                classify_error(status, r.get('Error') or '')
+                (r.get('error') or '')[:1000],
+                classify_error(status, r.get('error') or '')
             ))
             continue
 
         # Valid certificate record
         success_servers.add(server_name)
-        thumbprint = (r.get('Thumbprint') or '').strip()
+        thumbprint = (r.get('thumbprint') or '').strip()
         if not thumbprint:
             ctx.stats.add_error(f"Skipping record with missing thumbprint: {r}")
             continue
 
-        subject = (r.get('Subject') or '')[:1000]
-        issuer = (r.get('Issuer') or '')[:1000]
+        subject = (r.get('subject') or '')[:1000]
+        issuer = (r.get('issuer') or '')[:1000]
         alert_level, is_expired = map_alert_level(status)
-        source = r.get('Source') or ''
+        source = r.get('source') or ''
 
-        days_str = (r.get('DaysRemaining') or '').strip()
+        days_str = (r.get('daysremaining') or '').strip()
         try:
             days_until = int(days_str) if days_str else None
         except ValueError:
@@ -155,13 +156,13 @@ def sync_certificates(ctx, records: list):
             parse_cn(subject)[:500],
             issuer,
             parse_cn(issuer)[:500],
-            parse_timestamp(r.get('NotBefore')),
-            parse_timestamp(r.get('NotAfter')),
+            parse_timestamp(r.get('notbefore')),
+            parse_timestamp(r.get('notafter')),
             days_until,
             is_expired,
             alert_level,
             server_name[:255],
-            map_store_name(source, r.get('URL')),
+            map_store_name(source, r.get('url')),
             map_scan_source(source)[:100],
         ))
 
