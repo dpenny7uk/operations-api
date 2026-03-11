@@ -17,7 +17,7 @@ export function renderServers(servers, unmatched) {
   const inactive = servers.length - active;
   const envCounts = {};
   servers.forEach(s => { envCounts[s.environment || 'Unknown'] = (envCounts[s.environment || 'Unknown'] || 0) + 1; });
-  const envColors = { Production: 'critical-red', Staging: 'critical-yellow', UAT: 'critical-orange', Development: 'critical-blue', SIT: 'critical-teal' };
+  const envColors = { Prod: 'critical-red', Dev: 'critical-blue', Systest: 'critical-teal', UAT: 'critical-orange', Staging: 'critical-yellow', Training: 'critical-purple', 'Live Support': 'critical-red', 'Shared Services': 'critical-teal', 'Proof of Concept': 'critical-blue', 'Continuous Integration': 'critical-yellow' };
 
   document.getElementById('serverSummaryCard').className = 'card dash-status-card overflow-hidden status-healthy';
   document.getElementById('serverSummaryCard').innerHTML = `
@@ -91,7 +91,7 @@ function renderServerTable(servers) {
   document.getElementById('serverTable').innerHTML = page.map(s => `<tr>
     <td><strong>${esc(s.serverName)}</strong></td>
     <td class="color-muted">${esc(s.fqdn) || '\u2014'}</td>
-    <td>${badge(s.environment || 'Unknown', s.environment === 'Production' ? 'red' : s.environment === 'Staging' ? 'yellow' : 'blue')}</td>
+    <td>${badge(s.environment || 'Unknown', s.environment === 'Prod' || s.environment === 'Live Support' ? 'red' : s.environment === 'Staging' ? 'yellow' : 'blue')}</td>
     <td>${esc(s.applicationName) || '\u2014'}</td>
     <td>${s.patchGroup ? badge(s.patchGroup, 'muted') : '\u2014'}</td>
     <td>${s.isActive ? dot('green') + 'Yes' : dot('red') + 'No'}</td>

@@ -1,3 +1,9 @@
+-- DEPLOYMENT ORDER: This migration MUST run BEFORE deploying the updated sync script
+-- and API code. The new sync writes machine_name which requires the column to exist.
+-- After migration, run the EOL sync immediately to populate machine_name values.
+-- First sync will deactivate old rows (NULL machine_name won't match) and reinsert
+-- them with machine_name populated — this is expected and harmless.
+
 BEGIN;
 
 -- Add machine_name column to EOL software table.
@@ -7,6 +13,11 @@ BEGIN;
 -- not the actual server name. machine_name is the real server identifier.
 
 ALTER TABLE eol.end_of_life_software ADD COLUMN IF NOT EXISTS machine_name VARCHAR(255);
+
+-- Clear existing databricks-sourced rows so the first sync after migration does a clean
+-- insert rather than deactivating all old rows (which have NULL machine_name and won't
+-- match the new unique key). This is safe because the sync will repopulate immediately.
+DELETE FROM eol.end_of_life_software WHERE source_system = 'databricks';
 
 -- Drop old unique index keyed on (product, version, asset)
 DROP INDEX IF EXISTS eol.uq_eol_product_asset;

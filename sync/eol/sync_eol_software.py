@@ -14,6 +14,11 @@ from common import (
 
 logger = setup_logging('sync_eol_software')
 
+# INTENT: INNER JOIN is deliberate — we only want EOL records for software that is
+# actually installed on active (non-decommissioned) servers. EOL products without a
+# matching asset_inventory row are excluded because they represent uninstalled software
+# with no operational risk. If visibility of uninstalled EOL products is needed later,
+# change to LEFT JOIN and allow NULL machine_name.
 EOL_QUERY = """\
 SELECT
     eol.eol_product,
