@@ -24,7 +24,7 @@ public interface IServerService
     Task<ServerMatch?> ResolveServerNameAsync(string name);
     Task<IEnumerable<UnmatchedServer>> GetUnmatchedServersAsync(string? source, int limit);
     Task CreateAliasAsync(string canonical, string alias, string? source, string actingUser);
-    Task<int> ResolveUnmatchedServerAsync(string raw, int serverId, string? sourceSystem = null, string? actingUser = null);
+    Task<int> ResolveUnmatchedServerAsync(string raw, int serverId, string canonicalName, string? sourceSystem = null, string? actingUser = null);
     Task IgnoreUnmatchedServerAsync(string raw, string? sourceSystem = null, string? actingUser = null);
 }
 

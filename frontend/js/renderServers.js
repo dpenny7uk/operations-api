@@ -1,5 +1,5 @@
 import { esc, num, badge, dot, fmtDate } from './utils.js';
-import { allServers, setAllServers } from './api.js';
+import { allServers, setAllServers, apiPost, usingDemo } from './api.js';
 
 const SERVER_PAGE_SIZE = 20;
 let unmatchedPage = 0;
@@ -80,13 +80,49 @@ function renderUnmatchedTable(items) {
   const start = unmatchedPage * SERVER_PAGE_SIZE;
   const page = items.slice(start, start + SERVER_PAGE_SIZE);
 
-  document.getElementById('unmatchedTable').innerHTML = page.map(u => `<tr>
+  // Ensure shared datalist exists (populated dynamically on input)
+  if (!document.getElementById('serverNameList')) {
+    const dl = document.createElement('datalist');
+    dl.id = 'serverNameList';
+    document.body.appendChild(dl);
+  }
+
+  document.getElementById('unmatchedTable').innerHTML = page.map((u, i) => {
+    const rowId = `unmatched-${start + i}`;
+    return `<tr id="${rowId}">
     <td><code>${esc(u.serverNameRaw)}</code></td>
     <td>${badge(u.sourceSystem, 'blue')}</td>
     <td>${num(u.occurrenceCount)}</td>
     <td>${fmtDate(u.firstSeenAt)}</td>
     <td>${u.closestMatch ? `<span class="color-green">${esc(u.closestMatch)}</span>` : '<span class="color-muted">None</span>'}</td>
-  </tr>`).join('');
+    <td class="unmatched-actions">
+      ${u.closestMatch
+        ? `<button class="btn-sm btn-green" data-action="link" data-raw="${esc(u.serverNameRaw)}" data-match="${esc(u.closestMatch)}">Link</button>`
+        : `<button class="btn-sm btn-green" disabled title="No closest match found \u2014 use manual input">Link</button>`}
+      <button class="btn-sm btn-muted" data-action="ignore" data-raw="${esc(u.serverNameRaw)}">Ignore</button>
+      <div class="unmatched-manual">
+        <input type="text" list="serverNameList" placeholder="Search server\u2026" class="input-sm" maxlength="255">
+        <button class="btn-sm btn-blue" data-action="manual" data-raw="${esc(u.serverNameRaw)}">Link</button>
+      </div>
+    </td>
+  </tr>`;
+  }).join('');
+
+  // Wire action buttons
+  document.getElementById('unmatchedTable').querySelectorAll('button[data-action]').forEach(btn => {
+    btn.addEventListener('click', () => handleUnmatchedAction(btn));
+  });
+
+  // Wire dynamic datalist filtering (max 20 suggestions)
+  document.getElementById('unmatchedTable').querySelectorAll('.unmatched-manual input').forEach(input => {
+    input.addEventListener('input', () => {
+      const q = input.value.trim().toLowerCase();
+      const dl = document.getElementById('serverNameList');
+      if (q.length < 2) { dl.innerHTML = ''; return; }
+      const matches = allServers.filter(s => s.serverName.toLowerCase().includes(q)).slice(0, 20);
+      dl.innerHTML = matches.map(s => `<option value="${esc(s.serverName)}">`).join('');
+    });
+  });
 
   const tableCard = document.getElementById('unmatchedTable').closest('.card');
   let pag = tableCard.querySelector('.pagination');
@@ -105,6 +141,88 @@ function renderUnmatchedTable(items) {
   } else if (pag) {
     pag.remove();
   }
+}
+
+async function handleUnmatchedAction(btn) {
+  const action = btn.dataset.action;
+  const raw = btn.dataset.raw;
+  const row = btn.closest('tr');
+
+  if (action === 'ignore') {
+    btn.disabled = true;
+    btn.textContent = '\u2026';
+    if (usingDemo) {
+      removeUnmatchedRow(raw, row);
+      return;
+    }
+    const res = await apiPost(`/servers/unmatched/${encodeURIComponent(raw)}/ignore`);
+    if (res.ok) {
+      removeUnmatchedRow(raw, row);
+    } else {
+      btn.disabled = false;
+      btn.textContent = 'Ignore';
+      showRowError(row, res.error);
+    }
+    return;
+  }
+
+  // Link (suggested match or manual input)
+  let serverName;
+  if (action === 'link') {
+    serverName = btn.dataset.match;
+  } else {
+    const input = row.querySelector('input[type="text"]');
+    serverName = (input?.value || '').trim();
+  }
+
+  if (!serverName) {
+    showRowError(row, 'Enter a server name');
+    return;
+  }
+
+  const server = allServers.find(s => s.serverName === serverName);
+  if (!server) {
+    showRowError(row, 'Server not found in inventory');
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = '\u2026';
+  if (usingDemo) {
+    removeUnmatchedRow(raw, row);
+    return;
+  }
+  const res = await apiPost(`/servers/unmatched/${encodeURIComponent(raw)}/resolve`, { serverId: server.serverId });
+  if (res.ok) {
+    removeUnmatchedRow(raw, row);
+  } else {
+    btn.disabled = false;
+    btn.textContent = 'Link';
+    showRowError(row, res.error);
+  }
+}
+
+function removeUnmatchedRow(raw, row) {
+  allUnmatched = allUnmatched.filter(u => u.serverNameRaw !== raw);
+  _filteredUnmatched = _filteredUnmatched.filter(u => u.serverNameRaw !== raw);
+  row.remove();
+  // Re-render if page is now empty but more pages exist
+  if (document.getElementById('unmatchedTable').children.length === 0 && allUnmatched.length > 0) {
+    unmatchedPage = Math.max(0, unmatchedPage - 1);
+    renderUnmatchedTable(_filteredUnmatched);
+  }
+}
+
+function showRowError(row, msg) {
+  let err = row.querySelector('.row-error');
+  if (!err) {
+    err = document.createElement('span');
+    err.className = 'row-error color-red';
+    err.style.marginLeft = '0.5rem';
+    row.querySelector('.unmatched-actions')?.appendChild(err);
+  }
+  err.textContent = msg;
+  setTimeout(() => err?.remove(), 4000);
 }
 
 function renderServerTable(servers) {

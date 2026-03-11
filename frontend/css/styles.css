@@ -375,8 +375,8 @@ main {
 }
 
 .critical-card.critical-teal {
-  background: linear-gradient(135deg, #0d7b5f 0%, #0a5c47 100%);
-  border-color: rgba(16, 185, 129, 0.4);
+  background: linear-gradient(135deg, #475569 0%, #334155 100%);
+  border-color: rgba(100, 116, 139, 0.4);
 }
 .critical-card.critical-orange {
   background: linear-gradient(135deg, #c05a1c 0%, #8b3f0f 100%);
@@ -1147,6 +1147,24 @@ th[title] {
 .pagination button:last-child { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; border-left: none; }
 .pagination button:hover:not(:disabled) { color: var(--text); background: var(--surface2); }
 .pagination button:disabled { opacity: 0.3; cursor: default; }
+
+/* ── Inline action buttons ───────────────────────────────────────────────── */
+.btn-sm {
+  padding: 0.2rem 0.6rem; font-size: 0.78rem; border: 1px solid var(--border);
+  border-radius: var(--radius-sm); cursor: pointer; background: var(--surface2); color: var(--text);
+}
+.btn-sm:hover:not(:disabled) { filter: brightness(1.2); }
+.btn-sm:disabled { opacity: 0.4; cursor: default; }
+.btn-green { background: var(--green); color: #fff; border-color: var(--green); }
+.btn-blue { background: var(--accent); color: #fff; border-color: var(--accent); }
+.btn-muted { background: var(--surface2); color: var(--text-muted); }
+.unmatched-actions { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+.unmatched-manual { display: flex; align-items: center; gap: 0.25rem; }
+.input-sm {
+  padding: 0.2rem 0.4rem; font-size: 0.78rem; border: 1px solid var(--border);
+  border-radius: var(--radius-sm); background: var(--surface); color: var(--text); width: 10rem;
+}
+.row-error { font-size: 0.75rem; }
 
 /* ── Clickable cards & selection ─────────────────────────────────────────── */
 

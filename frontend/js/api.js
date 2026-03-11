@@ -49,3 +49,27 @@ export async function api(path) {
     clearTimeout(timer);
   }
 }
+
+// --- POST wrapper (returns { ok, status, error }) ---
+export async function apiPost(path, body = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+  try {
+    const res = await fetch(API_BASE + path, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      return { ok: false, status: res.status, error: text || `Error ${res.status}` };
+    }
+    return { ok: true, status: res.status };
+  } catch (e) {
+    return { ok: false, status: 0, error: e.name === 'AbortError' ? 'Request timed out' : 'Network error' };
+  } finally {
+    clearTimeout(timer);
+  }
+}

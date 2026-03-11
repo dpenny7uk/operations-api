@@ -358,6 +358,7 @@ BEGIN
     ON CONFLICT (server_name_raw, source_system) DO UPDATE SET
         last_seen_at = CURRENT_TIMESTAMP,
         occurrence_count = system.unmatched_servers.occurrence_count + 1
+    WHERE system.unmatched_servers.status NOT IN ('ignored', 'resolved')
     RETURNING unmatched_id INTO v_id;
     
     RETURN v_id;

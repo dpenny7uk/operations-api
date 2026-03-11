@@ -125,7 +125,7 @@ public class ServersController : ControllerBase
             return BadRequest($"Server with ID {req.ServerId} does not exist.");
 
         var user = GetUserName();
-        var rows = await _svc.ResolveUnmatchedServerAsync(serverNameRaw, req.ServerId, req.SourceSystem?.Trim(), user);
+        var rows = await _svc.ResolveUnmatchedServerAsync(serverNameRaw, req.ServerId, target.ServerName, req.SourceSystem?.Trim(), user);
         if (rows == 0)
             return NotFound($"No pending unmatched server entry found for '{serverNameRaw}'.");
         return Ok();

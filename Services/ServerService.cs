@@ -124,7 +124,7 @@ public class ServerService : BaseService<ServerService>, IServerService
         ", new { Canonical = canonical, Alias = alias, Source = source, CreatedBy = actingUser });
     });
 
-    public Task<int> ResolveUnmatchedServerAsync(string raw, int serverId, string? sourceSystem = null, string? actingUser = null) => RunDbAsync(async () =>
+    public Task<int> ResolveUnmatchedServerAsync(string raw, int serverId, string canonicalName, string? sourceSystem = null, string? actingUser = null) => RunDbAsync(async () =>
     {
         Logger.LogInformation("Resolving unmatched server {ServerName} to ID {ServerId} by {User}", raw, serverId, actingUser ?? "unknown");
         var sql = $@"
@@ -146,7 +146,19 @@ public class ServerService : BaseService<ServerService>, IServerService
             p.Add("Source", sourceSystem);
         }
 
-        return await Db.ExecuteAsync(sql, p);
+        var rows = await Db.ExecuteAsync(sql, p);
+
+        // Create alias so future syncs match automatically
+        if (rows > 0)
+        {
+            await Db.ExecuteAsync($@"
+                INSERT INTO {Sql.Tables.ServerAliases} (canonical_name, alias_name, source_system, created_by)
+                VALUES (@Canonical, @Alias, 'unmatched_resolve', @CreatedBy)
+                ON CONFLICT (alias_name) DO NOTHING",
+                new { Canonical = canonicalName, Alias = raw, CreatedBy = actingUser ?? "api" });
+        }
+
+        return rows;
     });
 
     public Task IgnoreUnmatchedServerAsync(string raw, string? sourceSystem = null, string? actingUser = null) => RunDbAsync(async () =>

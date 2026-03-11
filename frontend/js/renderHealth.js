@@ -20,7 +20,7 @@ export async function renderHealth(data, servers, unmatched, certSummary, certs,
     <h3>System Status</h3>
     <div class="dash-status-value">
       <span class="status-icon" role="img" aria-label="${statusLabel}">${statusIcon}</span>
-      <span class="color-${overallColor}">${esc(data.overallStatus)}</span>
+      <span class="color-${overallColor}">${esc(statusLabel)}</span>
     </div>`;
 
   // Critical Issues cards
