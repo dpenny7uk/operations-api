@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'">
 <title>GES Operations Dashboard</title>
-<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
 
@@ -33,6 +33,10 @@
 </header>
 
 <main>
+
+  <div id="pageLoader" class="page-loader">
+    <span class="loading"></span> Loading dashboard&hellip;
+  </div>
 
   <!-- HEALTH PAGE -->
   <div id="health" class="page active">
@@ -64,7 +68,7 @@
           <h3 class="dash-panel-title">Unreachable Servers</h3>
           <button class="view-all-link" data-goto="servers">View All &rsaquo;</button>
         </div>
-        <table>
+        <table aria-label="Unreachable servers">
           <thead><tr><th>Name</th><th>Environment</th><th>Last Seen</th><th>Duration</th></tr></thead>
           <tbody id="unreachableTable"></tbody>
         </table>
@@ -74,7 +78,7 @@
           <h3 class="dash-panel-title">Unmatched Servers</h3>
           <button class="view-all-link" data-goto="servers">View All &rsaquo;</button>
         </div>
-        <table>
+        <table aria-label="Unmatched servers">
           <thead><tr><th>Raw Name</th><th>Source</th><th>First Seen</th></tr></thead>
           <tbody id="dashUnmatchedTable"></tbody>
         </table>
@@ -223,6 +227,6 @@
 
 </main>
 
-<script src="app.js"></script>
+<script type="module" src="js/app.js"></script>
 </body>
 </html>

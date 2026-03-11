@@ -339,7 +339,7 @@ stages:
 
                       $frontendDir = Get-ChildItem "$(Pipeline.Workspace)/artifact" -Recurse -Directory -Filter "frontend" | Select-Object -First 1
                       if ($frontendDir) {
-                          Copy-Item "$($frontendDir.FullName)\*" $wwwroot -Force
+                          Copy-Item "$($frontendDir.FullName)\*" $wwwroot -Recurse -Force
                           Write-Host "Frontend deployed to $wwwroot ($(Get-ChildItem $wwwroot | Measure-Object).Count files)"
                       } else {
                           Write-Host "##[warning]No frontend found in artifact - skipping"
