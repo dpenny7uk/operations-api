@@ -288,6 +288,24 @@ def sync_certificates(ctx, records: list):
             )
             ctx.stats.deactivated += stale_count
 
+        # Auto-deactivate certificates expired for 90+ days — they are no longer
+        # actionable and just create noise in the dashboard alerts.
+        cur.execute("""
+            UPDATE certificates.inventory SET
+                is_active = FALSE,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE is_active = TRUE
+              AND is_expired = TRUE
+              AND valid_to < NOW() - INTERVAL '90 days'
+        """)
+        long_expired = cur.rowcount
+        if long_expired > 0:
+            logger.info(
+                "Deactivated %d certificate(s) expired for 90+ days",
+                long_expired
+            )
+            ctx.stats.deactivated += long_expired
+
         if not ctx.dry_run:
             ctx.conn.commit()
 

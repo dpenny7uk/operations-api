@@ -5,6 +5,7 @@ public class CertificateSummary
     public int CriticalCount { get; set; }
     public int WarningCount { get; set; }
     public int OkCount { get; set; }
+    public int ExpiredCount { get; set; }
     public int TotalCount { get; set; }
 }
 
@@ -16,6 +17,7 @@ public class Certificate
     public DateTime ValidTo { get; set; }
     public int DaysUntilExpiry { get; set; }
     public string AlertLevel { get; set; } = "";
+    public bool IsExpired { get; set; }
 }
 
 public class CertificateDetail : Certificate

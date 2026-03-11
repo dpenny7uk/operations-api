@@ -13,9 +13,10 @@ public class CertificateService : BaseService<CertificateService>, ICertificateS
     public Task<CertificateSummary> GetSummaryAsync() => RunDbAsync(() =>
         Db.QueryFirstAsync<CertificateSummary>($@"
             SELECT
-                COUNT(*) FILTER (WHERE alert_level = 'CRITICAL' OR is_expired) AS CriticalCount,
+                COUNT(*) FILTER (WHERE alert_level = 'CRITICAL' AND NOT is_expired) AS CriticalCount,
                 COUNT(*) FILTER (WHERE alert_level = 'WARNING' AND NOT is_expired) AS WarningCount,
                 COUNT(*) FILTER (WHERE alert_level = 'OK' AND NOT is_expired) AS OkCount,
+                COUNT(*) FILTER (WHERE is_expired) AS ExpiredCount,
                 COUNT(*) AS TotalCount
             FROM {Sql.Tables.Certificates}
             WHERE is_active = TRUE
@@ -35,7 +36,8 @@ public class CertificateService : BaseService<CertificateService>, ICertificateS
                 server_name AS ServerName,
                 valid_to AS ValidTo,
                 days_until_expiry AS DaysUntilExpiry,
-                alert_level AS AlertLevel
+                alert_level AS AlertLevel,
+                is_expired AS IsExpired
             FROM {Sql.Tables.Certificates}
             WHERE is_active = TRUE";
 
@@ -55,8 +57,15 @@ public class CertificateService : BaseService<CertificateService>, ICertificateS
 
         if (!string.IsNullOrEmpty(alertLevel))
         {
-            sql += " AND alert_level = @AlertLevel";
-            p.Add("AlertLevel", alertLevel.ToUpper());
+            if (alertLevel.Equals("EXPIRED", StringComparison.OrdinalIgnoreCase))
+            {
+                sql += " AND is_expired = TRUE";
+            }
+            else
+            {
+                sql += " AND alert_level = @AlertLevel AND NOT is_expired";
+                p.Add("AlertLevel", alertLevel.ToUpper());
+            }
         }
 
         sql += " ORDER BY valid_to LIMIT @Limit";

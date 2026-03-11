@@ -23,6 +23,7 @@ export function renderCerts(summary, certs) {
     <div class="sub color-${certStatusColor}" style="margin-top:0.5rem">${certStatusLabel}</div>`;
 
   // Gradient cards with click-to-filter
+  const expiredCount = num(summary.expiredCount);
   document.getElementById('certCards').innerHTML = `
     <div class="critical-card critical-red clickable" tabindex="0" role="button" data-filter="critical">
       <div class="critical-num">${num(summary.criticalCount)}</div>
@@ -38,14 +39,21 @@ export function renderCerts(summary, certs) {
       <div class="critical-num">${num(summary.okCount)}</div>
       <div class="critical-label">OK</div>
       <div class="critical-delta">Valid</div>
-    </div>`;
+    </div>
+    ${expiredCount > 0 ? `<div class="critical-card critical-muted clickable" tabindex="0" role="button" data-filter="expired">
+      <div class="critical-num">${expiredCount}</div>
+      <div class="critical-label">Expired</div>
+      <div class="critical-delta">Past expiry date</div>
+    </div>` : ''}`;
 
   const total = summary.totalCount || 1;
-  renderTimeline('certTimeline', [
+  const timelineSegments = [
     { pct: summary.criticalCount / total * 100, color: 'var(--red)', label: `Critical: ${summary.criticalCount}` },
     { pct: summary.warningCount / total * 100, color: 'var(--orange)', label: `Warning: ${summary.warningCount}` },
     { pct: summary.okCount / total * 100, color: 'var(--green)', label: `OK: ${summary.okCount}` },
-  ]);
+  ];
+  if (expiredCount > 0) timelineSegments.push({ pct: expiredCount / total * 100, color: 'var(--text-muted)', label: `Expired: ${expiredCount}` });
+  renderTimeline('certTimeline', timelineSegments);
 
   wireCriticalCardFilters('certCards', (filter) => {
     setActiveCertFilter(filter);
@@ -110,12 +118,13 @@ function renderCertTable(certs) {
     const days = c.daysUntilExpiry != null ? num(c.daysUntilExpiry) : null;
     const daysClass = days != null && days <= 14 ? 'color-red'
                     : days != null && days <= 30 ? 'color-orange' : '';
+    const displayLevel = c.isExpired ? 'Expired' : c.alertLevel;
     return `<tr>
     <td><strong>${esc(c.subjectCn)}</strong></td>
     <td>${esc(c.serverName)}</td>
     <td>${fmtDate(c.validTo)}</td>
     <td class="${daysClass}"><strong>${days != null ? days + 'd' : '\u2014'}</strong></td>
-    <td>${alertBadge(c.alertLevel)}</td>
+    <td>${alertBadge(displayLevel)}</td>
   </tr>`;
   }).join('');
 
@@ -143,7 +152,8 @@ export function filterCerts() {
   const level = document.getElementById('alertFilter').value;
   const server = document.getElementById('certServerSearch').value.toLowerCase().trim();
   const filtered = allCerts.filter(c => {
-    if (level && (c.alertLevel || '').toLowerCase() !== level) return false;
+    if (level === 'expired') { if (!c.isExpired) return false; }
+    else if (level) { if ((c.alertLevel || '').toLowerCase() !== level || c.isExpired) return false; }
     if (server && !(c.serverName||'').toLowerCase().includes(server)) return false;
     return true;
   });

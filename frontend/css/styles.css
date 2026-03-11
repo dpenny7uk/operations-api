@@ -398,6 +398,10 @@ main {
   background: linear-gradient(135deg, #b88a04 0%, #8a6803 100%);
   border-color: rgba(234, 179, 8, 0.4);
 }
+.critical-card.critical-muted {
+  background: linear-gradient(135deg, #4a5568 0%, #2d3748 100%);
+  border-color: rgba(113, 128, 150, 0.4);
+}
 
 /* Clickable critical cards */
 .critical-card.clickable {

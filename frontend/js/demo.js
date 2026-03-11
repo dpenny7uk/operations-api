@@ -50,14 +50,15 @@ export const DEMO = (() => {
     'harbor.corp.local','keycloak.corp.local'];
 
   const certs = [];
-  // 30 critical, 120 warning, 850 ok
+  // 30 critical, 120 warning, 850 ok, 15 expired
   const certDist = [
-    [30, 1, 14, 'critical'],
-    [120, 15, 60, 'warning'],
-    [850, 61, 365, 'ok']
+    [15, -90, -1, 'critical', true],
+    [30, 1, 14, 'critical', false],
+    [120, 15, 60, 'warning', false],
+    [850, 61, 365, 'ok', false]
   ];
   let certId = 1;
-  for (const [count, minDays, maxDays, level] of certDist) {
+  for (const [count, minDays, maxDays, level, expired] of certDist) {
     for (let i = 0; i < count; i++) {
       const days = minDays + Math.floor(rand() * (maxDays - minDays + 1));
       const cn = i < cnPrefixes.length ? cnPrefixes[i] : `svc-${pad(certId, 4)}.corp.local`;
@@ -67,11 +68,12 @@ export const DEMO = (() => {
         serverName: pick(servers).serverName,
         validTo: new Date(Date.now() + days * DAY).toISOString(),
         daysUntilExpiry: days,
-        alertLevel: level
+        alertLevel: level,
+        isExpired: expired
       });
     }
   }
-  const certSummary = { criticalCount: 30, warningCount: 120, okCount: 850, totalCount: 1000 };
+  const certSummary = { criticalCount: 30, warningCount: 120, okCount: 850, expiredCount: 15, totalCount: 1015 };
 
   // --- Unreachable servers (12) ---
   const unreachable = [];

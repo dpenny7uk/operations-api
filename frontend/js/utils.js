@@ -13,7 +13,7 @@ export function badge(text, color) {
 
 export function alertBadge(level) {
   const l = (level || '').toLowerCase();
-  const colors = { critical: 'red', warning: 'orange', ok: 'green' };
+  const colors = { critical: 'red', warning: 'orange', ok: 'green', expired: 'muted' };
   return badge(level, colors[l] || 'muted');
 }
 
