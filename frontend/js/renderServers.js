@@ -1,6 +1,5 @@
 import { esc, num, badge, dot, fmtDate } from './utils.js';
 import { allServers, setAllServers } from './api.js';
-import { wireCriticalCardFilters } from './components.js';
 
 const SERVER_PAGE_SIZE = 20;
 let unmatchedPage = 0;
@@ -9,15 +8,24 @@ let _filteredUnmatched = [];
 let serverPage = 0;
 let _filteredServers = [];
 
+const ENV_COLORS = {
+  Prod: 'var(--env-red)', Dev: 'var(--env-blue)', Systest: 'var(--env-teal)',
+  UAT: 'var(--env-orange)', Staging: 'var(--env-yellow)', Training: 'var(--env-purple)',
+  'Live Support': 'var(--env-red)', 'Shared Services': 'var(--env-teal)',
+  'Proof of Concept': 'var(--env-blue)', 'Continuous Integration': 'var(--env-yellow)'
+};
+
 export function renderServers(servers, unmatched) {
   setAllServers(servers);
 
-  // Summary cards
   const active = servers.filter(s => s.isActive).length;
   const inactive = servers.length - active;
   const envCounts = {};
   servers.forEach(s => { envCounts[s.environment || 'Unknown'] = (envCounts[s.environment || 'Unknown'] || 0) + 1; });
-  const envColors = { Prod: 'critical-red', Dev: 'critical-blue', Systest: 'critical-teal', UAT: 'critical-orange', Staging: 'critical-yellow', Training: 'critical-purple', 'Live Support': 'critical-red', 'Shared Services': 'critical-teal', 'Proof of Concept': 'critical-blue', 'Continuous Integration': 'critical-yellow' };
+
+  // Sort environments by count descending
+  const sorted = Object.entries(envCounts).sort((a, b) => b[1] - a[1]);
+  const maxCount = sorted.length ? sorted[0][1] : 1;
 
   document.getElementById('serverSummaryCard').className = 'card dash-status-card overflow-hidden status-healthy';
   document.getElementById('serverSummaryCard').innerHTML = `
@@ -25,16 +33,39 @@ export function renderServers(servers, unmatched) {
     <div class="dash-status-value">${servers.length}</div>
     <div class="sub" style="margin-top:0.5rem">${active} active \u00B7 ${inactive} inactive</div>`;
 
-  document.getElementById('serverEnvCards').innerHTML = Object.entries(envCounts).map(([env, count]) => `
-    <div class="critical-card ${envColors[env] || 'critical-blue'} clickable" tabindex="0" role="button" data-filter="${esc(env)}">
-      <div class="critical-num">${count}</div>
-      <div class="critical-label">${esc(env)}</div>
-      <div class="critical-delta">${servers.filter(s => s.environment === env && s.isActive).length} active</div>
-    </div>`).join('');
+  document.getElementById('serverEnvBars').innerHTML = sorted.map(([env, count]) => {
+    const pct = Math.max((count / maxCount) * 100, 4);
+    const activeCount = servers.filter(s => s.environment === env && s.isActive).length;
+    const color = ENV_COLORS[env] || 'var(--env-blue)';
+    return `<div class="env-bar-row clickable" tabindex="0" role="button" data-filter="${esc(env)}">
+      <span class="env-bar-label">${esc(env)}</span>
+      <div class="env-bar-track">
+        <div class="env-bar-fill" style="width:${pct.toFixed(1)}%;background:${color}"></div>
+      </div>
+      <span class="env-bar-count">${count}</span>
+      <span class="env-bar-active">${activeCount} active</span>
+    </div>`;
+  }).join('');
 
-  wireCriticalCardFilters('serverEnvCards', (filter) => {
-    document.getElementById('envFilter').value = filter || '';
-    filterServers();
+  // Wire click-to-filter on bar rows
+  const container = document.getElementById('serverEnvBars');
+  let selectedFilter = null;
+  container.querySelectorAll('.env-bar-row').forEach(row => {
+    const handler = () => {
+      const filter = row.dataset.filter;
+      if (selectedFilter === filter) {
+        selectedFilter = null;
+        container.querySelectorAll('.env-bar-row').forEach(r => r.classList.remove('env-bar-selected'));
+      } else {
+        selectedFilter = filter;
+        container.querySelectorAll('.env-bar-row').forEach(r => r.classList.remove('env-bar-selected'));
+        row.classList.add('env-bar-selected');
+      }
+      document.getElementById('envFilter').value = selectedFilter || '';
+      filterServers();
+    };
+    row.addEventListener('click', handler);
+    row.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handler(); } });
   });
 
   renderServerTable(servers);
