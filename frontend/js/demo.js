@@ -9,8 +9,9 @@ export const DEMO = (() => {
 
   // --- Generate 520 servers ---
   const envSpec = [
-    ['Production', 'PROD', 200], ['Staging', 'STG', 80], ['UAT', 'UAT', 80],
-    ['Development', 'DEV', 100], ['SIT', 'SIT', 60]
+    ['Prod', 'PR', 180], ['Dev', 'DV', 80], ['Systest', 'SY', 50], ['UAT', 'UT', 50],
+    ['Staging', 'ST', 50], ['Training', 'TR', 30], ['Live Support', 'LS', 30],
+    ['Shared Services', 'SS', 20], ['Proof of Concept', 'PC', 20], ['Continuous Integration', 'CI', 10]
   ];
   const prefixes = ['WEB','SQL','APP','API','SVC','BATCH','ETL','RPT','MON','DC',
                      'FILE','CACHE','MSG','LOG','AUTH','VPN','DNS','NTP','SCAN','BACKUP'];
@@ -101,7 +102,7 @@ export const DEMO = (() => {
   }));
 
   // --- Cycle servers for patching (20 from prod/staging) ---
-  const patchServers = servers.filter(s => s.environment === 'Production' || s.environment === 'Staging').slice(0, 20);
+  const patchServers = servers.filter(s => s.environment === 'Prod' || s.environment === 'Staging').slice(0, 20);
   const cycleItems = patchServers.map((s, i) => ({
     scheduleId: i + 1, serverName: s.serverName, patchGroup: s.patchGroup || 'Group-A',
     scheduledTime: `0${2 + Math.floor(i / 5)}:00`.slice(-5), application: s.applicationName,

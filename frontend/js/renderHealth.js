@@ -104,7 +104,7 @@ export async function renderHealth(data, servers, unmatched, certSummary, certs,
       <h4><span role="img" aria-label="Servers">\uD83D\uDDA5\uFE0F</span> Servers</h4>
       <div class="metric-big">${serverList.length}<span> total</span></div>
       <div class="metric-detail">
-        ${Object.entries(envCounts).map(([env, count]) => `<div class="metric-row"><span class="color-${env === 'Production' ? 'red' : env === 'Staging' ? 'yellow' : 'blue'}">${count}</span> <span>${esc(env)}</span></div>`).join('')}
+        ${Object.entries(envCounts).map(([env, count]) => `<div class="metric-row"><span class="color-${env === 'Prod' || env === 'Live Support' ? 'red' : env === 'Staging' ? 'yellow' : 'blue'}">${count}</span> <span>${esc(env)}</span></div>`).join('')}
       </div>
     </div>
     <div class="metric-card metric-green">
