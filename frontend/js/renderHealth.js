@@ -108,7 +108,7 @@ export async function renderHealth(data, servers, unmatched, certSummary, certs,
       </div>
     </div>
     <div class="metric-card metric-green">
-      <h4><span role="img" aria-label="Patch Compliance">\u2705</span> Patch Compliance</h4>
+      <h4><span role="img" aria-label="Patch Coverage">\u2705</span> Patch Coverage</h4>
       <div class="metric-big">${patchServers > 0 ? Math.round((patchServers / Math.max(serverList.length, 1)) * 100) : '\u2014'}${patchServers > 0 ? '<span>%</span>' : ''}</div>
       <div class="metric-detail">
         <div>Scheduled: ${patchServers} servers</div>

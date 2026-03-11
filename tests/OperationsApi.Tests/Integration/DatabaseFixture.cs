@@ -54,7 +54,8 @@ public class DatabaseFixture : IAsyncLifetime
             "database/003-certificates-schema.sql",
             "database/004-patching-schema.sql",
             "database/005-system-health-schema.sql",
-            "database/006-eol-schema.sql"
+            "database/006-eol-schema.sql",
+            "database/008-eol-add-machine-name.sql"
         };
 
         // Walk up from bin/Debug/net10.0 to find the project root
@@ -165,14 +166,14 @@ public class DatabaseFixture : IAsyncLifetime
 
         -- ═══ EOL Software ═══
         INSERT INTO eol.end_of_life_software
-            (eol_product, eol_product_version, eol_end_of_life, eol_end_of_support, asset, is_active)
+            (eol_product, eol_product_version, eol_end_of_life, eol_end_of_support, machine_name, asset, is_active)
         VALUES
-            ('Windows Server', '2019', NOW() - INTERVAL '6 months', NOW() - INTERVAL '1 year', 'OLD01', TRUE),
-            ('Windows Server', '2019', NOW() - INTERVAL '6 months', NOW() - INTERVAL '1 year', 'DEV01', TRUE),
-            ('Windows Server', '2022', NOW() + INTERVAL '3 years', NOW() + INTERVAL '2 years', 'WEB01', TRUE),
-            ('Windows Server', '2022', NOW() + INTERVAL '3 years', NOW() + INTERVAL '2 years', 'WEB02', TRUE),
-            ('SQL Server', '2019', NOW() + INTERVAL '2 months', NOW() - INTERVAL '6 months', 'API01', TRUE),
-            ('Legacy App', '1.0', NOW() - INTERVAL '2 years', NOW() - INTERVAL '3 years', 'OLD01', FALSE);
+            ('Windows Server', '2019', NOW() - INTERVAL '6 months', NOW() - INTERVAL '1 year', 'OLD01', 'Windows Server 2019 Standard', TRUE),
+            ('Windows Server', '2019', NOW() - INTERVAL '6 months', NOW() - INTERVAL '1 year', 'DEV01', 'Windows Server 2019 Standard', TRUE),
+            ('Windows Server', '2022', NOW() + INTERVAL '3 years', NOW() + INTERVAL '2 years', 'WEB01', 'Windows Server 2022 Standard', TRUE),
+            ('Windows Server', '2022', NOW() + INTERVAL '3 years', NOW() + INTERVAL '2 years', 'WEB02', 'Windows Server 2022 Standard', TRUE),
+            ('SQL Server', '2019', NOW() + INTERVAL '2 months', NOW() - INTERVAL '6 months', 'API01', 'SQL Server 2019 Database Engine', TRUE),
+            ('Legacy App', '1.0', NOW() - INTERVAL '2 years', NOW() - INTERVAL '3 years', 'OLD01', 'Legacy App Runtime', FALSE);
 
         -- ═══ Sync status ═══
         UPDATE system.sync_status SET
