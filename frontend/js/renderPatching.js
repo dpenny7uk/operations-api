@@ -145,7 +145,7 @@ function renderCycleServers(cycleId) {
   container.innerHTML = `
     ${servers.length === 0
       ? '<div class="empty-state">No servers found</div>'
-      : `<table>
+      : `<div class="cycle-scroll-wrap"><table>
           <thead><tr>
             <th>Server</th><th>Patch Group</th><th>Scheduled (UTC)</th><th>Application</th><th>Issues</th>
           </tr></thead>
@@ -158,7 +158,7 @@ function renderCycleServers(cycleId) {
               ? `<span class="color-orange">${dot('orange')}${num(s.issueCount)} issue${num(s.issueCount) !== 1 ? 's' : ''}</span>`
               : `<span class="color-green">${dot('green')}None</span>`}</td>
           </tr>`).join('')}</tbody>
-        </table>`
+        </table></div>`
     }
     ${paginationHtml}`;
 

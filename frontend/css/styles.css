@@ -499,7 +499,7 @@ main {
   min-width: 0;
 }
 .scroll-wrap { max-height: 400px; overflow-y: auto; }
-.cycle-detail-inner { max-height: 400px; overflow-y: auto; }
+.cycle-scroll-wrap { max-height: 400px; overflow-y: auto; }
 .dash-panel > table th, .dash-panel > .scroll-wrap th { position: static; }
 .dash-panel-title {
   font-size: 0.72rem;
