@@ -37,7 +37,7 @@ public class HealthController : ControllerBase
     [ProducesResponseType(400)]
     public async Task<IActionResult> GetSyncHistory(string syncName, [FromQuery] int limit = 20)
     {
-        if (string.IsNullOrWhiteSpace(syncName) || syncName.Length > 100)
+        if (string.IsNullOrWhiteSpace(syncName) || syncName.Length > 100 || InputGuard.ContainsControlChars(syncName))
             return BadRequest("Sync name is required and must not exceed 100 characters.");
         return Ok(await _svc.GetSyncHistoryAsync(syncName, Math.Clamp(limit, 1, 100)));
     }
@@ -50,7 +50,7 @@ public class HealthController : ControllerBase
     [ProducesResponseType(400)]
     public async Task<IActionResult> RunValidation([FromQuery] string? ruleName = null)
     {
-        if (ruleName != null && (ruleName.Length > 100 || string.IsNullOrWhiteSpace(ruleName)))
+        if (ruleName != null && (ruleName.Length > 100 || string.IsNullOrWhiteSpace(ruleName) || InputGuard.ContainsControlChars(ruleName)))
             return BadRequest("Rule name must be 1-100 characters.");
         return Ok(await _svc.RunValidationAsync(ruleName));
     }

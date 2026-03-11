@@ -37,6 +37,8 @@ public class CertificatesController : ControllerBase
     {
         if (alertLevel != null && alertLevel.ToLower() is not ("critical" or "warning" or "ok"))
             return BadRequest("alertLevel must be one of: critical, warning, ok.");
+        if (serverName?.Length > 255 || InputGuard.ContainsControlChars(serverName))
+            return BadRequest("serverName parameter is invalid.");
         var days = daysUntilExpiry.HasValue ? Math.Max(daysUntilExpiry.Value, 0) : (int?)null;
         return Ok(await _svc.ListCertificatesAsync(alertLevel, serverName, days, Math.Clamp(limit, 1, 1000)));
     }
@@ -57,7 +59,7 @@ public class CertificatesController : ControllerBase
     [ProducesResponseType(400)]
     public async Task<IActionResult> GetByServer(string serverName)
     {
-        if (string.IsNullOrWhiteSpace(serverName) || serverName.Length > 255)
+        if (string.IsNullOrWhiteSpace(serverName) || serverName.Length > 255 || InputGuard.ContainsControlChars(serverName))
             return BadRequest("Server name is required and must not exceed 255 characters.");
         return Ok(await _svc.GetByServerAsync(serverName));
     }

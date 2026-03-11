@@ -35,6 +35,8 @@ public class EolController : ControllerBase
     {
         if (alertLevel != null && alertLevel.ToLower() is not ("eol" or "approaching" or "supported"))
             return BadRequest("alertLevel must be one of: eol, approaching, supported.");
+        if (product?.Length > 255 || InputGuard.ContainsControlChars(product))
+            return BadRequest("product parameter is invalid.");
         return Ok(await _svc.ListEolSoftwareAsync(alertLevel, product, Math.Clamp(limit, 1, 1000)));
     }
 
@@ -46,7 +48,9 @@ public class EolController : ControllerBase
     public async Task<IActionResult> GetByProductVersion(string product, string version)
     {
         if (string.IsNullOrWhiteSpace(product) || string.IsNullOrWhiteSpace(version)
-            || product.Length > 255 || version.Length > 100)
+            || product.Length > 255 || version.Length > 100
+            || InputGuard.ContainsControlChars(product) || InputGuard.ContainsControlChars(version)
+            || product.Contains('/') || product.Contains('\\') || version.Contains('/') || version.Contains('\\'))
             return BadRequest("Product and version are required and must not exceed length limits.");
         var detail = await _svc.GetByProductVersionAsync(product, version);
         return detail == null ? NotFound() : Ok(detail);
@@ -58,7 +62,7 @@ public class EolController : ControllerBase
     [ProducesResponseType(400)]
     public async Task<IActionResult> GetByServer(string serverName)
     {
-        if (string.IsNullOrWhiteSpace(serverName) || serverName.Length > 255)
+        if (string.IsNullOrWhiteSpace(serverName) || serverName.Length > 255 || InputGuard.ContainsControlChars(serverName))
             return BadRequest("Server name is required and must not exceed 255 characters.");
         return Ok(await _svc.GetByServerAsync(serverName));
     }

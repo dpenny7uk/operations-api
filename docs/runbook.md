@@ -1077,8 +1077,8 @@ All secrets are stored in the Azure DevOps variable group **`operations-api-prod
 | `OPS_DB_USER` | *(none)* | Yes | All sync scripts | Application DB user (`ops_api` role) |
 | `OPS_DB_PASSWORD` | *(none)* | Yes* | All sync scripts | *Or use `OPS_DB_USE_PGPASS=1` |
 | `OPS_DB_USE_PGPASS` | `0` | No | All sync scripts | Set to `1` to use `.pgpass` instead |
-| `OPS_DB_SSLMODE` | `require` | No | All sync scripts | `require`, `verify-ca`, or `verify-full` |
-| `OPS_DB_SSLROOTCERT` | *(none)* | No | All sync scripts | Path to CA cert for `verify-full` |
+| `OPS_DB_SSLMODE` | `require` | No | All sync scripts | **Production: set to `verify-full`** — `require` encrypts but does not verify the server cert |
+| `OPS_DB_SSLROOTCERT` | *(none)* | Required with `verify-full` | All sync scripts | Path to PostgreSQL CA cert (e.g. `C:\PostgreSQL\root.crt`) |
 | `OPS_DB_MIGRATE_USER` | *(none)* | Yes | Deploy pipeline | DDL-privileged user (`ops_migrate` role) |
 | `OPS_CONNECTIONSTRING` | *(none)* | Yes | Deploy pipeline | Full ADO.NET connection string for API |
 

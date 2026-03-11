@@ -68,6 +68,8 @@ public class PatchingController : ControllerBase
     {
         if (patchType != null && patchType.ToLower() is not ("windows" or "sql" or "other"))
             return BadRequest("patchType must be one of: windows, sql, other.");
+        if (InputGuard.ContainsControlChars(severity) || InputGuard.ContainsControlChars(application))
+            return BadRequest("Query parameter contains invalid characters.");
         return Ok(await _svc.ListKnownIssuesAsync(severity, application, patchType, activeOnly));
     }
 
