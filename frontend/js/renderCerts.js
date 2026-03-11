@@ -5,6 +5,8 @@ import { renderTimeline, wireCriticalCardFilters, syncCriticalCardSelection } fr
 const CERT_PAGE_SIZE = 20;
 let certPage = 0;
 let _filteredCerts = [];
+let certSortCol = 'daysUntilExpiry';
+let certSortAsc = true;
 
 export function renderCerts(summary, certs) {
   setAllCerts(certs);
@@ -54,17 +56,55 @@ export function renderCerts(summary, certs) {
   renderCertTable(certs);
 }
 
+function sortIcon(col) {
+  if (certSortCol !== col) return ' \u2195';
+  return certSortAsc ? ' \u2191' : ' \u2193';
+}
+
 function renderCertTable(certs) {
   _filteredCerts = certs;
-  const total = certs.length;
+
+  // Sort
+  const sorted = [...certs].sort((a, b) => {
+    let av, bv;
+    if (certSortCol === 'daysUntilExpiry') {
+      av = a.daysUntilExpiry ?? Infinity;
+      bv = b.daysUntilExpiry ?? Infinity;
+    } else {
+      av = a.validTo ? new Date(a.validTo).getTime() : Infinity;
+      bv = b.validTo ? new Date(b.validTo).getTime() : Infinity;
+    }
+    return certSortAsc ? av - bv : bv - av;
+  });
+
+  const total = sorted.length;
   const totalPages = Math.ceil(total / CERT_PAGE_SIZE);
   const start = certPage * CERT_PAGE_SIZE;
-  const page = certs.slice(start, start + CERT_PAGE_SIZE);
+  const page = sorted.slice(start, start + CERT_PAGE_SIZE);
   const showFrom = total === 0 ? 0 : start + 1;
   const showTo = Math.min(start + CERT_PAGE_SIZE, total);
 
   const indicator = document.getElementById('certCountIndicator');
   if (indicator) indicator.textContent = `Showing ${showFrom}\u2013${showTo} of ${total} certificates`;
+
+  // Update sortable headers
+  const thead = document.getElementById('certTable').closest('table').querySelector('thead');
+  thead.innerHTML = `<tr>
+    <th>Certificate Name</th><th>Server</th>
+    <th class="sortable" data-sort="validTo">Expires${sortIcon('validTo')}</th>
+    <th class="sortable" data-sort="daysUntilExpiry" title="Red = 14 days or less, Orange = 30 days or less">Days Left${sortIcon('daysUntilExpiry')}</th>
+    <th>Alert Level</th>
+  </tr>`;
+  thead.querySelectorAll('.sortable').forEach(th => {
+    th.style.cursor = 'pointer';
+    th.addEventListener('click', () => {
+      const col = th.dataset.sort;
+      if (certSortCol === col) { certSortAsc = !certSortAsc; }
+      else { certSortCol = col; certSortAsc = true; }
+      certPage = 0;
+      renderCertTable(_filteredCerts);
+    });
+  });
 
   document.getElementById('certTable').innerHTML = page.map(c => {
     const days = c.daysUntilExpiry != null ? num(c.daysUntilExpiry) : null;
