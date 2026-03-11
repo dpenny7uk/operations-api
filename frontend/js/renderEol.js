@@ -108,8 +108,8 @@ function renderEolTable(items) {
       </div>`;
     const prev = pag.querySelector('#eolPrev');
     const next = pag.querySelector('#eolNext');
-    if (prev) prev.addEventListener('click', () => { eolPage--; renderEolTable(_filteredEol); });
-    if (next) next.addEventListener('click', () => { eolPage++; renderEolTable(_filteredEol); });
+    if (prev) prev.onclick = () => { eolPage--; renderEolTable(_filteredEol); };
+    if (next) next.onclick = () => { eolPage++; renderEolTable(_filteredEol); };
   } else if (pag) {
     pag.remove();
   }

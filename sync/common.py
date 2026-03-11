@@ -351,7 +351,7 @@ class SyncContext:
         if self.dry_run:
             return
 
-        threshold = int(os.environ.get('CIRCUIT_BREAKER_THRESHOLD', '3'))
+        threshold = max(int(os.environ.get('CIRCUIT_BREAKER_THRESHOLD', '3')), 1)
         timeout_seconds = int(os.environ.get('CIRCUIT_BREAKER_TIMEOUT_SECONDS', '7200'))
 
         try:

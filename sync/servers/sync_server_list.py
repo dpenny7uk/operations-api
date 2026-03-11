@@ -68,7 +68,7 @@ def sync_servers(ctx, servers: list):
 
         # Absolute floor — catches partial Databricks exports even on first deploy
         # when the 50% churn guard cannot apply (existing_count == 0).
-        min_servers = int(os.environ.get('DATABRICKS_MIN_SERVERS', '50'))
+        min_servers = max(int(os.environ.get('DATABRICKS_MIN_SERVERS', '50')), 10)
         if len(values) < min_servers:
             raise RuntimeError(
                 f"Databricks returned only {len(values)} servers (minimum: {min_servers}). "
