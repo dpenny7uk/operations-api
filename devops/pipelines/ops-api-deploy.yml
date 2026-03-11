@@ -298,6 +298,13 @@ stages:
                       $origins = "$(OPS_CORS_ORIGINS)".Split(",", [System.StringSplitOptions]::RemoveEmptyEntries) |
                           ForEach-Object { $_.Trim() }
 
+                      foreach ($origin in $origins) {
+                          if (-not [System.Uri]::IsWellFormedUriString($origin, [System.UriKind]::Absolute)) {
+                              Write-Error "Invalid CORS origin URI: $origin"
+                              exit 1
+                          }
+                      }
+
                       $settings = @{
                           ConnectionStrings = @{
                               OperationsDb = $env:OPS_CONNECTIONSTRING

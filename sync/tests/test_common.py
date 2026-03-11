@@ -445,10 +445,15 @@ class TestCircuitBreakerContinued:
         result = ctx.__exit__(CircuitBreakerOpenError, err, None)
 
         assert result is True
-        mock_cur.execute.assert_called_once()
-        sql, params = mock_cur.execute.call_args[0]
-        assert 'cancelled' in sql
-        assert params[1] == 42  # history_id is the second bind parameter
+        assert mock_cur.execute.call_count == 2
+        # First call: sync_history update
+        sql1, params1 = mock_cur.execute.call_args_list[0][0]
+        assert 'cancelled' in sql1
+        assert params1[1] == 42  # history_id is the second bind parameter
+        # Second call: increment consecutive_failures
+        sql2, params2 = mock_cur.execute.call_args_list[1][0]
+        assert 'consecutive_failures' in sql2
+        assert params2 == ('test_sync',)
         ctx.conn.commit.assert_called_once()
 
 

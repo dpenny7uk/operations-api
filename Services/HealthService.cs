@@ -7,10 +7,10 @@ namespace OperationsApi.Services;
 
 public class HealthService : BaseService<HealthService>, IHealthService
 {
-    public HealthService(IDbConnection db, ILogger<HealthService> logger) 
+    public HealthService(IDbConnection db, ILogger<HealthService> logger)
         : base(db, logger) { }
 
-    public async Task<HealthSummary> GetHealthSummaryAsync()
+    public Task<HealthSummary> GetHealthSummaryAsync() => RunDbAsync(async () =>
     {
         var syncs = await GetSyncStatusesAsync();
 
@@ -31,11 +31,10 @@ public class HealthService : BaseService<HealthService>, IHealthService
             UnreachableServersCount = counts.Unreachable,
             LastUpdated = DateTime.UtcNow
         };
-    }
+    });
 
-    public async Task<IEnumerable<SyncStatus>> GetSyncStatusesAsync()
-    {
-        return await Db.QueryAsync<SyncStatus>($@"
+    public Task<IEnumerable<SyncStatus>> GetSyncStatusesAsync() => RunDbAsync(() =>
+        Db.QueryAsync<SyncStatus>($@"
             SELECT 
                 sync_name AS SyncName,
                 status AS Status,
@@ -57,12 +56,11 @@ public class HealthService : BaseService<HealthService>, IHealthService
                 WHEN 'warning' THEN 2 
                 ELSE 3 
             END
-        ");
-    }
+        ")
+    );
 
-    public async Task<IEnumerable<SyncHistory>> GetSyncHistoryAsync(string syncName, int limit)
-    {
-        return await Db.QueryAsync<SyncHistory>($@"
+    public Task<IEnumerable<SyncHistory>> GetSyncHistoryAsync(string syncName, int limit) => RunDbAsync(() =>
+        Db.QueryAsync<SyncHistory>($@"
             SELECT 
                 history_id AS HistoryId,
                 sync_name AS SyncName,
@@ -78,10 +76,10 @@ public class HealthService : BaseService<HealthService>, IHealthService
             WHERE sync_name = @SyncName
             ORDER BY started_at DESC
             LIMIT @Limit
-        ", new { SyncName = syncName, Limit = limit });
-    }
+        ", new { SyncName = syncName, Limit = limit })
+    );
 
-    public async Task<IEnumerable<ValidationRunResult>> RunValidationAsync(string? ruleName)
+    public Task<IEnumerable<ValidationRunResult>> RunValidationAsync(string? ruleName) => RunDbAsync(async () =>
     {
         Logger.LogInformation("Running validation rules (filter: {RuleName})", ruleName ?? "all");
 
@@ -95,8 +93,8 @@ public class HealthService : BaseService<HealthService>, IHealthService
             Logger.LogWarning("Validation found {Count} failing rule(s): {Rules}",
                 failures.Count, string.Join(", ", failures.Select(f => f.RuleName)));
 
-        return mapped;
-    }
+        return (IEnumerable<ValidationRunResult>)mapped;
+    });
 
     private class HealthCounts
     {

@@ -9,7 +9,7 @@
 </head>
 <body>
 
-<div id="demoBanner" class="demo-banner" style="display:none" role="alert">
+<div id="demoBanner" class="demo-banner" style="display:none" role="alert" aria-live="assertive" aria-atomic="true">
   DEMO MODE — API not reachable. Data shown is example only.
 </div>
 
@@ -90,7 +90,7 @@
     <div class="card">
       <table>
         <thead><tr>
-          <th>Sync</th><th>Status</th><th>Last Success</th><th>Records</th><th>Failures</th><th>Schedule</th>
+          <th>Sync</th><th>Status</th><th>Last Success</th><th>Records</th><th>Failures</th><th>Last Error</th><th>Schedule</th>
         </tr></thead>
         <tbody id="syncTable"></tbody>
       </table>

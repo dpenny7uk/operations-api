@@ -15,7 +15,7 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
     public PatchingService(IDbConnection db, ILogger<PatchingService> logger)
         : base(db, logger) { }
 
-    public async Task<NextPatchingSummary?> GetNextPatchingSummaryAsync()
+    public Task<NextPatchingSummary?> GetNextPatchingSummaryAsync() => RunDbAsync(async () =>
     {
         // Get next active cycle
         var cycle = await Db.QueryFirstOrDefaultAsync<NextCycleRow>($@"
@@ -52,7 +52,7 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
         var groups = await multi.ReadAsync<GroupCount>();
         var issues = (await multi.ReadAsync<SeverityCount>()).ToList();
 
-        return new NextPatchingSummary
+        return (NextPatchingSummary?)new NextPatchingSummary
         {
             Cycle = new PatchCycle
             {
@@ -72,9 +72,9 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
             ),
             TotalIssuesAffectingServers = issues.Sum(i => i.ServerCount)
         };
-    }
+    });
 
-    public async Task<IEnumerable<PatchCycle>> ListPatchCyclesAsync(bool upcomingOnly, int limit)
+    public Task<IEnumerable<PatchCycle>> ListPatchCyclesAsync(bool upcomingOnly, int limit) => RunDbAsync(async () =>
     {
         var sql = $@"
             SELECT
@@ -95,14 +95,14 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
         }
 
         return await Db.QueryAsync<PatchCycle>(sql, new { Limit = limit });
-    }
+    });
 
-    public async Task<PagedResult<PatchScheduleItem>> GetCycleServersAsync(
+    public Task<PagedResult<PatchScheduleItem>> GetCycleServersAsync(
         int cycleId,
         string? patchGroup,
         bool? hasIssues,
         int limit = 100,
-        int offset = 0)
+        int offset = 0) => RunDbAsync(async () =>
     {
         var where = $"WHERE ps.cycle_id = @CycleId";
         var p = new DynamicParameters();
@@ -166,16 +166,16 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
             Limit = limit,
             Offset = offset
         };
-    }
+    });
 
-    public async Task<IEnumerable<KnownIssue>> ListKnownIssuesAsync(
+    public Task<IEnumerable<KnownIssue>> ListKnownIssuesAsync(
         string? severity,
         string? app,
         string? patchType,
-        bool activeOnly)
+        bool activeOnly) => RunDbAsync(async () =>
     {
         var sql = $@"
-            SELECT 
+            SELECT
                 issue_id AS IssueId,
                 title AS Title,
                 severity AS Severity,
@@ -229,12 +229,11 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
             LIMIT 500";
 
         return await Db.QueryAsync<KnownIssue>(sql, p);
-    }
+    });
 
-    public async Task<KnownIssueDetail?> GetKnownIssueByIdAsync(int id)
-    {
-        return await Db.QueryFirstOrDefaultAsync<KnownIssueDetail>($@"
-            SELECT 
+    public Task<KnownIssueDetail?> GetKnownIssueByIdAsync(int id) => RunDbAsync(() =>
+        Db.QueryFirstOrDefaultAsync<KnownIssueDetail>($@"
+            SELECT
                 issue_id AS IssueId,
                 title AS Title,
                 severity AS Severity,
@@ -251,13 +250,12 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
                 last_synced_at AS LastSyncedAt
             FROM {Sql.Tables.KnownIssues}
             WHERE issue_id = @Id
-        ", new { Id = id });
-    }
+        ", new { Id = id })
+    );
 
-    public async Task<IEnumerable<PatchWindow>> GetPatchWindowsAsync()
-    {
-        return await Db.QueryAsync<PatchWindow>($@"
-            SELECT 
+    public Task<IEnumerable<PatchWindow>> GetPatchWindowsAsync() => RunDbAsync(() =>
+        Db.QueryAsync<PatchWindow>($@"
+            SELECT
                 patch_group AS PatchGroup,
                 window_type AS WindowType,
                 scheduled_time AS ScheduledTime,
@@ -266,6 +264,6 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
                 END::INTEGER AS DurationMinutes
             FROM {Sql.Tables.PatchWindows}
             ORDER BY patch_group, window_type
-        ");
-    }
+        ")
+    );
 }
