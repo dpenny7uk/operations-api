@@ -42,7 +42,11 @@ export function fmtTime(d) {
   return new Date(d).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
-export function dot(color) { const c = (color || '').replace(/[^a-zA-Z0-9_-]/g, ''); return `<span class="status-dot ${c}"></span>`; }
+export function dot(color, label) {
+  const c = (color || '').replace(/[^a-zA-Z0-9_-]/g, '');
+  const text = label || c;
+  return `<span class="status-dot ${c}" role="img" aria-label="${text}"></span>`;
+}
 
 export function cardAlert(value, thresholds) {
   if (thresholds.red != null && value >= thresholds.red) return ' card-alert-red';

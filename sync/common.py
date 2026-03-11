@@ -96,7 +96,7 @@ def http_request(
             )
 
         if attempt < retries:
-            wait = backoff ** attempt + random.uniform(0, 1)
+            wait = backoff ** attempt * random.uniform(0.5, 1.5)
             logger.info("Retrying in %.1f seconds...", wait)
             time.sleep(wait)
 

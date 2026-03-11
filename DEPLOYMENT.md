@@ -261,6 +261,7 @@ Before starting, confirm you have:
 - [ ] An SSL certificate for HTTPS (if using HTTPS — strongly recommended)
 - [ ] Access to Azure DevOps for creating pipelines (for scheduled sync jobs)
 - [ ] `OPS_DB_SSLMODE=verify-full` and `OPS_DB_SSLROOTCERT` set in the ADO variable group (see Step 18)
+- [ ] Domain suffixes verified in `database/001-common.sql` `normalize_server_name()` — update the `REGEXP_REPLACE` patterns to match your organisation's actual domain names (default: `contoso.com`, `corp.local`, `domain.local`)
 
 ---
 
