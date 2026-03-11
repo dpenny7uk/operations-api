@@ -270,6 +270,24 @@ def sync_certificates(ctx, records: list):
         """)
         ctx.stats.deactivated = cur.rowcount
 
+        # Also deactivate certs for servers that haven't been scanned in 30+ days.
+        # This catches servers removed from the PowerShell scan scope without being
+        # decommissioned, so their certs don't generate false alerts indefinitely.
+        cur.execute("""
+            UPDATE certificates.inventory SET
+                is_active = FALSE,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE is_active = TRUE
+              AND last_seen_at < NOW() - INTERVAL '30 days'
+        """)
+        stale_count = cur.rowcount
+        if stale_count > 0:
+            logger.warning(
+                "Deactivated %d stale certificate(s) not seen in 30+ days",
+                stale_count
+            )
+            ctx.stats.deactivated += stale_count
+
         if not ctx.dry_run:
             ctx.conn.commit()
 

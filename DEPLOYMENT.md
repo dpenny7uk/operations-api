@@ -1021,9 +1021,13 @@ Set these as **System environment variables** on the server:
 | `OPS_DB_NAME` | Database name | `ops_platform` |
 | `OPS_DB_USER` | Sync user (from Step 2) | `ops_sync` |
 | `OPS_DB_PASSWORD` | Sync user password | *(the password you set)* |
+| `OPS_DB_SSLMODE` | SSL verification mode | `verify-full` (**recommended**) |
+| `OPS_DB_SSLROOTCERT` | Path to PostgreSQL CA certificate | `C:\PostgreSQL\root.crt` |
 | `DATABRICKS_HOST` | Databricks workspace URL | `your-workspace.azuredatabricks.net` |
 | `DATABRICKS_TOKEN` | Databricks Personal Access Token | *(your PAT)* |
 | `DATABRICKS_WAREHOUSE_ID` | SQL warehouse ID | *(your warehouse ID)* |
+
+> **Security note:** Set `OPS_DB_SSLMODE=verify-full` in production. The default `require` encrypts the connection but does not verify the server's certificate, leaving the connection vulnerable to a rogue DB host on the network. To get the CA certificate: `psql -U postgres -c "SHOW ssl_ca_file;"` — copy the file referenced to `C:\PostgreSQL\root.crt` and set `OPS_DB_SSLROOTCERT` to that path.
 
 **For Confluence sync (optional):**
 
@@ -1719,7 +1723,16 @@ if %ERRORLEVEL% neq 0 echo BACKUP FAILED >> %BACKUP_DIR%\backup.log
 
 ### Retention policy
 
-Keep **7 daily dumps** minimum. Delete dumps older than 30 days to prevent disk exhaustion:
+There are **two separate backup locations** with different retention:
+
+| Backup type | Location | Retention | Created by |
+|-------------|----------|-----------|------------|
+| **Nightly scheduled** | `C:\Backups\ops-platform\` | 30 days (by age) | Task Scheduler script above |
+| **Pre-deploy safety net** | `C:\backups\ops-api-db\` | Last 5 dumps (by count) | `ops-api-deploy.yml` pipeline |
+
+The nightly backup is your recovery point for data corruption or accidental deletes. The pipeline backup is a fast rollback point if a deployment goes wrong.
+
+Delete nightly dumps older than 30 days:
 
 ```bat
 :: Delete dumps older than 30 days
