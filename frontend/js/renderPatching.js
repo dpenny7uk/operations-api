@@ -4,6 +4,8 @@ import { DEMO } from './demo.js';
 
 const CYCLE_PAGE_SIZE = 20;
 export let cycleServerCache = {};
+const cycleServerCacheTime = {};
+const CYCLE_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 export function resetCycleServerCache() { cycleServerCache = {}; }
 
 export function renderPatching(next, cycles, issues) {
@@ -86,11 +88,15 @@ async function toggleCycleDetail(cycleId, row, detailRow) {
   row.setAttribute('aria-expanded', 'true');
   detailRow.classList.add('visible');
 
-  if (!cycleServerCache[cycleId]) {
+  const cacheValid = cycleServerCache[cycleId] && (Date.now() - (cycleServerCacheTime[cycleId] || 0)) < CYCLE_CACHE_TTL_MS;
+  if (!cacheValid) {
     await loadCycleServersPage(cycleId, 0);
   } else {
     renderCycleServers(cycleId);
   }
+
+  const detail = document.getElementById(`cycleDetail-${parseInt(cycleId)}`);
+  if (detail) { detail.tabIndex = -1; detail.focus(); }
 }
 
 async function loadCycleServersPage(cycleId, offset) {
@@ -106,6 +112,7 @@ async function loadCycleServersPage(cycleId, offset) {
   } else {
     cycleServerCache[cycleId] = { items: [], totalCount: 0, limit: CYCLE_PAGE_SIZE, offset: 0 };
   }
+  cycleServerCacheTime[cycleId] = Date.now();
 
   renderCycleServers(cycleId);
 }

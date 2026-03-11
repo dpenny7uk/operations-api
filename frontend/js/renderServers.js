@@ -153,7 +153,7 @@ export function filterServers() {
   const env = document.getElementById('envFilter').value;
   const filtered = allServers.filter(s => {
     if (env && s.environment !== env) return false;
-    if (search && !s.serverName.toLowerCase().includes(search) && !(s.fqdn||'').toLowerCase().includes(search)) return false;
+    if (search && !(s.serverName||'').toLowerCase().includes(search) && !(s.fqdn||'').toLowerCase().includes(search)) return false;
     return true;
   });
   renderServerTable(filtered);

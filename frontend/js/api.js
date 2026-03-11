@@ -20,10 +20,14 @@ export function setActiveCertFilter(v) { activeCertFilter = v; }
 export function setActiveEolFilter(v) { activeEolFilter = v; }
 export function setApiError(v) { apiError = v; }
 
+const API_TIMEOUT_MS = 15000;
+
 // --- API fetch wrapper ---
 export async function api(path) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
   try {
-    const res = await fetch(API_BASE + path, { credentials: 'include' });
+    const res = await fetch(API_BASE + path, { credentials: 'include', signal: controller.signal });
     if (!res.ok) {
       if (res.status === 401 || res.status === 403) setApiError('Authentication failed \u2014 check your credentials');
       else if (res.status === 429) setApiError('Rate limited \u2014 too many requests');
@@ -33,8 +37,15 @@ export async function api(path) {
     }
     return await res.json();
   } catch (e) {
-    console.warn('API fetch failed:', path, e.message || e);
-    if (!apiError) setApiError('Network error \u2014 API not reachable');
+    if (e.name === 'AbortError') {
+      console.warn('API fetch timed out:', path);
+      if (!apiError) setApiError('Request timed out \u2014 server may be slow');
+    } else {
+      console.warn('API fetch failed:', path, e.message || e);
+      if (!apiError) setApiError('Network error \u2014 API not reachable');
+    }
     return null;
+  } finally {
+    clearTimeout(timer);
   }
 }

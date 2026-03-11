@@ -28,7 +28,10 @@ END $$;
 -- Drop old unique index keyed on (product, version, asset)
 DROP INDEX IF EXISTS eol.uq_eol_product_asset;
 
--- New unique index keyed on (product, version, machine_name)
+-- New unique index keyed on (product, version, machine_name).
+-- COALESCE(machine_name, '') is used so that NULL machine_name rows still participate
+-- in uniqueness enforcement — without it, multiple NULLs would be allowed per product/version
+-- because NULL != NULL in standard SQL uniqueness semantics.
 CREATE UNIQUE INDEX IF NOT EXISTS uq_eol_product_machine
     ON eol.end_of_life_software (eol_product, eol_product_version, COALESCE(machine_name, ''));
 
