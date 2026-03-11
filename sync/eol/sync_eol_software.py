@@ -16,14 +16,19 @@ logger = setup_logging('sync_eol_software')
 
 EOL_QUERY = """\
 SELECT
-    eol_product,
-    eol_product_version,
-    eol_end_of_life,
-    eol_end_of_extended_support,
-    eol_end_of_support,
-    asset,
-    tag
-FROM gold_asset_inventory.end_of_life_software
+    eol.eol_product,
+    eol.eol_product_version,
+    eol.eol_end_of_life,
+    eol.eol_end_of_extended_support,
+    eol.eol_end_of_support,
+    ai.machine_name,
+    eol.asset,
+    eol.tag
+FROM gold_asset_inventory.end_of_life_software eol
+JOIN gold_asset_inventory.asset_inventory ai
+    ON ai.ivanti_installed_software = eol.asset
+    AND ai.ivanti_software_version = eol.eol_product_version
+WHERE ai.drab_decomissioned = 'No'
 """
 
 
@@ -42,6 +47,7 @@ def sync_eol_software(ctx, records: list):
                 eol_end_of_life     TIMESTAMP,
                 eol_end_of_extended_support TIMESTAMP,
                 eol_end_of_support  TIMESTAMP,
+                machine_name        VARCHAR(255),
                 asset               VARCHAR(255),
                 tag                 VARCHAR(255)
             ) ON COMMIT DROP
@@ -63,6 +69,7 @@ def sync_eol_software(ctx, records: list):
                 r.get('eol_end_of_life') or None,
                 r.get('eol_end_of_extended_support') or None,
                 r.get('eol_end_of_support') or None,
+                (r.get('machine_name') or '')[:255] or None,
                 (r.get('asset') or '')[:255] or None,
                 (r.get('tag') or '')[:255] or None,
             ))
@@ -78,6 +85,7 @@ def sync_eol_software(ctx, records: list):
                 eol_end_of_life,
                 eol_end_of_extended_support,
                 eol_end_of_support,
+                machine_name,
                 asset,
                 tag,
                 source_system,
@@ -90,16 +98,18 @@ def sync_eol_software(ctx, records: list):
                 t.eol_end_of_life,
                 t.eol_end_of_extended_support,
                 t.eol_end_of_support,
+                t.machine_name,
                 t.asset,
                 t.tag,
                 'databricks',
                 CURRENT_TIMESTAMP,
                 TRUE
             FROM tmp_eol_software t
-            ON CONFLICT (eol_product, eol_product_version, COALESCE(asset, '')) DO UPDATE SET
+            ON CONFLICT (eol_product, eol_product_version, COALESCE(machine_name, '')) DO UPDATE SET
                 eol_end_of_life = EXCLUDED.eol_end_of_life,
                 eol_end_of_extended_support = EXCLUDED.eol_end_of_extended_support,
                 eol_end_of_support = EXCLUDED.eol_end_of_support,
+                asset = EXCLUDED.asset,
                 tag = EXCLUDED.tag,
                 synced_at = CURRENT_TIMESTAMP,
                 is_active = TRUE
@@ -115,8 +125,8 @@ def sync_eol_software(ctx, records: list):
                 updated_at = CURRENT_TIMESTAMP
             WHERE source_system = 'databricks'
               AND is_active = TRUE
-              AND (eol_product, eol_product_version, COALESCE(asset, '')) NOT IN (
-                  SELECT eol_product, eol_product_version, COALESCE(asset, '')
+              AND (eol_product, eol_product_version, COALESCE(machine_name, '')) NOT IN (
+                  SELECT eol_product, eol_product_version, COALESCE(machine_name, '')
                   FROM tmp_eol_software
               )
         """)

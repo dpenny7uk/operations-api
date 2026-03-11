@@ -19,7 +19,8 @@ def _make_record(**overrides):
         'eol_end_of_life': '2029-01-09',
         'eol_end_of_extended_support': '2029-01-09',
         'eol_end_of_support': '2024-01-09',
-        'asset': 'WEB01',
+        'machine_name': 'WEB01',
+        'asset': 'Windows Server 2019 Standard',
         'tag': None,
     }
     base.update(overrides)
@@ -85,11 +86,11 @@ class TestSyncEolSoftware:
         sync_eol_software(ctx, records)
         assert ctx.stats.processed == 1
         args = mock_ev.call_args[0][2]
-        assert args[0][5] is None  # asset field
+        assert args[0][6] is None  # asset field (index 6 after machine_name at 5)
 
     def test_counts_inserts_and_updates(self, mock_ev):
         ctx, cursor = _make_ctx()
-        records = [_make_record(), _make_record(asset='WEB02')]
+        records = [_make_record(), _make_record(machine_name='WEB02')]
         sync_eol_software(ctx, records)
         assert ctx.stats.inserted == 1
         assert ctx.stats.updated == 1
@@ -112,6 +113,13 @@ class TestSyncEolSoftware:
         records = [_make_record()]
         sync_eol_software(ctx, records)
         ctx.conn.commit.assert_called_once()
+
+    def test_machine_name_included_in_values(self, mock_ev):
+        ctx, cursor = _make_ctx()
+        records = [_make_record(machine_name='SRV-PROD-01')]
+        sync_eol_software(ctx, records)
+        args = mock_ev.call_args[0][2]
+        assert args[0][5] == 'SRV-PROD-01'  # machine_name at index 5
 
     def test_null_dates_preserved(self, mock_ev):
         ctx, cursor = _make_ctx()

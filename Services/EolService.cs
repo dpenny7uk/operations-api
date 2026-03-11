@@ -29,7 +29,7 @@ public class EolService : BaseService<EolService>, IEolService
                 COUNT(*) FILTER (WHERE eol_end_of_life > NOW() + INTERVAL '6 months') AS SupportedCount,
                 COUNT(*) FILTER (WHERE eol_end_of_life IS NULL) AS UnknownCount,
                 COUNT(*) AS TotalCount,
-                COUNT(DISTINCT asset) FILTER (WHERE eol_end_of_life <= NOW() + INTERVAL '6 months') AS AffectedServers
+                COUNT(DISTINCT machine_name) FILTER (WHERE eol_end_of_life <= NOW() + INTERVAL '6 months') AS AffectedServers
             FROM {Sql.Tables.EolSoftware}
             WHERE is_active = TRUE
         ")
@@ -48,7 +48,7 @@ public class EolService : BaseService<EolService>, IEolService
                 eol_end_of_extended_support AS EndOfExtendedSupport,
                 eol_end_of_support AS EndOfSupport,
                 {AlertLevel()} AS AlertLevel,
-                COUNT(DISTINCT asset) AS AffectedAssets
+                COUNT(DISTINCT machine_name) AS AffectedAssets
             FROM {Sql.Tables.EolSoftware}
             WHERE is_active = TRUE";
 
@@ -93,7 +93,7 @@ public class EolService : BaseService<EolService>, IEolService
                 eol_end_of_support AS EndOfSupport,
                 MAX(tag) AS Tag,
                 {AlertLevel()} AS AlertLevel,
-                COUNT(DISTINCT asset) AS AffectedAssets
+                COUNT(DISTINCT machine_name) AS AffectedAssets
             FROM {Sql.Tables.EolSoftware}
             WHERE eol_product = @Product AND eol_product_version = @Version AND is_active = TRUE
             GROUP BY eol_product, eol_product_version, eol_end_of_life, eol_end_of_extended_support, eol_end_of_support
@@ -102,10 +102,11 @@ public class EolService : BaseService<EolService>, IEolService
         if (detail != null)
         {
             var assets = await Db.QueryAsync<string>($@"
-                SELECT DISTINCT asset
+                SELECT DISTINCT machine_name
                 FROM {Sql.Tables.EolSoftware}
                 WHERE eol_product = @Product AND eol_product_version = @Version AND is_active = TRUE
-                ORDER BY asset
+                  AND machine_name IS NOT NULL
+                ORDER BY machine_name
             ", new { Product = product, Version = version });
             detail.Assets = assets.ToList();
         }
@@ -118,10 +119,10 @@ public class EolService : BaseService<EolService>, IEolService
             WITH server_products AS (
                 SELECT DISTINCT eol_product, eol_product_version
                 FROM {Sql.Tables.EolSoftware}
-                WHERE UPPER(asset) = UPPER(@Server) AND is_active = TRUE
+                WHERE UPPER(machine_name) = UPPER(@Server) AND is_active = TRUE
             ),
             product_counts AS (
-                SELECT e.eol_product, e.eol_product_version, COUNT(DISTINCT e.asset)::INT AS affected_count
+                SELECT e.eol_product, e.eol_product_version, COUNT(DISTINCT e.machine_name)::INT AS affected_count
                 FROM {Sql.Tables.EolSoftware} e
                 JOIN server_products sp ON sp.eol_product = e.eol_product AND sp.eol_product_version = e.eol_product_version
                 WHERE e.is_active = TRUE
@@ -137,7 +138,7 @@ public class EolService : BaseService<EolService>, IEolService
                 pc.affected_count AS AffectedAssets
             FROM {Sql.Tables.EolSoftware} e
             JOIN product_counts pc ON pc.eol_product = e.eol_product AND pc.eol_product_version = e.eol_product_version
-            WHERE UPPER(e.asset) = UPPER(@Server) AND e.is_active = TRUE
+            WHERE UPPER(e.machine_name) = UPPER(@Server) AND e.is_active = TRUE
             ORDER BY e.eol_end_of_life NULLS LAST
             LIMIT @Limit
         ", new { Server = serverName, Limit = limit })
