@@ -5,6 +5,7 @@ import { renderServers, filterServers } from './renderServers.js';
 import { renderPatching, resetCycleServerCache } from './renderPatching.js';
 import { renderCerts, filterCerts } from './renderCerts.js';
 import { renderEol, filterEol, resetEolDetailCache } from './renderEol.js';
+import { debounce } from './utils.js';
 
 // --- Navigation ---
 document.querySelectorAll('header nav button').forEach(btn => {
@@ -91,12 +92,12 @@ document.addEventListener('click', (e) => {
   document.getElementById(page)?.classList.add('active');
 });
 refreshBtn.addEventListener('click', loadAllData);
-document.getElementById('serverSearch').addEventListener('input', filterServers);
+document.getElementById('serverSearch').addEventListener('input', debounce(filterServers));
 document.getElementById('envFilter').addEventListener('change', filterServers);
 document.getElementById('alertFilter').addEventListener('change', filterCerts);
-document.getElementById('certServerSearch').addEventListener('input', filterCerts);
+document.getElementById('certServerSearch').addEventListener('input', debounce(filterCerts));
 document.getElementById('eolAlertFilter').addEventListener('change', filterEol);
-document.getElementById('eolProductSearch').addEventListener('input', filterEol);
+document.getElementById('eolProductSearch').addEventListener('input', debounce(filterEol));
 
 // --- Theme toggle ---
 function applyTheme(theme) {
