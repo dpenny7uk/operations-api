@@ -78,3 +78,8 @@ export function durationStr(iso) {
   if (ms < 86400000) return `${Math.floor(ms/3600000)}h ${Math.floor((ms%3600000)/60000)}m`;
   return `${Math.floor(ms/86400000)}d`;
 }
+
+export function debounce(fn, delay = 250) {
+  let t;
+  return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), delay); };
+}

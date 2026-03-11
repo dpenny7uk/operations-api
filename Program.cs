@@ -71,6 +71,7 @@ builder.Services.AddScoped<IDbConnection>(sp =>
         MaxPoolSize = 20,
         MinPoolSize = 2,
         ConnectionIdleLifetime = 300,
+        CommandTimeout = 30,
     };
     return new NpgsqlConnection(csb.ConnectionString);
 });

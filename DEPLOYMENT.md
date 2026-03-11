@@ -198,6 +198,58 @@ The Operations API is a full-stack platform with four main components:
 
 ---
 
+## Local Development Setup
+
+To run the application on your dev machine without a full server deployment:
+
+### Requirements
+
+- [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
+- [PostgreSQL 18](https://www.postgresql.org/download/) (or Docker: `docker run -e POSTGRES_PASSWORD=dev -p 5432:5432 postgres:18`)
+- Python 3.13+ (optional — only needed to run sync scripts locally)
+
+### Steps
+
+1. **Clone the repo:**
+   ```cmd
+   git clone https://github.com/YOUR_ORG/operations-api.git
+   cd operations-api
+   ```
+
+2. **Create a local database:**
+   ```cmd
+   psql -U postgres -c "CREATE DATABASE ops_platform;"
+   psql -U postgres -c "CREATE USER ops_api WITH PASSWORD 'devpassword';"
+   psql -U postgres -c "GRANT CONNECT ON DATABASE ops_platform TO ops_api;"
+   psql -U postgres -d ops_platform -f database/000-init-schema.sql
+   :: ...repeat for 001 through 008...
+   ```
+
+3. **Configure appsettings.Development.json** (create in project root if it doesn't exist):
+   ```json
+   {
+     "ConnectionStrings": {
+       "OperationsDb": "Host=localhost;Port=5432;Database=ops_platform;Username=ops_api;Password=devpassword"
+     }
+   }
+   ```
+
+4. **Run the API:**
+   ```cmd
+   dotnet run --project OperationsApi
+   ```
+   The API starts at `http://localhost:5000`. Open `frontend/index.html` directly in a browser — the JS auto-detects `localhost` and points to `http://localhost:5000/api`.
+
+5. **Demo mode:** If the API is not running, the frontend falls back to `demo.js` built-in data automatically — no configuration needed.
+
+6. **Run tests:**
+   ```cmd
+   dotnet test tests/OperationsApi.Tests/OperationsApi.Tests.csproj
+   ```
+   > Tests use Testcontainers to spin up a real PostgreSQL instance — Docker must be running.
+
+---
+
 ## Prerequisites
 
 Before starting, confirm you have:
@@ -550,6 +602,14 @@ dir C:\inetpub\operations-api\OperationsApi.dll
 ```
 
 You should see the DLL file. The folder will also contain `appsettings.json`, `web.config` (auto-generated), and various `.dll` files.
+
+### 8.4 Create the logs directory
+
+```cmd
+mkdir C:\inetpub\operations-api\logs
+```
+
+The `web.config` references `.\logs\stdout` for IIS stdout logging. This directory must exist before the application pool starts, or IIS will fail to write logs silently.
 
 > **If building on a separate machine:** Copy the entire `C:\inetpub\operations-api` folder to the target server at the same path.
 
@@ -1290,6 +1350,8 @@ Host=localhost;Port=5432;Database=ops_platform;Username=ops_api;Password=YOUR_AP
 
 Replace `YOUR_API_PASSWORD_HERE` with the `ops_api` password you set in Step 2. This is the same connection string from your `appsettings.json` (Step 9), but now it lives in Azure DevOps instead of on disk.
 
+> **Security note:** The deploy pipeline injects `OPS_CONNECTIONSTRING` as an environment variable at runtime — it is never written to disk in plain text. The variable group should have `OPS_CONNECTIONSTRING` marked as **secret** (lock icon) in Azure DevOps so it is masked in logs and encrypted at rest. Do not include semicolons, quotes, or newlines in the value — the Npgsql connection string format uses `Key=Value;` pairs only.
+
 **How to set `OPS_CORS_ORIGINS`:**
 
 Enter the URL(s) where users access the dashboard, separated by commas. For example:
@@ -1633,6 +1695,52 @@ GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA certificates TO ops_sync;
 ```
 
 > **With CI/CD:** The deploy pipeline (`ops-api-deploy.yml`) runs all migration scripts automatically and handles permissions. You only need to do this manually if deploying without the pipeline.
+
+---
+
+## Database Backups
+
+PostgreSQL does not schedule backups automatically — set up a nightly `pg_dump` on the Group App Server.
+
+### Recommended backup script
+
+Create `C:\Scripts\backup-ops-db.bat`:
+
+```bat
+@echo off
+set PGPASSWORD=YOUR_POSTGRES_PASSWORD_HERE
+set BACKUP_DIR=C:\Backups\ops-platform
+set TIMESTAMP=%DATE:~10,4%%DATE:~4,2%%DATE:~7,2%-%TIME:~0,2%%TIME:~3,2%
+set TIMESTAMP=%TIMESTAMP: =0%
+if not exist %BACKUP_DIR% mkdir %BACKUP_DIR%
+"C:\Program Files\PostgreSQL\18\bin\pg_dump.exe" -U postgres -F c -f "%BACKUP_DIR%\ops_platform_%TIMESTAMP%.dump" ops_platform
+if %ERRORLEVEL% neq 0 echo BACKUP FAILED >> %BACKUP_DIR%\backup.log
+```
+
+### Retention policy
+
+Keep **7 daily dumps** minimum. Delete dumps older than 30 days to prevent disk exhaustion:
+
+```bat
+:: Delete dumps older than 30 days
+forfiles /p C:\Backups\ops-platform /s /m *.dump /d -30 /c "cmd /c del @path"
+```
+
+### Schedule with Task Scheduler
+
+1. Open **Task Scheduler** → Create Basic Task
+2. Name: `ops-platform nightly backup`
+3. Trigger: Daily at 02:00
+4. Action: Start program → `C:\Scripts\backup-ops-db.bat`
+5. Run whether user is logged on or not, with highest privileges
+
+### Restore from backup
+
+```cmd
+"C:\Program Files\PostgreSQL\18\bin\pg_restore.exe" -U postgres -d ops_platform -c ops_platform_YYYYMMDD-HHmm.dump
+```
+
+> **Important:** The `-c` flag drops existing objects before restoring. Ensure no active connections to the database first: `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='ops_platform' AND pid <> pg_backend_pid();`
 
 ---
 

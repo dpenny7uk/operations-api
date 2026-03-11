@@ -15,6 +15,7 @@ import os
 import sys
 import re
 import hashlib
+import html
 from html.parser import HTMLParser
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -175,9 +176,8 @@ def parse_issue_page(page: dict) -> dict:
     issue = {
         'confluence_page_id': page.get('id'),
         'confluence_url': page.get('_links', {}).get('webui', ''),
-        # Strip any HTML tags from the title before storage to prevent XSS
-        # if the title is ever rendered in an admin UI without escaping.
-        'title': re.sub(r'<[^>]+>', '', page.get('title', '')).strip()[:500],
+        # Strip HTML tags then unescape entities (e.g. &amp; → &) for clean plain-text storage.
+        'title': html.unescape(re.sub(r'<[^>]+>', '', page.get('title', ''))).strip()[:500],
         'trigger_description': None,
         'signature': None,
         'fix': None,

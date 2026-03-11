@@ -7,6 +7,8 @@ const EOL_PAGE_SIZE = 20;
 let eolPage = 0;
 let _filteredEol = [];
 export let eolDetailCache = {};
+const eolDetailCacheTime = {};
+const EOL_DETAIL_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 export function resetEolDetailCache() { eolDetailCache = {}; }
 
 function eolBadge(level) {
@@ -128,8 +130,10 @@ async function toggleEolDetail(key, safeId, eolItem, row, detailRow) {
 
   const container = detailRow.querySelector('.eol-detail-inner');
 
-  if (eolDetailCache[key]) {
+  if (eolDetailCache[key] && (Date.now() - (eolDetailCacheTime[key] || 0)) < EOL_DETAIL_CACHE_TTL_MS) {
     renderEolDetail(container, eolDetailCache[key]);
+    container.tabIndex = -1;
+    container.focus();
     return;
   }
 
@@ -146,8 +150,11 @@ async function toggleEolDetail(key, safeId, eolItem, row, detailRow) {
   } else {
     eolDetailCache[key] = { assets: [] };
   }
+  eolDetailCacheTime[key] = Date.now();
 
   renderEolDetail(container, eolDetailCache[key]);
+  container.tabIndex = -1;
+  container.focus();
 }
 
 function renderEolDetail(container, detail) {
