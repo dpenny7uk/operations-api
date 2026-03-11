@@ -101,8 +101,8 @@ export const DEMO = (() => {
     closestMatch: raw.startsWith('unknown') ? null : servers[Math.floor(rand() * 50)].serverName
   }));
 
-  // --- Cycle servers for patching (20 from prod/staging) ---
-  const patchServers = servers.filter(s => s.environment === 'Prod' || s.environment === 'Staging').slice(0, 20);
+  // --- Cycle servers for patching (60 from prod/staging to test pagination) ---
+  const patchServers = servers.filter(s => s.environment === 'Prod' || s.environment === 'Staging').slice(0, 60);
   const cycleItems = patchServers.map((s, i) => ({
     scheduleId: i + 1, serverName: s.serverName, patchGroup: s.patchGroup || 'Group-A',
     scheduledTime: `0${2 + Math.floor(i / 5)}:00`.slice(-5), application: s.applicationName,
@@ -129,14 +129,14 @@ export const DEMO = (() => {
     servers,
     unmatched,
     nextPatch: {
-      cycle: { cycleId: 12, cycleDate: new Date(Date.now() + 5 * DAY).toISOString(), serverCount: 260, status: 'Scheduled' },
+      cycle: { cycleId: 12, cycleDate: new Date(Date.now() + 5 * DAY).toISOString(), serverCount: cycleItems.length, status: 'Scheduled' },
       daysUntil: 5,
-      serversByGroup: { 'Group-A': 72, 'Group-B': 68, 'Group-C': 65, 'Group-D': 55 },
+      serversByGroup: { 'Group-A': Math.ceil(cycleItems.length * 0.28), 'Group-B': Math.ceil(cycleItems.length * 0.26), 'Group-C': Math.ceil(cycleItems.length * 0.25), 'Group-D': Math.ceil(cycleItems.length * 0.21) },
       issuesBySeverity: { 'High': 2, 'Medium': 5, 'Low': 3 },
       totalIssuesAffectingServers: 48
     },
     cycles: [
-      { cycleId: 12, cycleDate: new Date(Date.now() + 5 * DAY).toISOString(), serverCount: 260, status: 'Scheduled' },
+      { cycleId: 12, cycleDate: new Date(Date.now() + 5 * DAY).toISOString(), serverCount: cycleItems.length, status: 'Scheduled' },
       { cycleId: 11, cycleDate: new Date(Date.now() - 25 * DAY).toISOString(), serverCount: 255, status: 'Completed' },
       { cycleId: 10, cycleDate: new Date(Date.now() - 55 * DAY).toISOString(), serverCount: 248, status: 'Completed' },
     ],
@@ -148,9 +148,9 @@ export const DEMO = (() => {
       { issueId: 5, title: 'TLS 1.0 disabled after security update', severity: 'Low', application: null, appliesToWindows: true, appliesToSql: false, fix: 'Update legacy clients' },
     ],
     cycleServers: {
-      12: { items: cycleItems, totalCount: cycleItems.length, limit: 100, offset: 0 },
-      11: { items: cycleItems.slice(0, 5), totalCount: 5, limit: 100, offset: 0 },
-      10: { items: [], totalCount: 0, limit: 100, offset: 0 },
+      12: { items: cycleItems, totalCount: cycleItems.length, limit: 20, offset: 0 },
+      11: { items: cycleItems.slice(0, 5), totalCount: 5, limit: 20, offset: 0 },
+      10: { items: [], totalCount: 0, limit: 20, offset: 0 },
     },
     eolSummary: { eolCount: 4, approachingCount: 6, supportedCount: 35, unknownCount: 0, totalCount: 45, affectedServers: 180 },
     eolSoftware: [

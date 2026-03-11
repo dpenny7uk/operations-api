@@ -108,7 +108,10 @@ async function loadCycleServersPage(cycleId, offset) {
     cycleServerCache[cycleId] = data;
   } else if (usingDemo) {
     const demo = DEMO.cycleServers[cycleId] || { items: [], totalCount: 0, limit: CYCLE_PAGE_SIZE, offset: 0 };
-    cycleServerCache[cycleId] = { ...demo, offset };
+    // Simulate server-side pagination over the full demo item list
+    const allItems = DEMO.cycleServers[cycleId]?.items || demo.items;
+    const fullCount = DEMO.cycleServers[cycleId]?.totalCount ?? allItems.length;
+    cycleServerCache[cycleId] = { items: allItems.slice(offset, offset + CYCLE_PAGE_SIZE), totalCount: fullCount, limit: CYCLE_PAGE_SIZE, offset };
   } else {
     cycleServerCache[cycleId] = { items: [], totalCount: 0, limit: CYCLE_PAGE_SIZE, offset: 0 };
   }
@@ -141,8 +144,6 @@ function renderCycleServers(cycleId) {
         </div>
       </div>`;
   }
-
-  console.log('[cycle-debug]', { cycleId, totalCount: page.totalCount, items: servers.length, limit: page.limit, offset: page.offset, totalPages });
 
   container.innerHTML = `
     ${servers.length === 0
