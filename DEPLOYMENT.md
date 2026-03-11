@@ -258,7 +258,7 @@ Open a **new** command prompt (the old one won't have the updated PATH) and run:
 psql --version
 ```
 
-You should see something like: `psql (PostgreSQL) 16.x`
+You should see something like: `psql (PostgreSQL) 18.x`
 
 ---
 
