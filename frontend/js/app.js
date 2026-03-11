@@ -5,7 +5,8 @@ import { renderServers, filterServers } from './renderServers.js';
 import { renderPatching, resetCycleServerCache } from './renderPatching.js';
 import { renderCerts, filterCerts } from './renderCerts.js';
 import { renderEol, filterEol, resetEolDetailCache } from './renderEol.js';
-import { debounce } from './utils.js';
+import { debounce, exportCsv } from './utils.js';
+import { allServers, allCerts, allEol } from './api.js';
 
 // --- Navigation ---
 document.querySelectorAll('header nav button').forEach(btn => {
@@ -98,6 +99,20 @@ document.getElementById('alertFilter').addEventListener('change', filterCerts);
 document.getElementById('certServerSearch').addEventListener('input', debounce(filterCerts));
 document.getElementById('eolAlertFilter').addEventListener('change', filterEol);
 document.getElementById('eolProductSearch').addEventListener('input', debounce(filterEol));
+
+// --- CSV export ---
+document.getElementById('exportServersBtn').addEventListener('click', () => {
+  const rows = allServers.map(s => [s.serverName, s.fqdn, s.environment, s.applicationName, s.patchGroup, s.isActive ? 'Yes' : 'No']);
+  exportCsv('servers.csv', ['Name', 'FQDN', 'Environment', 'Application', 'Patch Group', 'Active'], rows);
+});
+document.getElementById('exportCertsBtn').addEventListener('click', () => {
+  const rows = allCerts.map(c => [c.subjectCn, c.serverName, c.validTo, c.daysUntilExpiry, c.alertLevel]);
+  exportCsv('certificates.csv', ['Certificate Name', 'Server', 'Expires', 'Days Left', 'Alert Level'], rows);
+});
+document.getElementById('exportEolBtn').addEventListener('click', () => {
+  const rows = allEol.map(e => [e.product, e.version, e.endOfLife, e.endOfExtendedSupport, e.alertLevel, e.affectedAssets]);
+  exportCsv('eol-software.csv', ['Product', 'Version', 'End of Life', 'Extended Support', 'Status', 'Servers'], rows);
+});
 
 // --- Theme toggle ---
 function applyTheme(theme) {

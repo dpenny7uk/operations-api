@@ -960,6 +960,45 @@ table tr:hover td { background: var(--row-hover); }
   margin-left: auto;
 }
 
+/* ── Export Button ───────────────────────────────────────────────────────── */
+
+.export-btn {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  padding: 0.45rem 0.9rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.75rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background var(--transition), border-color var(--transition), color var(--transition);
+}
+.export-btn:hover {
+  background: var(--hover);
+  border-color: var(--border-light);
+  color: var(--text);
+}
+
+/* ── Alert click-through ────────────────────────────────────────────────── */
+
+.alert-clickable:hover {
+  background: var(--hover);
+  border-radius: var(--radius-sm);
+}
+.alert-goto-hint {
+  font-size: 1rem;
+  color: var(--text-muted);
+  margin-left: 0.25rem;
+}
+
+/* ── Tooltip styling for table headers ──────────────────────────────────── */
+
+th[title] {
+  cursor: help;
+  text-decoration: underline dotted var(--text-muted);
+  text-underline-offset: 3px;
+}
+
 /* ── Demo Banner ─────────────────────────────────────────────────────────── */
 
 .demo-banner {

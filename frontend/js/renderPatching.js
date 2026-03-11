@@ -147,7 +147,7 @@ function renderCycleServers(cycleId) {
       ? '<div class="empty-state">No servers found</div>'
       : `<table>
           <thead><tr>
-            <th>Server</th><th>Patch Group</th><th>Scheduled</th><th>Application</th><th>Issues</th>
+            <th>Server</th><th>Patch Group</th><th>Scheduled (UTC)</th><th>Application</th><th>Issues</th>
           </tr></thead>
           <tbody>${servers.map(s => `<tr>
             <td><strong>${esc(s.serverName)}</strong></td>

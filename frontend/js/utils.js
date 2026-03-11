@@ -74,6 +74,26 @@ export function debounce(fn, delay = 250) {
   };
 }
 
+export function exportCsv(filename, headers, rows) {
+  const csvContent = [headers, ...rows]
+    .map(row => row.map(cell => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))
+    .join('\n');
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(link.href);
+}
+
+export function navigateTo(page) {
+  document.querySelectorAll('header nav button').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  const navBtn = document.querySelector(`header nav button[data-page="${page}"]`);
+  if (navBtn) navBtn.classList.add('active');
+  document.getElementById(page)?.classList.add('active');
+}
+
 export function durationStr(iso) {
   if (!iso) return '\u2014';
   const ms = Date.now() - new Date(iso).getTime();

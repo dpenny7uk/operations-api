@@ -1,4 +1,4 @@
-import { esc, num, badge, dot, fmtDate, fmtTime, statusBadge, timeAgo, durationStr } from './utils.js';
+import { esc, num, badge, dot, fmtDate, fmtTime, statusBadge, timeAgo, durationStr, navigateTo } from './utils.js';
 import { api, usingDemo } from './api.js';
 import { DEMO } from './demo.js';
 
@@ -28,17 +28,17 @@ export async function renderHealth(data, servers, unmatched, certSummary, certs,
     <div class="critical-card critical-teal">
       <div class="critical-num">${num(data.unreachableServersCount)}</div>
       <div class="critical-label">Unreachable</div>
-      <div class="critical-delta"><span class="delta-icon">\u25B2</span> ${num(data.unreachableServersCount)} today</div>
+      <div class="critical-delta">${num(data.unreachableServersCount)} total</div>
     </div>
     <div class="critical-card critical-orange">
       <div class="critical-num">${num(data.unmatchedServersCount)}</div>
       <div class="critical-label">Unmatched Servers</div>
-      <div class="critical-delta"><span class="delta-icon">\u25B2</span> ${num(data.unmatchedServersCount)} today</div>
+      <div class="critical-delta">${num(data.unmatchedServersCount)} pending review</div>
     </div>
     <div class="critical-card critical-red">
       <div class="critical-num">${failCount}</div>
       <div class="critical-label">Sync Failures</div>
-      <div class="critical-delta"><span class="delta-icon">\u25C6</span> ${failCount > 0 ? '+' : ''}${failCount} today</div>
+      <div class="critical-delta">${failCount > 0 ? `${failCount} sync${failCount !== 1 ? 's' : ''} failing` : 'All syncs healthy'}</div>
     </div>`;
 
   // #3: Fetch unreachable servers from API (not just demo mode)
@@ -56,15 +56,16 @@ export async function renderHealth(data, servers, unmatched, certSummary, certs,
     alerts.push({
       icon: 'icon-red', iconChar: '\u25A0',
       title: `<strong>${esc(s.serverName)}</strong> <span class="alert-status color-red">unreachable</span>`,
-      sub: `\u25B2 ${num(data.unreachableServersCount)} total`,
-      time: timeAgo(s.lastSeen)
+      sub: `${num(data.unreachableServersCount)} total`,
+      time: timeAgo(s.lastSeen),
+      goto: 'servers'
     });
   });
   syncs.filter(s => s.consecutiveFailures > 0).forEach(s => {
     alerts.push({
       icon: 'icon-orange', iconChar: '\u25A0',
       title: `<strong>${esc(s.syncName)}</strong> <span class="alert-status color-orange">sync failed</span>`,
-      sub: `\u25B2 ${num(s.consecutiveFailures)} failures`,
+      sub: `${num(s.consecutiveFailures)} consecutive failures`,
       time: timeAgo(s.lastSuccessAt)
     });
   });
@@ -72,22 +73,29 @@ export async function renderHealth(data, servers, unmatched, certSummary, certs,
     alerts.push({
       icon: 'icon-yellow', iconChar: '\u25C6',
       title: `<strong>${esc(c.serverName)}</strong> cert <span class="alert-status color-orange">expires in ${num(c.daysUntilExpiry)} days</span>`,
-      sub: `\u25B2 1 total`,
-      time: timeAgo(c.validTo)
+      sub: `Certificate expiring soon`,
+      time: timeAgo(c.validTo),
+      goto: 'certificates'
     });
   });
 
   document.getElementById('recentAlerts').innerHTML = alerts.length === 0
     ? '<div class="empty-state">No active alerts</div>'
     : alerts.slice(0, 5).map(a => `
-      <div class="alert-item">
+      <div class="alert-item${a.goto ? ' alert-clickable' : ''}"${a.goto ? ` data-alert-goto="${a.goto}"` : ''}>
         <div class="alert-icon ${a.icon}">${a.iconChar}</div>
         <div class="alert-body">
           <div class="alert-title">${a.title}</div>
           <div class="alert-sub">${a.sub}</div>
         </div>
-        <div class="alert-time">${a.time}</div>
+        <div class="alert-time">${a.time}${a.goto ? ' <span class="alert-goto-hint">\u203A</span>' : ''}</div>
       </div>`).join('');
+
+  // Wire click-through on alerts
+  document.querySelectorAll('.alert-item[data-alert-goto]').forEach(el => {
+    el.style.cursor = 'pointer';
+    el.addEventListener('click', () => navigateTo(el.dataset.alertGoto));
+  });
 
   // Key Metrics
   const serverList = servers || [];
