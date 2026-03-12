@@ -20,10 +20,11 @@ public class CertificateServiceTests : IntegrationTestBase
         var svc = CreateService();
         var summary = await svc.GetSummaryAsync();
 
-        // Active certs: AAA111 (CRITICAL), BBB222 (OK), CCC333 (WARNING), DDD444 (CRITICAL+expired)
-        Assert.True(summary.CriticalCount >= 2); // AAA111 + DDD444
+        // Active certs: AAA111 (CRITICAL), BBB222 (OK), CCC333 (WARNING), DDD444 (expired)
+        Assert.True(summary.CriticalCount >= 1); // AAA111
         Assert.True(summary.WarningCount >= 1);   // CCC333
         Assert.True(summary.OkCount >= 1);         // BBB222
+        Assert.True(summary.ExpiredCount >= 1);    // DDD444
         Assert.Equal(4, summary.TotalCount);       // excludes inactive EEE555
     }
 
