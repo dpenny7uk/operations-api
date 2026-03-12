@@ -35,6 +35,7 @@ COLUMN_MAP = {
 def fetch_page(url: str) -> str:
     """Fetch the patching schedule HTML page."""
     resp = http_request('GET', url, timeout=30)
+    resp.encoding = resp.apparent_encoding
     return resp.text
 
 
@@ -65,9 +66,9 @@ def parse_last_updated(soup: BeautifulSoup) -> str | None:
     return None
 
 
-def parse_group_sections(soup: BeautifulSoup) -> list[dict]:
-    """Parse all Shavlik group sections, return flat list of server dicts."""
-    servers = []
+def parse_group_sections(soup: BeautifulSoup, fallback_date: datetime) -> dict[str, list[dict]]:
+    """Parse all Shavlik group sections, return dict of cycle_date -> server list."""
+    cycles: dict[str, list[dict]] = {}
 
     for h2 in soup.find_all('h2'):
         h2_id = h2.get('id', '')
@@ -79,6 +80,17 @@ def parse_group_sections(soup: BeautifulSoup) -> list[dict]:
             continue
 
         section_group = group_match.group(1)
+
+        # Extract date from h2 text (e.g. "Shavlik_1a - (15/03/2026)")
+        date_match = re.search(r'(\d{2}/\d{2}/\d{4})', h2_text)
+        if date_match:
+            cycle_date = datetime.strptime(date_match.group(1), '%d/%m/%Y').date()
+        else:
+            cycle_date = fallback_date.date()
+
+        date_key = str(cycle_date)
+        if date_key not in cycles:
+            cycles[date_key] = []
 
         # Find the next table after this h2
         table = h2.find_next('table')
@@ -110,9 +122,9 @@ def parse_group_sections(soup: BeautifulSoup) -> list[dict]:
             if 'server_name' in record:
                 if not record.get('patch_group'):
                     record['patch_group'] = section_group
-                servers.append(record)
+                cycles[date_key].append(record)
 
-    return servers
+    return cycles
 
 
 def process_servers(ctx, cycle_id: int, servers: list[dict]):
@@ -175,12 +187,10 @@ def main():
     args = parser.parse_args()
     configure_verbosity(args.verbose)
 
-    if not args.url.startswith('https://'):
-        logger.error(f"Invalid URL scheme: {args.url} — only https allowed")
+    if not args.url.startswith(('http://', 'https://')):
+        logger.error(f"Invalid URL scheme: {args.url} — only http or https allowed")
         sys.exit(1)
 
-    import ipaddress
-    import socket
     from urllib.parse import urlparse
 
     parsed = urlparse(args.url)
@@ -189,102 +199,64 @@ def main():
         logger.error("URL has no hostname")
         sys.exit(1)
 
-    # Resolve hostname to IP(s) and validate each resolved address.
-    # This prevents DNS rebinding: a hostname that passes the name check
-    # but resolves to a private/internal IP at request time.
-    try:
-        resolved = socket.getaddrinfo(hostname, None)
-    except socket.gaierror as exc:
-        logger.error(f"Cannot resolve hostname {hostname!r}: {exc}")
-        sys.exit(1)
-
-    for _family, _type, _proto, _canonname, sockaddr in resolved:
-        raw_ip = sockaddr[0]
-        try:
-            addr = ipaddress.ip_address(raw_ip)
-        except ValueError:
-            logger.error(f"Unexpected address format from getaddrinfo: {raw_ip!r}")
-            sys.exit(1)
-
-        if (addr.is_loopback or addr.is_link_local or addr.is_multicast
-                or addr.is_reserved or addr.is_unspecified):
-            logger.error(f"URL {args.url!r} resolves to restricted address {raw_ip}")
-            sys.exit(1)
-
-        if addr.version == 4:
-            # Block RFC-1918 private ranges not covered by is_private in older Python:
-            # 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
-            private_ranges = [
-                ipaddress.ip_network('10.0.0.0/8'),
-                ipaddress.ip_network('172.16.0.0/12'),
-                ipaddress.ip_network('192.168.0.0/16'),
-                ipaddress.ip_network('169.254.0.0/16'),  # link-local / IMDS
-            ]
-            if any(addr in net for net in private_ranges):
-                logger.error(f"URL {args.url!r} resolves to private address {raw_ip}")
-                sys.exit(1)
-        else:
-            # IPv6: block private/ULA (fc00::/7), loopback (::1), link-local (fe80::/10),
-            # and IPv4-mapped addresses (::ffff:0:0/96) which can bypass IPv4 checks.
-            ipv6_private = [
-                ipaddress.ip_network('::ffff:0:0/96'),  # IPv4-mapped IPv6 (SSRF bypass)
-                ipaddress.ip_network('fc00::/7'),        # Unique Local Address (ULA)
-                ipaddress.ip_network('fe80::/10'),       # Link-local
-                ipaddress.ip_network('::1/128'),         # Loopback
-            ]
-            if any(addr in net for net in ipv6_private):
-                logger.error(f"URL {args.url!r} resolves to private IPv6 address {raw_ip}")
-                sys.exit(1)
-
     logger.info(f"Fetching patching schedule from {args.url}")
     html = fetch_page(args.url)
     soup = BeautifulSoup(html, 'lxml')
 
-    cycle_date = parse_cycle_date(soup)
+    h1_date = parse_cycle_date(soup)
     last_updated = parse_last_updated(soup)
-    logger.info(f"Cycle date: {cycle_date.date()}, {last_updated or 'no update timestamp found'}")
+    logger.info(f"Page date: {h1_date.date()}, {last_updated or 'no update timestamp found'}")
 
-    servers = parse_group_sections(soup)
-    if not servers:
+    cycles = parse_group_sections(soup, h1_date)
+    total_servers = sum(len(servers) for servers in cycles.values())
+    if total_servers == 0:
         logger.warning("No servers found in HTML page")
         sys.exit(0)
 
-    logger.info(f"Parsed {len(servers)} servers from HTML")
+    logger.info(f"Parsed {total_servers} servers across {len(cycles)} cycle date(s)")
 
     with SyncContext("patching_schedule_html", "Patching Schedule (HTML)", dry_run=args.dry_run) as ctx:
         ctx.check_circuit_breaker()
         if ctx.conn is None:
             raise RuntimeError("Failed to establish database connection")
 
-        # Create or get patch cycle
-        with ctx.conn.cursor() as cur:
-            cur.execute("""
-                INSERT INTO patching.patch_cycles (cycle_date, file_name)
-                VALUES (%s, %s)
-                ON CONFLICT (cycle_date) DO UPDATE SET
-                    file_name = EXCLUDED.file_name,
-                    updated_at = CURRENT_TIMESTAMP
-                RETURNING cycle_id
-            """, (cycle_date.date(), args.url))
-            row = cur.fetchone()
-            if row is None:
-                raise RuntimeError("Failed to create/get patch cycle — INSERT RETURNING returned no row")
-            cycle_id = row['cycle_id']  # type: ignore[index]
+        for date_key, servers in sorted(cycles.items()):
+            cycle_date = datetime.strptime(date_key, '%Y-%m-%d').date()
 
-        process_servers(ctx, cycle_id, servers)
+            # Create or get patch cycle for this date
+            with ctx.conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO patching.patch_cycles (cycle_date, file_name)
+                    VALUES (%s, %s)
+                    ON CONFLICT (cycle_date) DO UPDATE SET
+                        file_name = EXCLUDED.file_name,
+                        updated_at = CURRENT_TIMESTAMP
+                    RETURNING cycle_id
+                """, (cycle_date, args.url))
+                row = cur.fetchone()
+                if row is None:
+                    raise RuntimeError(f"Failed to create/get patch cycle for {cycle_date}")
+                cycle_id = row['cycle_id']  # type: ignore[index]
 
-        # Update cycle counts
-        with ctx.conn.cursor() as cur:
-            cur.execute("""
-                UPDATE patching.patch_cycles SET
-                    servers_onprem = %s
-                WHERE cycle_id = %s
-            """, (ctx.stats.processed, cycle_id))
+            process_servers(ctx, cycle_id, servers)
+
+            # Update cycle counts
+            with ctx.conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE patching.patch_cycles SET
+                        servers_onprem = (
+                            SELECT COUNT(*) FROM patching.patch_schedule
+                            WHERE cycle_id = %s
+                        )
+                    WHERE cycle_id = %s
+                """, (cycle_id, cycle_id))
+
+            logger.info(f"  Cycle {cycle_date}: {len(servers)} servers")
 
         if not ctx.dry_run:
             ctx.conn.commit()
 
-    logger.info(f"Done. Processed {len(servers)} servers for cycle {cycle_date.date()}")
+    logger.info(f"Done. Processed {total_servers} servers across {len(cycles)} cycles")
 
 
 if __name__ == "__main__":

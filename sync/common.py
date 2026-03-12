@@ -378,8 +378,8 @@ class SyncContext:
         if failures < threshold or last_failure_at is None:
             return
 
-        now = datetime.now(timezone.utc)
-        # last_failure_at from psycopg2 TIMESTAMPTZ is already timezone-aware
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        # last_failure_at from psycopg2 TIMESTAMP is timezone-naive; strip tzinfo to match
         elapsed = (now - last_failure_at).total_seconds()
         if elapsed >= timeout_seconds:
             return  # Cooldown has passed — let the sync attempt
@@ -643,7 +643,7 @@ def resolve_server_name(cur, server_name: str, source_system: str, context_id=No
         try:
             cur.execute(
                 "SELECT system.record_unmatched_server(%s, %s, %s)",
-                (server_name, source_system, context_id)
+                (server_name, source_system, str(context_id) if context_id is not None else None)
             )
         except Exception as e:
             # DB function uses ON CONFLICT DO UPDATE, so unique violations
