@@ -35,8 +35,8 @@ public class CertificatesController : ControllerBase
         [FromQuery] int? daysUntilExpiry,
         [FromQuery] int limit = 100)
     {
-        if (alertLevel != null && alertLevel.ToLower() is not ("critical" or "warning" or "ok"))
-            return BadRequest("alertLevel must be one of: critical, warning, ok.");
+        if (alertLevel != null && alertLevel.ToLower() is not ("critical" or "warning" or "ok" or "expired"))
+            return BadRequest("alertLevel must be one of: critical, warning, ok, expired.");
         if (serverName?.Length > 255 || InputGuard.ContainsControlChars(serverName))
             return BadRequest("serverName parameter is invalid.");
         var days = daysUntilExpiry.HasValue ? Math.Max(daysUntilExpiry.Value, 0) : (int?)null;
