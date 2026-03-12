@@ -176,7 +176,7 @@ public class ServerService : BaseService<ServerService>, IServerService
                 status = 'ignored',
                 resolved_at = CURRENT_TIMESTAMP,
                 resolved_by = @ResolvedBy
-            WHERE server_name_raw = @Raw";
+            WHERE server_name_raw = @Raw AND status = 'pending'";
 
         var p = new DynamicParameters();
         p.Add("Raw", raw);

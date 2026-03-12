@@ -53,6 +53,8 @@ public class PatchingController : ControllerBase
         [FromQuery] int limit = 100,
         [FromQuery] int offset = 0)
     {
+        if (patchGroup?.Length > 100 || InputGuard.ContainsControlChars(patchGroup))
+            return BadRequest("patchGroup parameter is invalid.");
         return Ok(await _svc.GetCycleServersAsync(cycleId, patchGroup, hasIssues,
             Math.Clamp(limit, 1, 500), Math.Clamp(offset, 0, 100000)));
     }

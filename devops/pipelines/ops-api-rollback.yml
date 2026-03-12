@@ -286,3 +286,39 @@ stages:
 
                       Write-Error "Health check failed after $maxRetries attempts. Manual intervention required."
                       exit 1
+
+      # ── Notify Teams on rollback failure ─────────────────────────
+      - job: NotifyFailure
+        displayName: 'Notify Teams on rollback failure'
+        dependsOn: RollbackApi
+        condition: failed()
+        pool:
+          name: 'Default'
+        steps:
+          - task: PowerShell@2
+            displayName: 'Alert Teams on rollback failure'
+            condition: ne(variables['TEAMS_WEBHOOK_URL'], '')
+            continueOnError: true
+            inputs:
+              targetType: inline
+              script: |
+                $webhookUrl = $env:TEAMS_WEBHOOK_URL
+                $body = @{
+                  type = "message"
+                  attachments = @(@{
+                    contentType = "application/vnd.microsoft.card.adaptive"
+                    content = @{
+                      type = "AdaptiveCard"
+                      version = "1.4"
+                      body = @(
+                        @{ type = "TextBlock"; weight = "bolder"; color = "attention"; text = "Rollback FAILED: Operations API" },
+                        @{ type = "TextBlock"; wrap = $true; text = "Pipeline: $(Build.DefinitionName) | Run #$(Build.BuildId)" },
+                        @{ type = "TextBlock"; wrap = $true; isSubtle = $true; text = "Rollback failed — manual intervention required. Check Azure DevOps for the full error log." }
+                      )
+                    }
+                  })
+                } | ConvertTo-Json -Depth 10
+                Invoke-RestMethod -Uri $webhookUrl -Method Post -Body $body -ContentType "application/json"
+                Write-Host "Teams rollback failure alert sent"
+            env:
+              TEAMS_WEBHOOK_URL: $(TEAMS_WEBHOOK_URL)

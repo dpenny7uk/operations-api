@@ -9,16 +9,7 @@ trigger:
       - feature/*
   paths:
     include:
-      - '*.cs'
-      - '*.csproj'
-      - Controllers/**
-      - Services/**
-      - Models/**
-      - Infrastructure/**
-      - Program.cs
-      - frontend/**
-      - database/**
-      - tests/**
+      - 'operations-api/**'
 
 pr:
   branches:
@@ -26,16 +17,7 @@ pr:
       - main
   paths:
     include:
-      - '*.cs'
-      - '*.csproj'
-      - Controllers/**
-      - Services/**
-      - Models/**
-      - Infrastructure/**
-      - Program.cs
-      - frontend/**
-      - database/**
-      - tests/**
+      - 'operations-api/**'
 
 pool:
   name: 'Default'

@@ -8,7 +8,7 @@ trigger:
       - feature/*
   paths:
     include:
-      - sync/**
+      - 'operations-api/sync/**'
 
 pr:
   branches:
@@ -16,7 +16,7 @@ pr:
       - main
   paths:
     include:
-      - sync/**
+      - 'operations-api/sync/**'
 
 pool:
   name: 'Default'
@@ -24,8 +24,8 @@ pool:
 steps:
   - task: UsePythonVersion@0
     inputs:
-      versionSpec: '>=3.13'
-    displayName: 'Use Python 3.13+'
+      versionSpec: '>=3.11'
+    displayName: 'Use Python 3.11+'
 
   - script: |
       pip install -r "$(Build.SourcesDirectory)/operations-api/sync/requirements.txt"

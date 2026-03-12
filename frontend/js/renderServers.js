@@ -149,6 +149,7 @@ async function handleUnmatchedAction(btn) {
   const row = btn.closest('tr');
 
   if (action === 'ignore') {
+    if (!confirm(`Ignore "${raw}"? This server will be skipped on future syncs.`)) return;
     btn.disabled = true;
     btn.textContent = '\u2026';
     if (usingDemo) {
@@ -186,6 +187,7 @@ async function handleUnmatchedAction(btn) {
     return;
   }
 
+  if (!confirm(`Link "${raw}" → "${serverName}"? This creates a permanent alias.`)) return;
   btn.disabled = true;
   btn.textContent = '\u2026';
   if (usingDemo) {
