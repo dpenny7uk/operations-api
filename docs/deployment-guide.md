@@ -378,7 +378,14 @@ If using an internal CA certificate that is already in the server's certificate 
 
 ### 3.5 Configure Authentication
 
-Disable Anonymous Authentication and enable Windows Authentication on the site:
+First, unlock the authentication sections at the server level (required before per-site changes):
+
+```powershell
+Set-WebConfiguration -Filter "/system.webServer/security/authentication/anonymousAuthentication" -PSPath "IIS:\" -Metadata "overrideMode" -Value "Allow"
+Set-WebConfiguration -Filter "/system.webServer/security/authentication/windowsAuthentication" -PSPath "IIS:\" -Metadata "overrideMode" -Value "Allow"
+```
+
+Then disable Anonymous Authentication and enable Windows Authentication on the site:
 
 ```powershell
 Set-WebConfigurationProperty -Filter "/system.webServer/security/authentication/anonymousAuthentication" -Name "enabled" -Value $false -PSPath "IIS:\Sites\OperationsApi"
