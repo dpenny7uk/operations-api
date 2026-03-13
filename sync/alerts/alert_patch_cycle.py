@@ -41,7 +41,7 @@ UPCOMING_QUERY = """
           AND pc.cycle_date = CURRENT_DATE + INTERVAL '1 day' * %s
     ),
     schedule AS (
-        SELECT ps.cycle_id, ps.server_name, ps.patch_group, ps.app, ps.service, ps.contact,
+        SELECT ps.cycle_id, ps.server_name, ps.patch_group, ps.app, ps.service, ps.business_unit,
                COALESCE(pw.scheduled_time, ps.scheduled_time) AS scheduled_time
         FROM patching.patch_schedule ps
         JOIN upcoming u ON u.cycle_id = ps.cycle_id
@@ -60,7 +60,7 @@ UPCOMING_QUERY = """
     FROM upcoming u
     JOIN schedule s ON s.cycle_id = u.cycle_id
     LEFT JOIN issues i ON i.server_name = s.server_name
-    WHERE LOWER(s.contact) = 'my_team@contoso.com'
+    WHERE s.business_unit = 'Group'
     ORDER BY s.scheduled_time, s.patch_group, s.server_name
 """
 
