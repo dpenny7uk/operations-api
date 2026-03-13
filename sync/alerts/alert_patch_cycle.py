@@ -69,10 +69,10 @@ def _severity_prefix(severity: str | None) -> str:
         return ""
     s = severity.upper()
     if s == 'CRITICAL':
-        return "CRITICAL"
+        return "\U0001f534 CRITICAL"
     if s == 'HIGH':
-        return "HIGH"
-    return "MEDIUM"
+        return "\U0001f7e0 HIGH"
+    return "\U0001f7e1 MEDIUM"
 
 
 def build_adaptive_cards(rows: list, days_ahead: int) -> list[dict]:
@@ -88,10 +88,10 @@ def build_adaptive_cards(rows: list, days_ahead: int) -> list[dict]:
     date_str = cycle_date.strftime('%d %B %Y')
 
     if days_ahead == 0:
-        header_text = f"Patching TODAY: {date_str}"
+        header_text = f"\U0001f6a8 Patching TODAY: {date_str}"
     else:
         day_word = "day" if days_ahead == 1 else "days"
-        header_text = f"Upcoming Patch Cycle: {date_str}"
+        header_text = f"\U0001f4c5 Upcoming Patch Cycle: {date_str}"
         subtitle = f"{days_ahead} {day_word} away"
 
     # Group servers by patch group (deduplicate server rows from issue joins)
@@ -134,19 +134,37 @@ def build_adaptive_cards(rows: list, days_ahead: int) -> list[dict]:
         section = [
             {
                 "type": "TextBlock",
-                "text": f"**{pg_name.upper()}** ({time_label} UTC)",
+                "text": f"\U0001f4e6 **{pg_name.upper()}** ({time_label} UTC)",
                 "weight": "bolder",
                 "spacing": "medium",
                 "separator": True
             },
             {
-                "type": "FactSet",
-                "facts": [
-                    {"title": s['server_name'], "value": s['app']}
-                    for s in pg_data['servers']
-                ]
+                "type": "ColumnSet",
+                "columns": [
+                    {"type": "Column", "width": "stretch", "items": [
+                        {"type": "TextBlock", "text": "\U0001f5a5\ufe0f **Server**", "weight": "bolder", "size": "small"}
+                    ]},
+                    {"type": "Column", "width": "stretch", "items": [
+                        {"type": "TextBlock", "text": "\U0001f4cb **Application**", "weight": "bolder", "size": "small"}
+                    ]}
+                ],
+                "spacing": "small"
             }
         ]
+        for s in pg_data['servers']:
+            section.append({
+                "type": "ColumnSet",
+                "columns": [
+                    {"type": "Column", "width": "stretch", "items": [
+                        {"type": "TextBlock", "text": s['server_name'], "size": "small"}
+                    ]},
+                    {"type": "Column", "width": "stretch", "items": [
+                        {"type": "TextBlock", "text": s['app'], "size": "small"}
+                    ]}
+                ],
+                "spacing": "none"
+            })
         group_sections.append((pg_name, section))
 
     # Build issue section
@@ -154,7 +172,7 @@ def build_adaptive_cards(rows: list, days_ahead: int) -> list[dict]:
     if all_issues:
         issue_body.append({
             "type": "TextBlock",
-            "text": "**KNOWN ISSUES**",
+            "text": "\u26a0\ufe0f **KNOWN ISSUES**",
             "weight": "bolder",
             "spacing": "large",
             "separator": True,
@@ -188,13 +206,13 @@ def build_adaptive_cards(rows: list, days_ahead: int) -> list[dict]:
     if days_ahead > 0:
         header.append({
             "type": "TextBlock",
-            "text": f"**{subtitle} — {total_servers} servers scheduled**",
+            "text": f"**{subtitle} \u2014 \U0001f5a5\ufe0f {total_servers} servers scheduled**",
             "wrap": True
         })
     else:
         header.append({
             "type": "TextBlock",
-            "text": f"**{total_servers} servers scheduled for patching today**",
+            "text": f"**\U0001f5a5\ufe0f {total_servers} servers scheduled for patching today**",
             "wrap": True
         })
 
