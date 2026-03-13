@@ -55,11 +55,12 @@ UPCOMING_QUERY = """
             s.app = ANY(ki.affected_apps) OR s.service = ANY(ki.affected_services)
         )
     )
-    SELECT u.cycle_date, s.server_name, s.patch_group, s.scheduled_time, s.app,
+    SELECT u.cycle_date, s.server_name, s.patch_group, s.scheduled_time, s.service,
            i.title AS issue_title, i.severity AS issue_severity, i.confluence_url
     FROM upcoming u
     JOIN schedule s ON s.cycle_id = u.cycle_id
     LEFT JOIN issues i ON i.server_name = s.server_name
+    WHERE LOWER(s.contact) = 'my_team@contoso.com'
     ORDER BY s.scheduled_time, s.patch_group, s.server_name
 """
 
@@ -113,7 +114,7 @@ def build_adaptive_cards(rows: list, days_ahead: int) -> list[dict]:
             seen_servers[pg].add(server)
             groups[pg]['servers'].append({
                 'server_name': server,
-                'app': row['app'] or '—'
+                'service': row['service'] or '—'
             })
 
         if row.get('issue_title'):
@@ -146,7 +147,7 @@ def build_adaptive_cards(rows: list, days_ahead: int) -> list[dict]:
                         {"type": "TextBlock", "text": "\U0001f5a5\ufe0f **Server**", "weight": "bolder", "size": "small"}
                     ]},
                     {"type": "Column", "width": "stretch", "items": [
-                        {"type": "TextBlock", "text": "\U0001f4cb **Application**", "weight": "bolder", "size": "small"}
+                        {"type": "TextBlock", "text": "\u2699\ufe0f **Service**", "weight": "bolder", "size": "small"}
                     ]}
                 ],
                 "spacing": "small"
@@ -160,7 +161,7 @@ def build_adaptive_cards(rows: list, days_ahead: int) -> list[dict]:
                         {"type": "TextBlock", "text": s['server_name'], "size": "small"}
                     ]},
                     {"type": "Column", "width": "stretch", "items": [
-                        {"type": "TextBlock", "text": s['app'], "size": "small"}
+                        {"type": "TextBlock", "text": s['service'], "size": "small"}
                     ]}
                 ],
                 "spacing": "none"
