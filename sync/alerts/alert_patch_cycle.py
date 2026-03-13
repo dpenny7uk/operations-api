@@ -249,16 +249,10 @@ def build_adaptive_cards(rows: list, days_ahead: int) -> list[dict]:
 
 def _wrap_card(body: list) -> dict:
     return {
-        "type": "message",
-        "attachments": [{
-            "contentType": "application/vnd.microsoft.card.adaptive",
-            "content": {
-                "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
-                "type": "AdaptiveCard",
-                "version": "1.4",
-                "body": body
-            }
-        }]
+        "type": "AdaptiveCard",
+        "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+        "version": "1.4",
+        "body": body
     }
 
 
