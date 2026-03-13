@@ -23,7 +23,7 @@ logger = setup_logging('patch_cycle_alert')
 
 _TEAMS_WEBHOOK_RE = re.compile(r'^https://[a-zA-Z0-9-]+\.webhook\.office\.com/')
 
-CARD_SIZE_LIMIT = 28_000  # Teams Adaptive Card limit ~28KB
+CARD_SIZE_LIMIT = 25_000  # Teams Adaptive Card limit ~28KB, leave margin
 
 
 def _validate_teams_url(url: str) -> None:
@@ -216,34 +216,43 @@ def build_adaptive_cards(rows: list, days_ahead: int) -> list[dict]:
             "wrap": True
         })
 
-    # Try single card first
-    full_body = header[:]
-    for _, section in group_sections:
-        full_body.extend(section)
-    full_body.extend(issue_body)
-
-    card = _wrap_card(full_body)
-    card_json = json.dumps(card, default=str)
-
-    if len(card_json) <= CARD_SIZE_LIMIT:
-        return [card]
-
-    # Split into multiple cards by patch group
-    logger.info(f"Card size {len(card_json)} exceeds limit, splitting by patch group")
+    # Build cards, splitting as needed to stay under size limit
     cards = []
-    for i, (pg_name, section) in enumerate(group_sections):
-        body = header[:] if i == 0 else [{
-            "type": "TextBlock",
-            "size": "medium",
-            "weight": "bolder",
-            "text": f"{header_text} (continued)",
-            "style": "heading"
-        }]
-        body.extend(section)
-        if i == len(group_sections) - 1:
-            body.extend(issue_body)
-        cards.append(_wrap_card(body))
+    current_body = header[:]
 
+    for _, section in group_sections:
+        # Check if adding this section would exceed the limit
+        test_body = current_body + section
+        if len(json.dumps(_wrap_card(test_body), default=str)) > CARD_SIZE_LIMIT and len(current_body) > len(header):
+            # Flush current card
+            cards.append(_wrap_card(current_body))
+            current_body = [{
+                "type": "TextBlock",
+                "size": "medium",
+                "weight": "bolder",
+                "text": f"{header_text} (continued)",
+                "style": "heading"
+            }]
+        current_body.extend(section)
+
+    # Append issues to last card, or as separate card if too large
+    if issue_body:
+        test_body = current_body + issue_body
+        if len(json.dumps(_wrap_card(test_body), default=str)) <= CARD_SIZE_LIMIT:
+            current_body.extend(issue_body)
+        else:
+            cards.append(_wrap_card(current_body))
+            current_body = [{
+                "type": "TextBlock",
+                "size": "medium",
+                "weight": "bolder",
+                "text": f"{header_text} — Known Issues",
+                "style": "heading"
+            }] + issue_body
+
+    cards.append(_wrap_card(current_body))
+    if len(cards) > 1:
+        logger.info(f"Card split into {len(cards)} parts to stay under size limit")
     return cards
 
 
