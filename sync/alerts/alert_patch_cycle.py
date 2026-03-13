@@ -41,7 +41,7 @@ UPCOMING_QUERY = """
           AND pc.cycle_date = CURRENT_DATE + INTERVAL '1 day' * %s
     ),
     schedule AS (
-        SELECT ps.cycle_id, ps.server_name, ps.patch_group, ps.app, ps.service,
+        SELECT ps.cycle_id, ps.server_name, ps.patch_group, ps.app, ps.service, ps.contact,
                COALESCE(pw.scheduled_time, ps.scheduled_time) AS scheduled_time
         FROM patching.patch_schedule ps
         JOIN upcoming u ON u.cycle_id = ps.cycle_id
