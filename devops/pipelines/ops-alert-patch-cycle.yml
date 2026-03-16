@@ -19,11 +19,6 @@ variables:
   - group: operations-api-prod
 
 steps:
-  - task: UsePythonVersion@0
-    inputs:
-      versionSpec: '>=3.13'
-    displayName: 'Use Python 3.13+'
-
   - script: |
       REPO_ROOT="$(Build.SourcesDirectory)/operations-api"
       WORK_DIR="$(Build.StagingDirectory)/sync_run"
