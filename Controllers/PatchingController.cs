@@ -42,6 +42,7 @@ public class PatchingController : ControllerBase
     /// <param name="cycleId">The patch cycle ID.</param>
     /// <param name="patchGroup">Filter by patch group name.</param>
     /// <param name="hasIssues">Filter to servers with/without known issues.</param>
+    /// <param name="search">Search term to filter servers by name, service, application, or patch group.</param>
     /// <param name="limit">Page size (1-500, default 100).</param>
     /// <param name="offset">Pagination offset (default 0).</param>
     [HttpGet("cycles/{cycleId}/servers")]
@@ -50,13 +51,33 @@ public class PatchingController : ControllerBase
         int cycleId,
         [FromQuery] string? patchGroup,
         [FromQuery] bool? hasIssues,
+        [FromQuery] string? search,
         [FromQuery] int limit = 100,
         [FromQuery] int offset = 0)
     {
         if (patchGroup?.Length > 100 || InputGuard.ContainsControlChars(patchGroup))
             return BadRequest("patchGroup parameter is invalid.");
-        return Ok(await _svc.GetCycleServersAsync(cycleId, patchGroup, hasIssues,
+        if (search?.Length > 100 || InputGuard.ContainsControlChars(search))
+            return BadRequest("search parameter is invalid.");
+        return Ok(await _svc.GetCycleServersAsync(cycleId, patchGroup, hasIssues, search,
             Math.Clamp(limit, 1, 500), Math.Clamp(offset, 0, 100000)));
+    }
+
+    /// <summary>Search servers across all visible patch cycles.</summary>
+    /// <param name="q">Search term (min 2 characters) — matches server name, service, application, or patch group.</param>
+    /// <param name="limit">Maximum total results (1-200, default 50).</param>
+    [HttpGet("servers/search")]
+    [ProducesResponseType(200)]
+    [ProducesResponseType(400)]
+    public async Task<IActionResult> SearchServers(
+        [FromQuery] string? q,
+        [FromQuery] int limit = 50)
+    {
+        if (string.IsNullOrWhiteSpace(q) || q.Length < 2)
+            return BadRequest("Search query must be at least 2 characters.");
+        if (q.Length > 100 || InputGuard.ContainsControlChars(q))
+            return BadRequest("Search query is invalid.");
+        return Ok(await _svc.SearchServersGlobalAsync(q, Math.Clamp(limit, 1, 200)));
     }
 
     /// <summary>List known patching issues with optional severity and application filters.</summary>

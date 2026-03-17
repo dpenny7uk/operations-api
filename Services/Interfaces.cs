@@ -32,8 +32,9 @@ public interface IPatchingService
 {
     Task<NextPatchingSummary?> GetNextPatchingSummaryAsync();
     Task<IEnumerable<PatchCycle>> ListPatchCyclesAsync(bool upcomingOnly, int limit);
-    Task<PagedResult<PatchScheduleItem>> GetCycleServersAsync(int cycleId, string? patchGroup, bool? hasIssues, int limit = 100, int offset = 0);
+    Task<PagedResult<PatchScheduleItem>> GetCycleServersAsync(int cycleId, string? patchGroup, bool? hasIssues, string? search, int limit = 100, int offset = 0);
     Task<IEnumerable<KnownIssue>> ListKnownIssuesAsync(string? severity, string? app, string? patchType, bool activeOnly);
+    Task<IEnumerable<GlobalServerSearchResult>> SearchServersGlobalAsync(string query, int limit);
     Task<KnownIssueDetail?> GetKnownIssueByIdAsync(int id);
     Task<IEnumerable<PatchWindow>> GetPatchWindowsAsync();
 }

@@ -19,8 +19,9 @@ export function alertBadge(level) {
 
 export function statusBadge(status) {
   const s = (status || '').toLowerCase();
-  if (s === 'success' || s === 'healthy' || s === 'completed' || s === 'active') return badge(status, 'green');
-  if (s === 'warning' || s === 'stale' || s === 'scheduled') return badge(status, 'yellow');
+  if (s === 'success' || s === 'healthy' || s === 'active') return badge(status, 'green');
+  if (s === 'completed') return badge(status, 'blue');
+  if (s === 'warning' || s === 'stale' || s === 'scheduled' || s === 'upcoming') return badge(status, 'yellow');
   if (s === 'error' || s === 'failed' || s === 'critical') return badge(status, 'red');
   return badge(status, 'muted');
 }

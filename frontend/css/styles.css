@@ -504,6 +504,15 @@ main {
 }
 .scroll-wrap { max-height: 400px; overflow-y: auto; }
 .cycle-scroll-wrap { max-height: 400px; overflow-y: auto; }
+.global-search-input, .cycle-search-input {
+  padding: 0.35rem 0.6rem; font-size: 0.75rem; border: 1px solid var(--border);
+  border-radius: var(--radius); background: var(--bg-card); color: var(--text);
+  outline: none; transition: border-color var(--transition);
+}
+.global-search-input:focus, .cycle-search-input:focus { border-color: var(--accent); }
+.global-search-input { width: 220px; }
+.cycle-search { margin-bottom: 0.5rem; }
+.cycle-search-input { width: 100%; }
 .dash-panel > table th, .dash-panel > .scroll-wrap th { position: static; }
 .dash-panel-title {
   font-size: 0.72rem;

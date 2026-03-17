@@ -108,6 +108,7 @@ export const DEMO = (() => {
   const cycleItems = patchServers.map((s, i) => ({
     scheduleId: i + 1, serverName: s.serverName, patchGroup: s.patchGroup || 'Group-A',
     scheduledTime: `0${2 + Math.floor(i / 5)}:00`.slice(-5), application: s.applicationName,
+    service: s.applicationName ? s.applicationName + ' Service' : 'Infrastructure',
     hasKnownIssue: rand() < 0.2, issueCount: rand() < 0.2 ? 1 + Math.floor(rand() * 2) : 0
   }));
 
@@ -138,9 +139,9 @@ export const DEMO = (() => {
       totalIssuesAffectingServers: 48
     },
     cycles: [
-      { cycleId: 12, cycleDate: new Date(Date.now() + 5 * DAY).toISOString(), serverCount: cycleItems.length, status: 'Scheduled' },
-      { cycleId: 11, cycleDate: new Date(Date.now() - 25 * DAY).toISOString(), serverCount: 255, status: 'Completed' },
-      { cycleId: 10, cycleDate: new Date(Date.now() - 55 * DAY).toISOString(), serverCount: 248, status: 'Completed' },
+      { cycleId: 12, cycleDate: new Date(Date.now() + 5 * DAY).toISOString(), serverCount: cycleItems.length, status: 'active', displayStatus: 'Upcoming' },
+      { cycleId: 11, cycleDate: new Date(Date.now() - 3 * DAY).toISOString(), serverCount: 255, status: 'completed', displayStatus: 'Completed' },
+      { cycleId: 10, cycleDate: new Date(Date.now() - 55 * DAY).toISOString(), serverCount: 248, status: 'completed', displayStatus: 'Completed' },
     ],
     issues: [
       { issueId: 1, title: 'KB5034441 fails on small recovery partition', severity: 'High', application: null, appliesToWindows: true, appliesToSql: false, fix: 'Resize recovery partition to 1GB' },

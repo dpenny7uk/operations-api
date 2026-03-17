@@ -5,7 +5,9 @@ import { DEMO } from './demo.js';
 const CYCLE_PAGE_SIZE = 20;
 export let cycleServerCache = {};
 const cycleServerCacheTime = {};
+const cycleSearchTerms = {};
 const CYCLE_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+let debounceTimers = {};
 export function resetCycleServerCache() { cycleServerCache = {}; }
 
 export function renderPatching(next, cycles, issues) {
@@ -43,29 +45,28 @@ export function renderPatching(next, cycles, issues) {
       </div>`;
   }
 
+  // Wire up global search
+  const globalSearchInput = document.getElementById('patchingGlobalSearch');
+  if (globalSearchInput) {
+    globalSearchInput.oninput = () => {
+      clearTimeout(debounceTimers.__global);
+      debounceTimers.__global = setTimeout(() => {
+        const q = globalSearchInput.value.trim();
+        if (q.length >= 2) {
+          runGlobalSearch(q);
+        } else if (q.length === 0) {
+          // Restore normal cycle view
+          const tbody = document.getElementById('cycleTable');
+          tbody.innerHTML = '';
+          cycles.forEach(c => appendCycleRow(tbody, c));
+        }
+      }, 400);
+    };
+  }
+
   const tbody = document.getElementById('cycleTable');
   tbody.innerHTML = '';
-  cycles.forEach(c => {
-    const row = document.createElement('tr');
-    row.className = 'cycle-row';
-    row.tabIndex = 0;
-    row.setAttribute('role', 'button');
-    row.setAttribute('aria-expanded', 'false');
-    row.innerHTML = `
-      <td><strong>${fmtDate(c.cycleDate)}</strong></td>
-      <td>${num(c.serverCount)}</td>
-      <td>${statusBadge(c.status)}</td>`;
-
-    const detailRow = document.createElement('tr');
-    detailRow.className = 'cycle-detail';
-    detailRow.innerHTML = `<td colspan="3"><div class="cycle-detail-inner" id="cycleDetail-${parseInt(c.cycleId)}"></div></td>`;
-
-    const toggle = () => toggleCycleDetail(c.cycleId, row, detailRow);
-    row.addEventListener('click', toggle);
-    row.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } });
-    tbody.appendChild(row);
-    tbody.appendChild(detailRow);
-  });
+  cycles.forEach(c => appendCycleRow(tbody, c));
 
   document.getElementById('issueTable').innerHTML = issues.map(i => `<tr>
     <td><strong>${esc(i.title)}</strong></td>
@@ -75,6 +76,28 @@ export function renderPatching(next, cycles, issues) {
     <td>${i.appliesToSql ? dot('green') : dot('red')}</td>
     <td class="color-muted issue-fix">${esc(i.fix) || '\u2014'}</td>
   </tr>`).join('');
+}
+
+function appendCycleRow(tbody, c) {
+  const row = document.createElement('tr');
+  row.className = 'cycle-row';
+  row.tabIndex = 0;
+  row.setAttribute('role', 'button');
+  row.setAttribute('aria-expanded', 'false');
+  row.innerHTML = `
+    <td><strong>${fmtDate(c.cycleDate)}</strong></td>
+    <td>${num(c.serverCount)}</td>
+    <td>${statusBadge(c.displayStatus || c.status)}</td>`;
+
+  const detailRow = document.createElement('tr');
+  detailRow.className = 'cycle-detail';
+  detailRow.innerHTML = `<td colspan="3"><div class="cycle-detail-inner" id="cycleDetail-${parseInt(c.cycleId)}"></div></td>`;
+
+  const toggle = () => toggleCycleDetail(c.cycleId, row, detailRow);
+  row.addEventListener('click', toggle);
+  row.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } });
+  tbody.appendChild(row);
+  tbody.appendChild(detailRow);
 }
 
 async function toggleCycleDetail(cycleId, row, detailRow) {
@@ -99,11 +122,14 @@ async function toggleCycleDetail(cycleId, row, detailRow) {
   if (detail) { detail.tabIndex = -1; detail.focus(); }
 }
 
-async function loadCycleServersPage(cycleId, offset) {
+async function loadCycleServersPage(cycleId, offset, search) {
+  if (search !== undefined) cycleSearchTerms[cycleId] = search;
+  const currentSearch = cycleSearchTerms[cycleId] || '';
   const container = document.getElementById(`cycleDetail-${cycleId}`);
   container.innerHTML = '<div class="loading-state flex-center gap-sm"><span class="loading"></span> Loading servers\u2026</div>';
 
-  const data = await api(`/patching/cycles/${cycleId}/servers?limit=${CYCLE_PAGE_SIZE}&offset=${offset}`);
+  const searchParam = currentSearch ? `&search=${encodeURIComponent(currentSearch)}` : '';
+  const data = await api(`/patching/cycles/${cycleId}/servers?limit=${CYCLE_PAGE_SIZE}&offset=${offset}${searchParam}`);
   if (data) {
     cycleServerCache[cycleId] = data;
   } else if (usingDemo) {
@@ -145,18 +171,23 @@ function renderCycleServers(cycleId) {
       </div>`;
   }
 
+  const currentSearch = cycleSearchTerms[cycleId] || '';
   container.innerHTML = `
+    <div class="cycle-search">
+      <input type="text" placeholder="Search servers, service, app, group" class="cycle-search-input" data-cycle="${parseInt(cycleId)}" value="${esc(currentSearch)}">
+    </div>
     ${servers.length === 0
       ? '<div class="empty-state">No servers found</div>'
       : `<div class="cycle-scroll-wrap"><table>
           <thead><tr>
-            <th>Server</th><th>Patch Group</th><th>Scheduled (UTC)</th><th>Application</th><th>Issues</th>
+            <th>Server</th><th>Patch Group</th><th>Scheduled (UTC)</th><th>Application</th><th>Service</th><th>Issues</th>
           </tr></thead>
           <tbody>${servers.map(s => `<tr>
             <td><strong>${esc(s.serverName)}</strong></td>
             <td>${s.patchGroup ? badge(s.patchGroup, 'muted') : '\u2014'}</td>
             <td class="color-muted">${esc(s.scheduledTime) || '\u2014'}</td>
             <td>${esc(s.application) || '\u2014'}</td>
+            <td>${esc(s.service) || '\u2014'}</td>
             <td>${s.hasKnownIssue
               ? `<span class="color-orange">${dot('orange')}${num(s.issueCount)} issue${num(s.issueCount) !== 1 ? 's' : ''}</span>`
               : `<span class="color-green">${dot('green')}None</span>`}</td>
@@ -170,5 +201,62 @@ function renderCycleServers(cycleId) {
       e.stopPropagation();
       loadCycleServersPage(parseInt(btn.dataset.cycle), parseInt(btn.dataset.offset));
     };
+  });
+
+  const searchInput = container.querySelector('.cycle-search-input');
+  if (searchInput) {
+    searchInput.addEventListener('input', (e) => {
+      e.stopPropagation();
+      const cid = parseInt(searchInput.dataset.cycle);
+      clearTimeout(debounceTimers[cid]);
+      debounceTimers[cid] = setTimeout(() => {
+        loadCycleServersPage(cid, 0, searchInput.value.trim());
+      }, 300);
+    });
+  }
+}
+
+async function runGlobalSearch(query) {
+  const tbody = document.getElementById('cycleTable');
+  tbody.innerHTML = '<tr><td colspan="3"><div class="loading-state flex-center gap-sm"><span class="loading"></span> Searching\u2026</div></td></tr>';
+
+  const results = await api(`/patching/servers/search?q=${encodeURIComponent(query)}&limit=100`);
+  if (!results || results.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="3"><div class="empty-state">No results found</div></td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = '';
+  results.forEach(group => {
+    // Cycle header row
+    const headerRow = document.createElement('tr');
+    headerRow.className = 'cycle-row expanded';
+    headerRow.innerHTML = `
+      <td><strong>${fmtDate(group.cycleDate)}</strong></td>
+      <td>${num(group.totalCount)}</td>
+      <td>${statusBadge(group.displayStatus)}</td>`;
+    tbody.appendChild(headerRow);
+
+    // Detail row with server results
+    const detailRow = document.createElement('tr');
+    detailRow.className = 'cycle-detail visible';
+    detailRow.innerHTML = `<td colspan="3"><div class="cycle-detail-inner">
+      <div class="cycle-scroll-wrap"><table>
+        <thead><tr>
+          <th>Server</th><th>Patch Group</th><th>Scheduled (UTC)</th><th>Application</th><th>Service</th><th>Issues</th>
+        </tr></thead>
+        <tbody>${group.servers.map(s => `<tr>
+          <td><strong>${esc(s.serverName)}</strong></td>
+          <td>${s.patchGroup ? badge(s.patchGroup, 'muted') : '\u2014'}</td>
+          <td class="color-muted">${esc(s.scheduledTime) || '\u2014'}</td>
+          <td>${esc(s.application) || '\u2014'}</td>
+          <td>${esc(s.service) || '\u2014'}</td>
+          <td>${s.hasKnownIssue
+            ? `<span class="color-orange">${dot('orange')}${num(s.issueCount)} issue${num(s.issueCount) !== 1 ? 's' : ''}</span>`
+            : `<span class="color-green">${dot('green')}None</span>`}</td>
+        </tr>`).join('')}</tbody>
+      </table></div>
+    </div></td>`;
+    tbody.appendChild(detailRow);
   });
 }

@@ -81,12 +81,20 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
                 pc.cycle_id AS CycleId,
                 pc.cycle_date AS CycleDate,
                 COALESCE((SELECT COUNT(*)::INT FROM {Sql.Tables.PatchSchedule} ps WHERE ps.cycle_id = pc.cycle_id), 0) AS ServerCount,
-                pc.status AS Status
+                pc.status AS Status,
+                CASE
+                    WHEN pc.status = 'completed' THEN 'Completed'
+                    WHEN pc.status = 'cancelled' THEN 'Cancelled'
+                    WHEN pc.cycle_date = CURRENT_DATE THEN 'Active'
+                    WHEN pc.cycle_date > CURRENT_DATE THEN 'Upcoming'
+                    ELSE 'Past'
+                END AS DisplayStatus
             FROM {Sql.Tables.PatchCycles} pc";
 
         if (upcomingOnly)
         {
-            sql += " WHERE pc.cycle_date >= CURRENT_DATE AND pc.status = 'active'";
+            sql += @" WHERE (pc.status = 'active' AND pc.cycle_date >= CURRENT_DATE)
+                         OR (pc.status = 'completed' AND pc.cycle_date >= CURRENT_DATE - INTERVAL '7 days')";
             sql += " ORDER BY pc.cycle_date LIMIT @Limit";
         }
         else
@@ -101,6 +109,7 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
         int cycleId,
         string? patchGroup,
         bool? hasIssues,
+        string? search,
         int limit = 100,
         int offset = 0) => RunDbAsync(async () =>
     {
@@ -112,6 +121,15 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
         {
             where += " AND ps.patch_group = @PatchGroup";
             p.Add("PatchGroup", patchGroup);
+        }
+
+        if (!string.IsNullOrEmpty(search))
+        {
+            where += @" AND (ps.server_name ILIKE @Search ESCAPE '\'
+                OR ps.service ILIKE @Search ESCAPE '\'
+                OR ps.app ILIKE @Search ESCAPE '\'
+                OR ps.patch_group ILIKE @Search ESCAPE '\')";
+            p.Add("Search", $"%{EscapeLike(search)}%");
         }
 
         var having = "";
@@ -132,7 +150,7 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
 
         var groupBy = @"
             GROUP BY ps.schedule_id, ps.server_name,
-                     ps.patch_group, pw.scheduled_time, ps.app";
+                     ps.patch_group, pw.scheduled_time, ps.app, ps.service";
 
         p.Add("Limit", limit);
         p.Add("Offset", offset);
@@ -147,6 +165,7 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
                 ps.patch_group AS PatchGroup,
                 pw.scheduled_time AS ScheduledTime,
                 ps.app AS Application,
+                ps.service AS Service,
                 CASE WHEN COUNT(ki.issue_id) > 0 THEN TRUE ELSE FALSE END AS HasKnownIssue,
                 COUNT(ki.issue_id) AS IssueCount
             {joins}
@@ -252,6 +271,75 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
             WHERE issue_id = @Id
         ", new { Id = id })
     );
+
+    public Task<IEnumerable<GlobalServerSearchResult>> SearchServersGlobalAsync(string query, int limit) => RunDbAsync(async () =>
+    {
+        var sql = $@"
+            SELECT
+                pc.cycle_id AS CycleId,
+                pc.cycle_date AS CycleDate,
+                CASE
+                    WHEN pc.status = 'completed' THEN 'Completed'
+                    WHEN pc.status = 'cancelled' THEN 'Cancelled'
+                    WHEN pc.cycle_date = CURRENT_DATE THEN 'Active'
+                    WHEN pc.cycle_date > CURRENT_DATE THEN 'Upcoming'
+                    ELSE 'Past'
+                END AS DisplayStatus,
+                ps.schedule_id AS ScheduleId,
+                ps.server_name AS ServerName,
+                ps.patch_group AS PatchGroup,
+                COALESCE(pw.scheduled_time, ps.scheduled_time) AS ScheduledTime,
+                ps.app AS Application,
+                ps.service AS Service,
+                CASE WHEN COUNT(ki.issue_id) OVER (PARTITION BY ps.schedule_id) > 0 THEN TRUE ELSE FALSE END AS HasKnownIssue,
+                COUNT(ki.issue_id) OVER (PARTITION BY ps.schedule_id) AS IssueCount
+            FROM {Sql.Tables.PatchSchedule} ps
+            JOIN {Sql.Tables.PatchCycles} pc ON pc.cycle_id = ps.cycle_id
+            LEFT JOIN {Sql.Tables.PatchWindows} pw
+                ON pw.patch_group = ps.patch_group AND pw.window_type = 'onprem'
+            LEFT JOIN {Sql.Tables.KnownIssues} ki
+                ON ki.is_active AND (ps.app = ANY(COALESCE(ki.affected_apps, ARRAY[]::TEXT[])) OR ps.service = ANY(COALESCE(ki.affected_services, ARRAY[]::TEXT[])))
+            WHERE ((pc.status = 'active' AND pc.cycle_date >= CURRENT_DATE)
+                OR (pc.status = 'completed' AND pc.cycle_date >= CURRENT_DATE - INTERVAL '7 days'))
+              AND (ps.server_name ILIKE @Search ESCAPE '\'
+                OR ps.service ILIKE @Search ESCAPE '\'
+                OR ps.app ILIKE @Search ESCAPE '\'
+                OR ps.patch_group ILIKE @Search ESCAPE '\')
+            ORDER BY pc.cycle_date, ps.server_name
+            LIMIT @Limit";
+
+        var searchTerm = $"%{EscapeLike(query)}%";
+        var rows = await Db.QueryAsync<GlobalSearchRow>(sql, new { Search = searchTerm, Limit = limit });
+
+        var grouped = rows
+            .GroupBy(r => new { r.CycleId, r.CycleDate, r.DisplayStatus })
+            .Select(g => new GlobalServerSearchResult
+            {
+                CycleId = g.Key.CycleId,
+                CycleDate = g.Key.CycleDate,
+                DisplayStatus = g.Key.DisplayStatus,
+                Servers = g.Select(r => new PatchScheduleItem
+                {
+                    ScheduleId = r.ScheduleId,
+                    ServerName = r.ServerName,
+                    PatchGroup = r.PatchGroup,
+                    ScheduledTime = r.ScheduledTime,
+                    Application = r.Application,
+                    Service = r.Service,
+                    HasKnownIssue = r.HasKnownIssue,
+                    IssueCount = r.IssueCount
+                }).ToList(),
+                TotalCount = g.Count()
+            });
+
+        return grouped;
+    });
+
+    private record GlobalSearchRow(
+        int CycleId, DateOnly CycleDate, string DisplayStatus,
+        int ScheduleId, string ServerName, string? PatchGroup,
+        string? ScheduledTime, string? Application, string? Service,
+        bool HasKnownIssue, int IssueCount);
 
     public Task<IEnumerable<PatchWindow>> GetPatchWindowsAsync() => RunDbAsync(() =>
         Db.QueryAsync<PatchWindow>($@"

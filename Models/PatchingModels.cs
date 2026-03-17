@@ -6,6 +6,7 @@ public class PatchCycle
     public DateOnly CycleDate { get; set; }
     public int ServerCount { get; set; }
     public string Status { get; set; } = "";
+    public string DisplayStatus { get; set; } = "";
 }
 
 public class NextPatchingSummary
@@ -24,6 +25,7 @@ public class PatchScheduleItem
     public string? PatchGroup { get; set; }
     public string? ScheduledTime { get; set; }
     public string? Application { get; set; }
+    public string? Service { get; set; }
     public bool HasKnownIssue { get; set; }
     public int IssueCount { get; set; }
 }
@@ -48,6 +50,15 @@ public class KnownIssueDetail : KnownIssue
     public string? ConfluenceUrl { get; set; }
     public bool IsActive { get; set; }
     public DateTime? LastSyncedAt { get; set; }
+}
+
+public class GlobalServerSearchResult
+{
+    public int CycleId { get; set; }
+    public DateOnly CycleDate { get; set; }
+    public string DisplayStatus { get; set; } = "";
+    public List<PatchScheduleItem> Servers { get; set; } = new();
+    public int TotalCount { get; set; }
 }
 
 public class PatchWindow
