@@ -198,6 +198,7 @@ def build_adaptive_cards(rows: list, days_ahead: int) -> list[dict]:
         issue_count = len(service_issues.get(svc, set()))
         svc_rows.append({
             "type": "ColumnSet",
+            "separator": True,
             "columns": [
                 {"type": "Column", "width": "stretch", "items": [
                     {"type": "TextBlock", "text": svc, "size": "small"}
@@ -283,6 +284,7 @@ def build_adaptive_cards(rows: list, days_ahead: int) -> list[dict]:
         color = _env_color(r['environment'])
         env_data_rows.append({
             "type": "ColumnSet",
+            "separator": True,
             "columns": [
                 {"type": "Column", "width": "stretch", "items": [
                     {"type": "TextBlock", "text": r['service'], "size": "small", "color": color}
