@@ -1,8 +1,9 @@
 """Alert Teams about upcoming patch cycles.
 
 Sends two Adaptive Cards to Teams when a patch cycle is approaching:
-Card 1 — Service summary (deduplicated services with domain/patch group).
-Card 2 — Server detail (all servers with patch group, service, domain).
+Card 1 — Services to be patched (deduplicated services with issue counts,
+         plus known issues list at the bottom).
+Card 2 — By Environment (services broken down by environment and domain).
 
 Run from the pipeline on Mondays: --days-ahead 5 --weekend to capture
 the full Saturday/Sunday patching window.
@@ -12,6 +13,7 @@ import json
 import os
 import re
 import logging
+import time
 from collections import defaultdict
 
 from common import (
@@ -24,6 +26,20 @@ logger = setup_logging('patch_cycle_alert')
 _TEAMS_WEBHOOK_RE = re.compile(r'^https://[a-zA-Z0-9-]+\.webhook\.office\.com/')
 
 CARD_SIZE_LIMIT = 25_000  # Teams Adaptive Card limit ~28KB, leave margin
+
+_ENV_CODES = {
+    'dv': 'Development', 'pc': 'POC', 'pr': 'Production',
+    'ss': 'Shared Services', 'st': 'Staging', 'sy': 'System Test',
+    'ut': 'UAT', 'ls': 'Live Support',
+}
+
+
+def _parse_environment(server_name: str) -> str:
+    """Extract environment from the 2-char server name prefix."""
+    if server_name and len(server_name) >= 2:
+        prefix = server_name[:2].lower()
+        return _ENV_CODES.get(prefix, prefix.upper())
+    return '\u2014'
 
 
 def _validate_teams_url(url: str) -> None:
@@ -92,10 +108,9 @@ def _format_date_range(rows: list) -> str:
 def build_adaptive_cards(rows: list, days_ahead: int) -> list[dict]:
     """Build two Teams Adaptive Cards for the patch cycle.
 
-    Card 1: Service summary — deduplicated list of services with domain
-    and patch group.
-    Card 2: Server detail — all servers with patch group, service, domain,
-    plus known issues.
+    Card 1: Services to be patched — deduplicated services with issue counts,
+            plus known issues list at the bottom.
+    Card 2: By Environment — services broken down by environment and domain.
 
     Each card may be split further if it exceeds CARD_SIZE_LIMIT.
     """
@@ -104,38 +119,35 @@ def build_adaptive_cards(rows: list, days_ahead: int) -> list[dict]:
 
     date_str = _format_date_range(rows)
     day_word = "day" if days_ahead == 1 else "days"
-    header_text = f"\U0001f4c5 Upcoming Patch Cycle: {date_str}"
     subtitle = f"{days_ahead} {day_word} away"
 
-    # Collect unique servers and services (deduplicate from issue joins)
+    # Collect data (deduplicate from issue joins)
     seen_servers: set[str] = set()
-    servers: list[dict] = []
-    service_keys: set[tuple] = set()
-    services: list[dict] = []
+    service_names: set[str] = set()
+    service_issues: dict[str, set[str]] = defaultdict(set)
+    env_keys: set[tuple] = set()
+    env_rows: list[dict] = []
     all_issues: dict[str, dict] = {}
 
     for row in rows:
         server = row['server_name']
         svc = row['service'] or '\u2014'
         domain = row['domain'] or '\u2014'
-        pg = row['patch_group'] or '\u2014'
+        env = _parse_environment(server)
 
         if server not in seen_servers:
             seen_servers.add(server)
-            servers.append({
-                'server_name': server,
-                'patch_group': pg,
-                'service': svc,
-                'domain': domain
-            })
 
-        svc_key = (svc, pg)
-        if svc_key not in service_keys:
-            service_keys.add(svc_key)
-            services.append({'service': svc, 'domain': domain, 'patch_group': pg})
+        service_names.add(svc)
+
+        env_key = (svc, env, domain)
+        if env_key not in env_keys:
+            env_keys.add(env_key)
+            env_rows.append({'service': svc, 'environment': env, 'domain': domain})
 
         if row.get('issue_title'):
             issue_key = row['issue_title']
+            service_issues[svc].add(issue_key)
             if issue_key not in all_issues:
                 all_issues[issue_key] = {
                     'title': row['issue_title'],
@@ -143,22 +155,23 @@ def build_adaptive_cards(rows: list, days_ahead: int) -> list[dict]:
                     'confluence_url': row.get('confluence_url')
                 }
 
-    total_servers = len(servers)
-    services.sort(key=lambda s: (s['service'], s['patch_group']))
+    total_servers = len(seen_servers)
+    services = sorted(service_names)
+    env_rows.sort(key=lambda r: (r['service'], r['environment']))
 
-    # ── Card 1: Service Summary ──────────────────────────────────────────
+    # ── Card 1: Services to be patched ───────────────────────────────────
     svc_header = [
         {
             "type": "TextBlock",
             "size": "large",
             "weight": "bolder",
-            "text": f"\u2699\ufe0f Services — {date_str}",
+            "text": f"\U0001f4c5 Services to be patched \u2014 {date_str}",
             "style": "heading",
             "color": "accent"
         },
         {
             "type": "TextBlock",
-            "text": f"**{subtitle} \u2014 {len(services)} services across {total_servers} servers**",
+            "text": f"**{subtitle} \u2014 \u2699\ufe0f {len(services)} services**",
             "wrap": True
         },
         {
@@ -167,11 +180,8 @@ def build_adaptive_cards(rows: list, days_ahead: int) -> list[dict]:
                 {"type": "Column", "width": "stretch", "items": [
                     {"type": "TextBlock", "text": "**Service**", "weight": "bolder", "size": "small"}
                 ]},
-                {"type": "Column", "width": "stretch", "items": [
-                    {"type": "TextBlock", "text": "**Domain**", "weight": "bolder", "size": "small"}
-                ]},
                 {"type": "Column", "width": "auto", "items": [
-                    {"type": "TextBlock", "text": "**Patch Group**", "weight": "bolder", "size": "small"}
+                    {"type": "TextBlock", "text": "**Issues**", "weight": "bolder", "size": "small"}
                 ]}
             ],
             "spacing": "small"
@@ -180,82 +190,21 @@ def build_adaptive_cards(rows: list, days_ahead: int) -> list[dict]:
 
     svc_rows = []
     for svc in services:
+        issue_count = len(service_issues.get(svc, set()))
         svc_rows.append({
             "type": "ColumnSet",
             "columns": [
                 {"type": "Column", "width": "stretch", "items": [
-                    {"type": "TextBlock", "text": svc['service'], "size": "small"}
-                ]},
-                {"type": "Column", "width": "stretch", "items": [
-                    {"type": "TextBlock", "text": svc['domain'], "size": "small"}
+                    {"type": "TextBlock", "text": svc, "size": "small"}
                 ]},
                 {"type": "Column", "width": "auto", "items": [
-                    {"type": "TextBlock", "text": svc['patch_group'], "size": "small"}
+                    {"type": "TextBlock", "text": str(issue_count) if issue_count else "\u2014", "size": "small"}
                 ]}
             ],
             "spacing": "none"
         })
 
-    svc_cards = _split_card_body(svc_header, svc_rows,
-                                 f"\u2699\ufe0f Services — {date_str} (continued)")
-
-    # ── Card 2: Server Detail ────────────────────────────────────────────
-    srv_header = [
-        {
-            "type": "TextBlock",
-            "size": "large",
-            "weight": "bolder",
-            "text": header_text,
-            "style": "heading",
-            "color": "accent"
-        },
-        {
-            "type": "TextBlock",
-            "text": f"**{subtitle} \u2014 \U0001f5a5\ufe0f {total_servers} servers scheduled**",
-            "wrap": True
-        },
-        {
-            "type": "ColumnSet",
-            "columns": [
-                {"type": "Column", "width": "stretch", "items": [
-                    {"type": "TextBlock", "text": "\U0001f5a5\ufe0f **Server**", "weight": "bolder", "size": "small"}
-                ]},
-                {"type": "Column", "width": "auto", "items": [
-                    {"type": "TextBlock", "text": "\U0001f4e6 **Patch Group**", "weight": "bolder", "size": "small"}
-                ]},
-                {"type": "Column", "width": "stretch", "items": [
-                    {"type": "TextBlock", "text": "\u2699\ufe0f **Service**", "weight": "bolder", "size": "small"}
-                ]},
-                {"type": "Column", "width": "stretch", "items": [
-                    {"type": "TextBlock", "text": "**Domain**", "weight": "bolder", "size": "small"}
-                ]}
-            ],
-            "spacing": "small"
-        }
-    ]
-
-    srv_rows = []
-    for s in servers:
-        srv_rows.append({
-            "type": "ColumnSet",
-            "columns": [
-                {"type": "Column", "width": "stretch", "items": [
-                    {"type": "TextBlock", "text": s['server_name'], "size": "small"}
-                ]},
-                {"type": "Column", "width": "auto", "items": [
-                    {"type": "TextBlock", "text": s['patch_group'], "size": "small"}
-                ]},
-                {"type": "Column", "width": "stretch", "items": [
-                    {"type": "TextBlock", "text": s['service'], "size": "small"}
-                ]},
-                {"type": "Column", "width": "stretch", "items": [
-                    {"type": "TextBlock", "text": s['domain'], "size": "small"}
-                ]}
-            ],
-            "spacing": "none"
-        })
-
-    # Build issue section
+    # Build issue section for bottom of Card 1
     issue_body = []
     if all_issues:
         issue_body.append({
@@ -270,9 +219,9 @@ def build_adaptive_cards(rows: list, days_ahead: int) -> list[dict]:
                             key=lambda i: {'CRITICAL': 0, 'HIGH': 1}.get(
                                 (i['severity'] or '').upper(), 2)):
             prefix = _severity_prefix(issue['severity'])
-            text = f"{prefix} — {issue['title']}"
+            text = f"{prefix} \u2014 {issue['title']}"
             if issue.get('confluence_url'):
-                text += f" — [View Fix]({issue['confluence_url']})"
+                text += f" \u2014 [View Fix]({issue['confluence_url']})"
             issue_body.append({
                 "type": "TextBlock",
                 "text": text,
@@ -280,11 +229,64 @@ def build_adaptive_cards(rows: list, days_ahead: int) -> list[dict]:
                 "spacing": "small"
             })
 
-    srv_cards = _split_card_body(srv_header, srv_rows,
-                                 f"{header_text} (continued)",
+    svc_cards = _split_card_body(svc_header, svc_rows,
+                                 f"\U0001f4c5 Services to be patched \u2014 {date_str} (continued)",
                                  trailing=issue_body)
 
-    cards = svc_cards + srv_cards
+    # ── Card 2: By Environment ───────────────────────────────────────────
+    env_header = [
+        {
+            "type": "TextBlock",
+            "size": "large",
+            "weight": "bolder",
+            "text": f"\U0001f30d By Environment \u2014 {date_str}",
+            "style": "heading",
+            "color": "accent"
+        },
+        {
+            "type": "TextBlock",
+            "text": f"**\U0001f5a5\ufe0f {total_servers} servers across {len(services)} services**",
+            "wrap": True
+        },
+        {
+            "type": "ColumnSet",
+            "columns": [
+                {"type": "Column", "width": "stretch", "items": [
+                    {"type": "TextBlock", "text": "**Service**", "weight": "bolder", "size": "small"}
+                ]},
+                {"type": "Column", "width": "stretch", "items": [
+                    {"type": "TextBlock", "text": "**Environment**", "weight": "bolder", "size": "small"}
+                ]},
+                {"type": "Column", "width": "stretch", "items": [
+                    {"type": "TextBlock", "text": "**Domain**", "weight": "bolder", "size": "small"}
+                ]}
+            ],
+            "spacing": "small"
+        }
+    ]
+
+    env_data_rows = []
+    for r in env_rows:
+        env_data_rows.append({
+            "type": "ColumnSet",
+            "columns": [
+                {"type": "Column", "width": "stretch", "items": [
+                    {"type": "TextBlock", "text": r['service'], "size": "small"}
+                ]},
+                {"type": "Column", "width": "stretch", "items": [
+                    {"type": "TextBlock", "text": r['environment'], "size": "small"}
+                ]},
+                {"type": "Column", "width": "stretch", "items": [
+                    {"type": "TextBlock", "text": r['domain'], "size": "small"}
+                ]}
+            ],
+            "spacing": "none"
+        })
+
+    env_cards = _split_card_body(env_header, env_data_rows,
+                                 f"\U0001f30d By Environment \u2014 {date_str} (continued)")
+
+    cards = svc_cards + env_cards
     if len(cards) > 2:
         logger.info(f"Cards split into {len(cards)} parts to stay under size limit")
     return cards
@@ -382,6 +384,8 @@ def main():
             return
 
         for i, card in enumerate(cards):
+            if i > 0:
+                time.sleep(2)
             http_request('POST', webhook_url, json=card, retries=2, timeout=15)
             logger.info(f"Teams alert sent ({i + 1}/{len(cards)})")
 
