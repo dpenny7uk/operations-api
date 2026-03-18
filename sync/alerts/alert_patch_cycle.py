@@ -42,6 +42,11 @@ def _parse_environment(server_name: str) -> str:
     return '\u2014'
 
 
+def _env_color(environment: str) -> str:
+    """Return Adaptive Card color — red for Production, default otherwise."""
+    return 'attention' if environment == 'Production' else 'default'
+
+
 def _validate_teams_url(url: str) -> None:
     if not url.startswith('https://'):
         raise ValueError(
@@ -275,17 +280,18 @@ def build_adaptive_cards(rows: list, days_ahead: int) -> list[dict]:
 
     env_data_rows = []
     for r in env_rows:
+        color = _env_color(r['environment'])
         env_data_rows.append({
             "type": "ColumnSet",
             "columns": [
                 {"type": "Column", "width": "stretch", "items": [
-                    {"type": "TextBlock", "text": r['service'], "size": "small"}
+                    {"type": "TextBlock", "text": r['service'], "size": "small", "color": color}
                 ]},
                 {"type": "Column", "width": "stretch", "items": [
-                    {"type": "TextBlock", "text": r['environment'], "size": "small"}
+                    {"type": "TextBlock", "text": r['environment'], "size": "small", "color": color}
                 ]},
                 {"type": "Column", "width": "stretch", "items": [
-                    {"type": "TextBlock", "text": r['domain'], "size": "small"}
+                    {"type": "TextBlock", "text": r['domain'], "size": "small", "color": color}
                 ]}
             ],
             "spacing": "none"
