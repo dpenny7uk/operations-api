@@ -1,8 +1,9 @@
 """Tests for alert script card building and logic."""
 
+import json
 import sys
 import os
-from datetime import datetime
+from datetime import datetime, date
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'alerts'))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
@@ -10,6 +11,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from sync_health_alert import build_adaptive_card as build_health_card
 from alert_cert_expiry import build_adaptive_card as build_cert_card, _cert_fact
 from alert_unmatched_spike import build_adaptive_card as build_unmatched_card
+from alert_patch_cycle import build_adaptive_cards as build_patch_cards, _format_date_range
 
 
 # ── Health alert card ────────────────────────────────────────────────────────
@@ -249,3 +251,98 @@ class TestUnmatchedSpikeCard:
         card = build_unmatched_card(unmatched)
         facts = card['attachments'][0]['content']['body'][2]['facts']
         assert 'SERVER01' in facts[0]['value']
+
+
+# ── Patch cycle card ─────────────────────────────────────────────────────
+
+class TestPatchCycleCard:
+    def _make_rows(self, count=2, weekend=False):
+        base_date = date(2026, 3, 21)  # Saturday
+        rows = []
+        for i in range(count):
+            rows.append({
+                'cycle_date': base_date,
+                'server_name': f'SRV{i + 1:03d}',
+                'patch_group': '8a' if i % 2 == 0 else '9b',
+                'scheduled_time': '00:00-01:30' if i % 2 == 0 else '03:00-05:00',
+                'service': f'Service{chr(65 + i % 3)}',
+                'domain': 'EMEA' if i % 2 == 0 else 'US',
+                'issue_title': None,
+                'issue_severity': None,
+                'confluence_url': None,
+            })
+        if weekend:
+            sunday = date(2026, 3, 22)
+            rows.append({
+                'cycle_date': sunday,
+                'server_name': 'SRV_SUN01',
+                'patch_group': '8b',
+                'scheduled_time': '01:30-03:00',
+                'service': 'ServiceD',
+                'domain': 'APAC',
+                'issue_title': None,
+                'issue_severity': None,
+                'confluence_url': None,
+            })
+        return rows
+
+    def test_returns_two_cards(self):
+        cards = build_patch_cards(self._make_rows(), 5)
+        assert len(cards) == 2
+        assert all(c['type'] == 'AdaptiveCard' for c in cards)
+
+    def test_empty_rows_returns_empty(self):
+        assert build_patch_cards([], 5) == []
+
+    def test_card1_is_service_summary(self):
+        cards = build_patch_cards(self._make_rows(), 5)
+        body = cards[0]['body']
+        title = body[0]['text']
+        assert 'Services' in title
+
+    def test_card2_is_server_detail(self):
+        cards = build_patch_cards(self._make_rows(), 5)
+        body = cards[1]['body']
+        title = body[0]['text']
+        assert 'Patch Cycle' in title
+
+    def test_service_deduplication(self):
+        rows = self._make_rows(4)  # ServiceA, ServiceB, ServiceC, ServiceA
+        cards = build_patch_cards(rows, 5)
+        body_json = json.dumps(cards[0]['body'])
+        # ServiceA appears in both 8a and 9b groups, so 2 entries
+        # Count ColumnSet rows (exclude header row)
+        col_sets = [b for b in cards[0]['body'] if b.get('type') == 'ColumnSet']
+        # First ColumnSet is the header row, rest are service rows
+        service_rows = col_sets[1:]
+        # 4 rows: ServiceA/8a, ServiceB/9b, ServiceC/8a, ServiceA/9b — but deduped by (service, patch_group)
+        assert len(service_rows) == 4
+
+    def test_server_detail_has_domain(self):
+        cards = build_patch_cards(self._make_rows(), 5)
+        server_card = cards[1]
+        body_json = json.dumps(server_card['body'])
+        assert 'EMEA' in body_json
+        assert 'US' in body_json
+
+    def test_weekend_date_range(self):
+        rows = self._make_rows(2, weekend=True)
+        date_str = _format_date_range(rows)
+        assert '21' in date_str
+        assert '22' in date_str
+        assert 'March' in date_str
+
+    def test_single_date_format(self):
+        rows = self._make_rows(2)
+        date_str = _format_date_range(rows)
+        assert '21 March 2026' == date_str
+
+    def test_known_issues_on_server_card(self):
+        rows = self._make_rows(2)
+        rows[0]['issue_title'] = 'KB12345 breaks IIS'
+        rows[0]['issue_severity'] = 'HIGH'
+        rows[0]['confluence_url'] = 'https://confluence.example.com/fix'
+        cards = build_patch_cards(rows, 5)
+        server_card_json = json.dumps(cards[1]['body'])
+        assert 'KB12345 breaks IIS' in server_card_json
+        assert 'KNOWN ISSUES' in server_card_json

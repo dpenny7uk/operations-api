@@ -5,8 +5,8 @@
 trigger: none
 
 schedules:
-  - cron: "30 7 * * *"
-    displayName: "Patch cycle notification at 07:30"
+  - cron: "30 7 * * 1"
+    displayName: "Patch cycle notification - Monday 07:30"
     branches:
       include:
         - main
@@ -30,20 +30,8 @@ steps:
 
   - script: |
       cd "$(Build.StagingDirectory)/sync_run"
-      python alert_patch_cycle.py --days-ahead 5 --verbose
-    displayName: 'Send 5-day advance warning'
-    env:
-      OPS_DB_HOST: $(OPS_DB_HOST)
-      OPS_DB_PORT: $(OPS_DB_PORT)
-      OPS_DB_NAME: $(OPS_DB_NAME)
-      OPS_DB_USER: $(OPS_DB_USER)
-      OPS_DB_PASSWORD: $(OPS_DB_PASSWORD)
-      TEAMS_PATCHING_WEBHOOK_URL: $(TEAMS_PATCHING_WEBHOOK_URL)
-
-  - script: |
-      cd "$(Build.StagingDirectory)/sync_run"
-      python alert_patch_cycle.py --days-ahead 0 --verbose
-    displayName: 'Send day-of reminder'
+      python alert_patch_cycle.py --days-ahead 5 --weekend --verbose
+    displayName: 'Send weekend patching alert'
     env:
       OPS_DB_HOST: $(OPS_DB_HOST)
       OPS_DB_PORT: $(OPS_DB_PORT)
