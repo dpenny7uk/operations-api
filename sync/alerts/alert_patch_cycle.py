@@ -198,7 +198,7 @@ def build_adaptive_cards(rows: list, days_ahead: int) -> list[dict]:
                     {"type": "TextBlock", "text": svc, "size": "small"}
                 ]},
                 {"type": "Column", "width": "auto", "items": [
-                    {"type": "TextBlock", "text": str(issue_count) if issue_count else "\u2014", "size": "small"}
+                    {"type": "TextBlock", "text": str(issue_count), "size": "small"}
                 ]}
             ],
             "spacing": "none"
@@ -228,6 +228,14 @@ def build_adaptive_cards(rows: list, days_ahead: int) -> list[dict]:
                 "wrap": True,
                 "spacing": "small"
             })
+
+    if not issue_body:
+        issue_body.append({
+            "type": "TextBlock",
+            "text": "\u2705 **No known issues at present**",
+            "spacing": "large",
+            "separator": True
+        })
 
     svc_cards = _split_card_body(svc_header, svc_rows,
                                  f"\U0001f4c5 Services to be patched \u2014 {date_str} (continued)",
@@ -385,7 +393,7 @@ def main():
 
         for i, card in enumerate(cards):
             if i > 0:
-                time.sleep(2)
+                time.sleep(10)
             http_request('POST', webhook_url, json=card, retries=2, timeout=15)
             logger.info(f"Teams alert sent ({i + 1}/{len(cards)})")
 
