@@ -103,7 +103,57 @@ def http_request(
     raise last_exception  # type: ignore[misc]
 
 
+DATABRICKS_RESOURCE_ID = '2ff814a6-3304-4ab8-85cb-cd0e6f879c1d'
+ALLOWED_AUTH_MODES = {'pat', 'aad', 'service_principal'}
 ALLOWED_QUERY_OVERRIDES = {'DATABRICKS_QUERY', 'DATABRICKS_EOL_QUERY'}
+
+
+def _get_databricks_token() -> str:
+    """Return a bearer token for Databricks based on DATABRICKS_AUTH_MODE.
+
+    Supported modes:
+      - pat (default): Uses DATABRICKS_TOKEN environment variable directly.
+      - aad: Uses DefaultAzureCredential (pipeline identity or az login).
+      - service_principal: Uses ClientSecretCredential with explicit SP credentials.
+    """
+    logger = logging.getLogger('databricks.auth')
+    mode = os.environ.get('DATABRICKS_AUTH_MODE', 'pat').lower()
+
+    if mode not in ALLOWED_AUTH_MODES:
+        raise ValueError(
+            f"Invalid DATABRICKS_AUTH_MODE '{mode}' — "
+            f"must be one of {sorted(ALLOWED_AUTH_MODES)}"
+        )
+
+    if mode == 'pat':
+        validate_env_vars(['DATABRICKS_TOKEN'])
+        logger.info("Using PAT authentication for Databricks")
+        return os.environ['DATABRICKS_TOKEN']
+
+    from azure.identity import DefaultAzureCredential, ClientSecretCredential
+
+    scope = f"{DATABRICKS_RESOURCE_ID}/.default"
+
+    if mode == 'aad':
+        logger.info("Using AAD token authentication for Databricks")
+        credential = DefaultAzureCredential()
+        token = credential.get_token(scope)
+        return token.token
+
+    # service_principal
+    validate_env_vars([
+        'DATABRICKS_SP_TENANT_ID',
+        'DATABRICKS_SP_CLIENT_ID',
+        'DATABRICKS_SP_CLIENT_SECRET',
+    ])
+    logger.info("Using service principal authentication for Databricks")
+    credential = ClientSecretCredential(
+        tenant_id=os.environ['DATABRICKS_SP_TENANT_ID'],
+        client_id=os.environ['DATABRICKS_SP_CLIENT_ID'],
+        client_secret=os.environ['DATABRICKS_SP_CLIENT_SECRET'],
+    )
+    token = credential.get_token(scope)
+    return token.token
 
 
 def query_databricks(query: str, env_var_override: str = None) -> list:
@@ -116,7 +166,7 @@ def query_databricks(query: str, env_var_override: str = None) -> list:
     Returns:
         List of dicts, one per row, with lowercase column names as keys.
     """
-    validate_env_vars(['DATABRICKS_HOST', 'DATABRICKS_TOKEN', 'DATABRICKS_WAREHOUSE_ID'])
+    validate_env_vars(['DATABRICKS_HOST', 'DATABRICKS_WAREHOUSE_ID'])
 
     if env_var_override:
         if env_var_override not in ALLOWED_QUERY_OVERRIDES:
@@ -127,9 +177,10 @@ def query_databricks(query: str, env_var_override: str = None) -> list:
         query = os.environ.get(env_var_override, query)
 
     logger = logging.getLogger('databricks')
+    bearer_token = _get_databricks_token()
     url = f"https://{os.environ['DATABRICKS_HOST']}/api/2.0/sql/statements"
     headers = {
-        "Authorization": f"Bearer {os.environ['DATABRICKS_TOKEN']}",
+        "Authorization": f"Bearer {bearer_token}",
         "Content-Type": "application/json"
     }
 

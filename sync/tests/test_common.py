@@ -11,8 +11,89 @@ from common import (
     SyncStats, validate_env_vars, get_current_user,
     create_argument_parser, configure_verbosity, http_request,
     SyncContext, CircuitBreakerOpenError, ALLOWED_QUERY_OVERRIDES,
-    query_databricks,
+    query_databricks, _get_databricks_token, DATABRICKS_RESOURCE_ID,
 )
+
+
+# ── _get_databricks_token ────────────────────────────────────────────────────
+
+class TestGetDatabricksToken:
+    def test_pat_mode_returns_env_token(self):
+        env = {'DATABRICKS_AUTH_MODE': 'pat', 'DATABRICKS_TOKEN': 'my-pat'}
+        with patch.dict(os.environ, env, clear=True):
+            assert _get_databricks_token() == 'my-pat'
+
+    def test_pat_mode_is_default(self):
+        env = {'DATABRICKS_TOKEN': 'my-pat'}
+        with patch.dict(os.environ, env, clear=True):
+            assert _get_databricks_token() == 'my-pat'
+
+    def test_pat_mode_missing_token_raises(self):
+        with patch.dict(os.environ, {'DATABRICKS_AUTH_MODE': 'pat'}, clear=True):
+            try:
+                _get_databricks_token()
+                assert False, "Should have raised"
+            except EnvironmentError as e:
+                assert 'DATABRICKS_TOKEN' in str(e)
+
+    def test_aad_mode_uses_default_credential(self):
+        mock_token = MagicMock()
+        mock_token.token = 'aad-token-value'
+        mock_credential = MagicMock()
+        mock_credential.get_token.return_value = mock_token
+
+        with patch.dict(os.environ, {'DATABRICKS_AUTH_MODE': 'aad'}, clear=True):
+            with patch('azure.identity.DefaultAzureCredential', return_value=mock_credential):
+                result = _get_databricks_token()
+
+        assert result == 'aad-token-value'
+        mock_credential.get_token.assert_called_once_with(f"{DATABRICKS_RESOURCE_ID}/.default")
+
+    def test_service_principal_mode_uses_client_secret(self):
+        mock_token = MagicMock()
+        mock_token.token = 'sp-token-value'
+        mock_credential = MagicMock()
+        mock_credential.get_token.return_value = mock_token
+
+        env = {
+            'DATABRICKS_AUTH_MODE': 'service_principal',
+            'DATABRICKS_SP_TENANT_ID': 'tenant-123',
+            'DATABRICKS_SP_CLIENT_ID': 'client-456',
+            'DATABRICKS_SP_CLIENT_SECRET': 'secret-789',
+        }
+        with patch.dict(os.environ, env, clear=True):
+            with patch('azure.identity.ClientSecretCredential', return_value=mock_credential) as mock_cls:
+                result = _get_databricks_token()
+
+        assert result == 'sp-token-value'
+        mock_cls.assert_called_once_with(
+            tenant_id='tenant-123',
+            client_id='client-456',
+            client_secret='secret-789',
+        )
+        mock_credential.get_token.assert_called_once_with(f"{DATABRICKS_RESOURCE_ID}/.default")
+
+    def test_service_principal_missing_vars_raises(self):
+        env = {'DATABRICKS_AUTH_MODE': 'service_principal'}
+        with patch.dict(os.environ, env, clear=True):
+            try:
+                _get_databricks_token()
+                assert False, "Should have raised"
+            except EnvironmentError as e:
+                assert 'DATABRICKS_SP_TENANT_ID' in str(e)
+
+    def test_invalid_mode_raises(self):
+        with patch.dict(os.environ, {'DATABRICKS_AUTH_MODE': 'bogus'}, clear=True):
+            try:
+                _get_databricks_token()
+                assert False, "Should have raised"
+            except ValueError as e:
+                assert 'bogus' in str(e)
+
+    def test_mode_is_case_insensitive(self):
+        env = {'DATABRICKS_AUTH_MODE': 'PAT', 'DATABRICKS_TOKEN': 'tok'}
+        with patch.dict(os.environ, env, clear=True):
+            assert _get_databricks_token() == 'tok'
 
 
 # ── SyncStats ────────────────────────────────────────────────────────────────
@@ -237,7 +318,7 @@ class TestCircuitBreaker:
     def test_circuit_open_raises(self):
         """Breaker opens when failures >= threshold AND within timeout window."""
         ctx = self._make_ctx()
-        last_failure = datetime.now(timezone.utc) - timedelta(minutes=30)
+        last_failure = datetime.utcnow() - timedelta(minutes=30)
         self._set_db_row(ctx, {'consecutive_failures': 3, 'last_failure_at': last_failure})
 
         try:
@@ -250,7 +331,7 @@ class TestCircuitBreaker:
     def test_circuit_closed_below_threshold(self):
         """Breaker stays closed when failures < threshold."""
         ctx = self._make_ctx()
-        last_failure = datetime.now(timezone.utc) - timedelta(minutes=30)
+        last_failure = datetime.utcnow() - timedelta(minutes=30)
         self._set_db_row(ctx, {'consecutive_failures': 2, 'last_failure_at': last_failure})
 
         ctx.check_circuit_breaker()  # should not raise
@@ -258,7 +339,7 @@ class TestCircuitBreaker:
     def test_circuit_closed_timeout_elapsed(self):
         """Breaker resets after the timeout window has elapsed."""
         ctx = self._make_ctx()
-        last_failure = datetime.now(timezone.utc) - timedelta(hours=3)
+        last_failure = datetime.utcnow() - timedelta(hours=3)
         self._set_db_row(ctx, {'consecutive_failures': 5, 'last_failure_at': last_failure})
 
         ctx.check_circuit_breaker()  # should not raise
@@ -283,7 +364,7 @@ class TestCircuitBreaker:
     def test_threshold_from_env(self):
         """CIRCUIT_BREAKER_THRESHOLD env var overrides the default of 3."""
         ctx = self._make_ctx()
-        last_failure = datetime.now(timezone.utc) - timedelta(minutes=30)
+        last_failure = datetime.utcnow() - timedelta(minutes=30)
         self._set_db_row(ctx, {'consecutive_failures': 4, 'last_failure_at': last_failure})
 
         with patch.dict(os.environ, {'CIRCUIT_BREAKER_THRESHOLD': '5'}):
@@ -293,7 +374,7 @@ class TestCircuitBreaker:
         """CIRCUIT_BREAKER_TIMEOUT_SECONDS env var overrides the default 7200s."""
         ctx = self._make_ctx()
         # 90 minutes ago — outside the 1h custom timeout → breaker should open
-        last_failure = datetime.now(timezone.utc) - timedelta(minutes=90)
+        last_failure = datetime.utcnow() - timedelta(minutes=90)
         self._set_db_row(ctx, {'consecutive_failures': 3, 'last_failure_at': last_failure})
 
         with patch.dict(os.environ, {'CIRCUIT_BREAKER_TIMEOUT_SECONDS': '7200'}):
@@ -305,7 +386,7 @@ class TestCircuitBreaker:
                 pass
 
         ctx2 = self._make_ctx()
-        last_failure2 = datetime.now(timezone.utc) - timedelta(minutes=90)
+        last_failure2 = datetime.utcnow() - timedelta(minutes=90)
         self._set_db_row(ctx2, {'consecutive_failures': 3, 'last_failure_at': last_failure2})
 
         with patch.dict(os.environ, {'CIRCUIT_BREAKER_TIMEOUT_SECONDS': '3600'}):
