@@ -356,14 +356,24 @@ def get_job_run_output(job_id: str = None) -> list:
         successful_run.get('start_time', 'unknown')
     )
 
-    # Step 2: Get the SQL task run ID from the run's tasks
+    # Step 2: Get the SQL task run ID from the run's tasks.
+    # The runs/list endpoint may not include tasks for MULTI_TASK jobs,
+    # so fetch the full run details if tasks are missing.
     tasks = successful_run.get('tasks', [])
     if not tasks:
-        raise RuntimeError(
-            f"Databricks job run {run_id} has no tasks. "
-            "Expected at least one SQL task."
+        get_url = f"https://{host}/api/2.1/jobs/runs/get"
+        resp = http_request(
+            'GET', get_url, headers=headers,
+            params={"run_id": run_id}
         )
-    task_run_id = tasks[0]['run_id']
+        tasks = resp.json().get('tasks', [])
+
+    if not tasks:
+        # Single-task jobs may not have a tasks array — use the run_id itself
+        task_run_id = run_id
+        logger.info("No tasks array found — using run_id %d as task run ID", run_id)
+    else:
+        task_run_id = tasks[0]['run_id']
 
     # Step 3: Get the task output
     output_url = f"https://{host}/api/2.1/jobs/runs/get-output"
