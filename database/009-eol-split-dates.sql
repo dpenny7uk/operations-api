@@ -11,6 +11,25 @@ BEGIN;
 -- The new model uses end_of_life_dates (445+ products) and asset_inventory pattern matching.
 DELETE FROM eol.end_of_life_software WHERE source_system = 'databricks';
 
+-- Map Windows Server versions from shared.servers.operating_system.
+-- This view bridges the gap between server OS names and endoflife.date product identifiers.
+-- Must be created BEFORE v_software_summary which depends on it.
+CREATE OR REPLACE VIEW eol.v_os_eol_mapping AS
+SELECT
+    s.server_name AS machine_name,
+    'windows-server' AS eol_product,
+    CASE
+        WHEN s.operating_system ILIKE '%2012 R2%' THEN '2012-r2'
+        WHEN s.operating_system ILIKE '%2012%' THEN '2012'
+        WHEN s.operating_system ILIKE '%2016%' THEN '2016'
+        WHEN s.operating_system ILIKE '%2019%' THEN '2019'
+        WHEN s.operating_system ILIKE '%2022%' THEN '2022'
+        WHEN s.operating_system ILIKE '%2025%' THEN '2025'
+    END AS eol_product_version
+FROM shared.servers s
+WHERE s.is_active = TRUE
+  AND s.operating_system IS NOT NULL;
+
 -- Updated v_software_summary: JOIN product-level dates with per-server counts.
 -- Product-level rows (machine_name IS NULL) provide lifecycle dates.
 -- Per-server rows (machine_name IS NOT NULL) provide affected server counts.
@@ -47,24 +66,6 @@ WHERE p.machine_name IS NULL
 GROUP BY p.eol_product, p.eol_product_version, p.eol_end_of_life,
          p.eol_end_of_support, p.eol_end_of_extended_support
 ORDER BY p.eol_end_of_life NULLS LAST;
-
--- Map Windows Server versions from shared.servers.operating_system.
--- This view bridges the gap between server OS names and endoflife.date product identifiers.
-CREATE OR REPLACE VIEW eol.v_os_eol_mapping AS
-SELECT
-    s.server_name AS machine_name,
-    'windows-server' AS eol_product,
-    CASE
-        WHEN s.operating_system ILIKE '%2012 R2%' THEN '2012-r2'
-        WHEN s.operating_system ILIKE '%2012%' THEN '2012'
-        WHEN s.operating_system ILIKE '%2016%' THEN '2016'
-        WHEN s.operating_system ILIKE '%2019%' THEN '2019'
-        WHEN s.operating_system ILIKE '%2022%' THEN '2022'
-        WHEN s.operating_system ILIKE '%2025%' THEN '2025'
-    END AS eol_product_version
-FROM shared.servers s
-WHERE s.is_active = TRUE
-  AND s.operating_system IS NOT NULL;
 
 -- Recreate v_at_risk_servers to use the split model.
 -- Combines per-server software rows + OS mapping for a unified risk view.
