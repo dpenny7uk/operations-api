@@ -59,7 +59,8 @@ public class EolService : BaseService<EolService>, IEolService
     public Task<IEnumerable<EolSoftware>> ListEolSoftwareAsync(
         string? alertLevel,
         string? product,
-        int limit) => RunDbAsync(async () =>
+        int limit,
+        bool hasServers = false) => RunDbAsync(async () =>
     {
         var sql = $@"
             WITH {AllServers()}
@@ -101,7 +102,11 @@ public class EolService : BaseService<EolService>, IEolService
         }
 
         sql += " GROUP BY p.eol_product, p.eol_product_version, p.eol_end_of_life, p.eol_end_of_extended_support, p.eol_end_of_support";
-        sql += " ORDER BY p.eol_end_of_life NULLS LAST LIMIT @Limit";
+
+        if (hasServers)
+            sql += " HAVING COUNT(DISTINCT s.machine_name) > 0";
+
+        sql += " ORDER BY COUNT(DISTINCT s.machine_name) DESC, p.eol_end_of_life NULLS LAST LIMIT @Limit";
         dp.Add("Limit", limit);
 
         return await Db.QueryAsync<EolSoftware>(sql, dp);

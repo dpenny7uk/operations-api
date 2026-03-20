@@ -184,15 +184,23 @@ function renderEolDetail(container, detail) {
     </div>`;
 }
 
-export function filterEol() {
+export async function filterEol() {
   eolPage = 0;
   const level = document.getElementById('eolAlertFilter').value;
-  const product = document.getElementById('eolProductSearch').value.toLowerCase().trim();
-  const filtered = allEol.filter(e => {
-    if (level && (e.alertLevel || '').toLowerCase() !== level) return false;
-    if (product && !e.product.toLowerCase().includes(product) && !e.version.toLowerCase().includes(product)) return false;
-    return true;
-  });
-  renderEolTable(filtered);
+  const product = document.getElementById('eolProductSearch').value.trim();
+  const showAll = document.getElementById('eolShowAll')?.checked;
+
+  // Build API query with server-side filtering
+  const params = new URLSearchParams();
+  params.set('limit', '200');
+  if (!showAll) params.set('hasServers', 'true');
+  if (level) params.set('alertLevel', level);
+  if (product) params.set('product', product);
+
+  const items = await api(`/eol?${params}`);
+  if (items) {
+    setAllEol(items);
+    renderEolTable(items);
+  }
   syncCriticalCardSelection('eolCards', level);
 }

@@ -26,18 +26,20 @@ public class EolController : ControllerBase
     /// <param name="alertLevel">Filter by status (eol, approaching, supported).</param>
     /// <param name="product">Filter by product name (partial match).</param>
     /// <param name="limit">Maximum results (1-1000, default 100).</param>
+    /// <param name="hasServers">When true, only return products with affected servers > 0.</param>
     [HttpGet]
     [ProducesResponseType(200)]
     public async Task<IActionResult> List(
         [FromQuery] string? alertLevel,
         [FromQuery] string? product,
-        [FromQuery] int limit = 100)
+        [FromQuery] int limit = 100,
+        [FromQuery] bool hasServers = false)
     {
         if (alertLevel != null && alertLevel.ToLower() is not ("eol" or "approaching" or "supported"))
             return BadRequest("alertLevel must be one of: eol, approaching, supported.");
         if (product?.Length > 255 || InputGuard.ContainsControlChars(product))
             return BadRequest("product parameter is invalid.");
-        return Ok(await _svc.ListEolSoftwareAsync(alertLevel, product, Math.Clamp(limit, 1, 1000)));
+        return Ok(await _svc.ListEolSoftwareAsync(alertLevel, product, Math.Clamp(limit, 1, 1000), hasServers));
     }
 
     /// <summary>Get EOL details for a specific product and version.</summary>

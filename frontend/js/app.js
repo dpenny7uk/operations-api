@@ -48,7 +48,7 @@ async function _loadAllDataInner() {
       api('/certificates/summary'),
       api('/certificates?limit=200'),
       api('/eol/summary'),
-      api('/eol?limit=200'),
+      api('/eol?limit=200&hasServers=true'),
     ]);
 
   if (!healthData) setUsingDemo(true);
@@ -99,6 +99,7 @@ document.getElementById('alertFilter').addEventListener('change', filterCerts);
 document.getElementById('certServerSearch').addEventListener('input', debounce(filterCerts));
 document.getElementById('eolAlertFilter').addEventListener('change', filterEol);
 document.getElementById('eolProductSearch').addEventListener('input', debounce(filterEol));
+document.getElementById('eolShowAll').addEventListener('change', filterEol);
 
 // --- CSV export ---
 document.getElementById('exportServersBtn').addEventListener('click', () => {
