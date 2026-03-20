@@ -383,44 +383,70 @@ def get_job_run_output(job_id: str = None) -> list:
     )
     output = resp.json()
 
-    # Step 4: Parse SQL output — structure is in metadata.result
+    # Step 4: Parse output — supports both notebook and SQL task types.
+    # Notebook tasks return JSON via dbutils.notebook.exit() in notebook_output.result.
+    # SQL tasks return structured data in sql_output.
+    notebook_output = output.get('notebook_output')
     sql_output = output.get('sql_output')
-    if not sql_output:
-        raise RuntimeError(
-            f"Databricks job run {run_id} task {task_run_id} has no sql_output. "
-            "Is the task type SQL? Check the job configuration."
-        )
 
-    output_data = sql_output.get('output', {})
-    if not output_data:
-        raise RuntimeError(
-            f"Databricks job run {run_id} has empty sql_output.output. "
-            "The query may have returned no results."
-        )
+    if notebook_output:
+        # Notebook output: JSON string from dbutils.notebook.exit()
+        result_str = notebook_output.get('result')
+        if not result_str:
+            raise RuntimeError(
+                f"Databricks job run {run_id} notebook output is empty. "
+                "Check that the notebook calls dbutils.notebook.exit(json.dumps(result))."
+            )
+        import json as _json
+        try:
+            rows_raw = _json.loads(result_str)
+        except _json.JSONDecodeError as e:
+            raise RuntimeError(
+                f"Databricks job run {run_id} notebook output is not valid JSON: {e}"
+            )
+        if not isinstance(rows_raw, list):
+            raise RuntimeError(
+                f"Databricks job run {run_id} notebook output is not a list "
+                f"(got {type(rows_raw).__name__}). Expected a list of dicts."
+            )
+        # Lowercase all keys for consistency
+        rows = [{k.lower(): v for k, v in row.items()} for row in rows_raw]
+        logger.info("Fetched %d rows from Databricks notebook job %s run %d", len(rows), job_id, run_id)
+        return rows
 
-    # SQL task output has truncation_info and result_type
-    # For RESULT_SET type, we need to check if data was truncated
-    truncated = output_data.get('truncation_info', {}).get('truncated', False)
-    if truncated:
-        logger.warning(
-            "Job %s run %d output was TRUNCATED — not all rows are included. "
-            "Consider using a direct query or pagination.",
-            job_id, run_id
-        )
+    if sql_output:
+        output_data = sql_output.get('output', {})
+        if not output_data:
+            raise RuntimeError(
+                f"Databricks job run {run_id} has empty sql_output.output. "
+                "The query may have returned no results."
+            )
 
-    # Extract schema and data
-    schema = output_data.get('schema', {})
-    columns_raw = schema.get('columns', [])
-    if not columns_raw:
-        raise RuntimeError(
-            f"Databricks job run {run_id} has no columns in output schema."
-        )
-    columns = [col['name'].lower() for col in columns_raw]
+        truncated = output_data.get('truncation_info', {}).get('truncated', False)
+        if truncated:
+            logger.warning(
+                "Job %s run %d output was TRUNCATED — not all rows are included. "
+                "Consider using a direct query or pagination.",
+                job_id, run_id
+            )
 
-    data_array = output_data.get('data', [])
-    rows = [dict(zip(columns, row)) for row in data_array]
-    logger.info("Fetched %d rows from Databricks job %s run %d", len(rows), job_id, run_id)
-    return rows
+        schema = output_data.get('schema', {})
+        columns_raw = schema.get('columns', [])
+        if not columns_raw:
+            raise RuntimeError(
+                f"Databricks job run {run_id} has no columns in output schema."
+            )
+        columns = [col['name'].lower() for col in columns_raw]
+
+        data_array = output_data.get('data', [])
+        rows = [dict(zip(columns, row)) for row in data_array]
+        logger.info("Fetched %d rows from Databricks SQL job %s run %d", len(rows), job_id, run_id)
+        return rows
+
+    raise RuntimeError(
+        f"Databricks job run {run_id} has neither notebook_output nor sql_output. "
+        "Check the job task type (must be Notebook or SQL)."
+    )
 
 
 def get_database_connection(
