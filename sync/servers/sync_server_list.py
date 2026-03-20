@@ -9,7 +9,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from common import (
     setup_logging, create_argument_parser,
     configure_verbosity, SyncContext, query_databricks,
-    count_upsert_results
+    read_dbfs_csv, get_job_run_output, count_upsert_results
 )
 
 logger = setup_logging('sync_server_list')
@@ -181,12 +181,21 @@ def sync_servers(ctx, servers: list):
 
 def main():
     parser = create_argument_parser("Sync servers from Databricks to PostgreSQL")
+    parser.add_argument(
+        '--source', choices=['databricks', 'dbfs', 'jobs'], default='databricks',
+        help='Data source: databricks (SQL API), dbfs (pre-exported CSV), or jobs (Jobs API run output)'
+    )
     args = parser.parse_args()
     configure_verbosity(args.verbose)
 
     with SyncContext("databricks_servers", "Databricks Server Sync", dry_run=args.dry_run) as ctx:
         ctx.check_circuit_breaker()
-        servers = query_databricks(SERVER_QUERY, env_var_override='DATABRICKS_QUERY')
+        if args.source == 'jobs':
+            servers = get_job_run_output()
+        elif args.source == 'dbfs':
+            servers = read_dbfs_csv('/operations/server_list')
+        else:
+            servers = query_databricks(SERVER_QUERY, env_var_override='DATABRICKS_QUERY')
         sync_servers(ctx, servers)
 
 

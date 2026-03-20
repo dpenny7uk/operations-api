@@ -12,7 +12,9 @@ from common import (
     create_argument_parser, configure_verbosity, http_request,
     SyncContext, CircuitBreakerOpenError, ALLOWED_QUERY_OVERRIDES,
     query_databricks, _get_databricks_token, DATABRICKS_RESOURCE_ID,
+    read_dbfs_csv, ALLOWED_DBFS_PATHS, get_job_run_output,
 )
+import base64
 
 
 # ── _get_databricks_token ────────────────────────────────────────────────────
@@ -94,6 +96,281 @@ class TestGetDatabricksToken:
         env = {'DATABRICKS_AUTH_MODE': 'PAT', 'DATABRICKS_TOKEN': 'tok'}
         with patch.dict(os.environ, env, clear=True):
             assert _get_databricks_token() == 'tok'
+
+
+# ── read_dbfs_csv ────────────────────────────────────────────────────────────
+
+import base64
+
+class TestReadDbfsCsv:
+    def _mock_env(self):
+        return {
+            'DATABRICKS_HOST': 'adb-test.azuredatabricks.net',
+            'DATABRICKS_AUTH_MODE': 'pat',
+            'DATABRICKS_TOKEN': 'test-token',
+        }
+
+    def _csv_bytes(self, text):
+        return base64.b64encode(text.encode('utf-8')).decode('ascii')
+
+    def test_reads_csv_and_returns_dicts(self):
+        csv_content = "Server_Name,Environment\nSERV01,Production\nSERV02,Test\n"
+        list_resp = MagicMock()
+        list_resp.status_code = 200
+        list_resp.json.return_value = {
+            'files': [
+                {'path': '/operations/server_list/part-00000.csv', 'is_dir': False, 'file_size': 100},
+                {'path': '/operations/server_list/_SUCCESS', 'is_dir': False, 'file_size': 0},
+            ]
+        }
+        read_resp = MagicMock()
+        read_resp.status_code = 200
+        read_resp.json.return_value = {
+            'data': self._csv_bytes(csv_content),
+            'bytes_read': len(csv_content.encode()),
+        }
+
+        with patch.dict(os.environ, self._mock_env(), clear=True):
+            with patch('common.http_request', side_effect=[list_resp, read_resp]):
+                rows = read_dbfs_csv('/operations/server_list')
+
+        assert len(rows) == 2
+        assert rows[0]['server_name'] == 'SERV01'
+        assert rows[0]['environment'] == 'Production'
+        assert rows[1]['server_name'] == 'SERV02'
+
+    def test_lowercase_column_names(self):
+        csv_content = "EOL_Product,EOL_Product_Version\nSQL Server,2017\n"
+        list_resp = MagicMock()
+        list_resp.status_code = 200
+        list_resp.json.return_value = {
+            'files': [{'path': '/operations/eol_software/part-00000.csv', 'is_dir': False, 'file_size': 50}]
+        }
+        read_resp = MagicMock()
+        read_resp.status_code = 200
+        read_resp.json.return_value = {
+            'data': self._csv_bytes(csv_content),
+            'bytes_read': len(csv_content.encode()),
+        }
+
+        with patch.dict(os.environ, self._mock_env(), clear=True):
+            with patch('common.http_request', side_effect=[list_resp, read_resp]):
+                rows = read_dbfs_csv('/operations/eol_software')
+
+        assert 'eol_product' in rows[0]
+        assert 'eol_product_version' in rows[0]
+
+    def test_no_csv_files_raises(self):
+        list_resp = MagicMock()
+        list_resp.status_code = 200
+        list_resp.json.return_value = {
+            'files': [{'path': '/operations/server_list/_SUCCESS', 'is_dir': False, 'file_size': 0}]
+        }
+
+        with patch.dict(os.environ, self._mock_env(), clear=True):
+            with patch('common.http_request', return_value=list_resp):
+                try:
+                    read_dbfs_csv('/operations/server_list')
+                    assert False, "Should have raised"
+                except RuntimeError as e:
+                    assert 'No CSV files' in str(e)
+
+    def test_invalid_path_raises(self):
+        try:
+            read_dbfs_csv('/some/random/path')
+            assert False, "Should have raised"
+        except ValueError as e:
+            assert '/some/random/path' in str(e)
+
+    def test_chunked_download(self):
+        """Files >1MB are read in multiple chunks."""
+        chunk1 = "Server_Name,Env\n"
+        chunk2 = "SERV01,Prod\n"
+        list_resp = MagicMock()
+        list_resp.status_code = 200
+        list_resp.json.return_value = {
+            'files': [{'path': '/operations/server_list/part-00000.csv', 'is_dir': False, 'file_size': 2000000}]
+        }
+        read_resp1 = MagicMock()
+        read_resp1.status_code = 200
+        read_resp1.json.return_value = {
+            'data': self._csv_bytes(chunk1),
+            'bytes_read': 1048576,  # == chunk_size, so another read is triggered
+        }
+        read_resp2 = MagicMock()
+        read_resp2.status_code = 200
+        read_resp2.json.return_value = {
+            'data': self._csv_bytes(chunk2),
+            'bytes_read': len(chunk2.encode()),  # < chunk_size, stops
+        }
+
+        with patch.dict(os.environ, self._mock_env(), clear=True):
+            with patch('common.http_request', side_effect=[list_resp, read_resp1, read_resp2]):
+                rows = read_dbfs_csv('/operations/server_list')
+
+        assert len(rows) == 1
+        assert rows[0]['server_name'] == 'SERV01'
+
+
+# ── get_job_run_output ───────────────────────────────────────────────────────
+
+class TestGetJobRunOutput:
+    def _mock_env(self, job_id='12345'):
+        return {
+            'DATABRICKS_HOST': 'adb-test.azuredatabricks.net',
+            'DATABRICKS_AUTH_MODE': 'pat',
+            'DATABRICKS_TOKEN': 'test-token',
+            'DATABRICKS_JOB_ID': job_id,
+        }
+
+    def _make_run(self, run_id=100, result_state='SUCCESS', task_run_id=200):
+        return {
+            'run_id': run_id,
+            'start_time': 1711000000000,
+            'state': {'result_state': result_state},
+            'tasks': [{'run_id': task_run_id}],
+        }
+
+    def _make_output(self, columns, data):
+        return {
+            'sql_output': {
+                'output': {
+                    'schema': {'columns': [{'name': c} for c in columns]},
+                    'data': data,
+                    'truncation_info': {'truncated': False},
+                }
+            }
+        }
+
+    def test_fetches_successful_run_output(self):
+        list_resp = MagicMock()
+        list_resp.status_code = 200
+        list_resp.json.return_value = {'runs': [self._make_run()]}
+
+        output_resp = MagicMock()
+        output_resp.status_code = 200
+        output_resp.json.return_value = self._make_output(
+            ['Server_Name', 'Environment'],
+            [['SERV01', 'Production'], ['SERV02', 'Test']]
+        )
+
+        with patch.dict(os.environ, self._mock_env(), clear=True):
+            with patch('common.http_request', side_effect=[list_resp, output_resp]):
+                rows = get_job_run_output()
+
+        assert len(rows) == 2
+        assert rows[0]['server_name'] == 'SERV01'
+        assert rows[0]['environment'] == 'Production'
+        assert rows[1]['server_name'] == 'SERV02'
+
+    def test_lowercase_column_names(self):
+        list_resp = MagicMock()
+        list_resp.status_code = 200
+        list_resp.json.return_value = {'runs': [self._make_run()]}
+
+        output_resp = MagicMock()
+        output_resp.status_code = 200
+        output_resp.json.return_value = self._make_output(
+            ['EOL_Product', 'EOL_Product_Version'],
+            [['mssqlserver', '14.0']]
+        )
+
+        with patch.dict(os.environ, self._mock_env(), clear=True):
+            with patch('common.http_request', side_effect=[list_resp, output_resp]):
+                rows = get_job_run_output()
+
+        assert 'eol_product' in rows[0]
+        assert 'eol_product_version' in rows[0]
+
+    def test_skips_failed_runs(self):
+        failed_run = self._make_run(run_id=99, result_state='FAILED')
+        success_run = self._make_run(run_id=100, result_state='SUCCESS')
+
+        list_resp = MagicMock()
+        list_resp.status_code = 200
+        list_resp.json.return_value = {'runs': [failed_run, success_run]}
+
+        output_resp = MagicMock()
+        output_resp.status_code = 200
+        output_resp.json.return_value = self._make_output(
+            ['Name'], [['SERV01']]
+        )
+
+        with patch.dict(os.environ, self._mock_env(), clear=True):
+            with patch('common.http_request', side_effect=[list_resp, output_resp]) as mock_req:
+                rows = get_job_run_output()
+
+        assert len(rows) == 1
+        # Verify the output call used the successful run's task_run_id
+        output_call = mock_req.call_args_list[1]
+        assert output_call[1]['params']['run_id'] == 200
+
+    def test_no_successful_runs_raises(self):
+        list_resp = MagicMock()
+        list_resp.status_code = 200
+        list_resp.json.return_value = {'runs': [
+            self._make_run(result_state='FAILED'),
+        ]}
+
+        with patch.dict(os.environ, self._mock_env(), clear=True):
+            with patch('common.http_request', return_value=list_resp):
+                try:
+                    get_job_run_output()
+                    assert False, "Should have raised"
+                except RuntimeError as e:
+                    assert 'No successful runs' in str(e)
+
+    def test_empty_runs_raises(self):
+        list_resp = MagicMock()
+        list_resp.status_code = 200
+        list_resp.json.return_value = {'runs': []}
+
+        with patch.dict(os.environ, self._mock_env(), clear=True):
+            with patch('common.http_request', return_value=list_resp):
+                try:
+                    get_job_run_output()
+                    assert False, "Should have raised"
+                except RuntimeError as e:
+                    assert 'No successful runs' in str(e)
+
+    def test_accepts_explicit_job_id(self):
+        list_resp = MagicMock()
+        list_resp.status_code = 200
+        list_resp.json.return_value = {'runs': [self._make_run()]}
+
+        output_resp = MagicMock()
+        output_resp.status_code = 200
+        output_resp.json.return_value = self._make_output(['Col'], [['val']])
+
+        env = {
+            'DATABRICKS_HOST': 'adb-test.azuredatabricks.net',
+            'DATABRICKS_AUTH_MODE': 'pat',
+            'DATABRICKS_TOKEN': 'test-token',
+        }
+        with patch.dict(os.environ, env, clear=True):
+            with patch('common.http_request', side_effect=[list_resp, output_resp]) as mock_req:
+                rows = get_job_run_output(job_id='99999')
+
+        assert len(rows) == 1
+        list_call = mock_req.call_args_list[0]
+        assert list_call[1]['params']['job_id'] == '99999'
+
+    def test_no_sql_output_raises(self):
+        list_resp = MagicMock()
+        list_resp.status_code = 200
+        list_resp.json.return_value = {'runs': [self._make_run()]}
+
+        output_resp = MagicMock()
+        output_resp.status_code = 200
+        output_resp.json.return_value = {}
+
+        with patch.dict(os.environ, self._mock_env(), clear=True):
+            with patch('common.http_request', side_effect=[list_resp, output_resp]):
+                try:
+                    get_job_run_output()
+                    assert False, "Should have raised"
+                except RuntimeError as e:
+                    assert 'no sql_output' in str(e)
 
 
 # ── SyncStats ────────────────────────────────────────────────────────────────

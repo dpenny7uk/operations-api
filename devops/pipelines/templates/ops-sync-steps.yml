@@ -6,8 +6,12 @@
 # SCHEDULE STAGGER (intentional — do not "optimise"):
 # Sync pipelines run in a deliberate stagger to avoid concurrent DB load:
 #   04:00  ops-sync-confluence        (Confluence issues)
-#   05:00  ops-sync-servers           (Databricks server list)
-#   05:30  ops-sync-eol               (Databricks EOL software)
+#   04:30  Databricks GAppSupp - Get Master Server Data job (runs saved query)
+#   05:00  ops-sync-servers           (reads from Jobs API, --source jobs)
+#   05:00  Databricks GAppSupp - Get EOL Dates job (runs saved query)
+#   05:05  Databricks GAppSupp - Get EOL Server Software job (runs saved query)
+#   05:30  ops-sync-eol-dates         (reads from Jobs API, --source jobs)
+#   05:35  ops-sync-eol-software      (reads from Jobs API, --source jobs)
 #   06:00  ops-sync-certificates      (PowerShell cert scan + sync)
 #   06:30  ops-sync-patching-schedule (patching HTML page)
 #   07:00  ops-alert-unmatched        (unmatched server spike check)
@@ -54,6 +58,7 @@ steps:
       DATABRICKS_SP_TENANT_ID: $(DATABRICKS_SP_TENANT_ID)
       DATABRICKS_SP_CLIENT_ID: $(DATABRICKS_SP_CLIENT_ID)
       DATABRICKS_SP_CLIENT_SECRET: $(DATABRICKS_SP_CLIENT_SECRET)
+      DATABRICKS_JOB_ID: $(DATABRICKS_JOB_ID)
 
   # Alert Teams immediately on sync step failure — don't wait for the 08:00 health check.
   # Requires TEAMS_WEBHOOK_URL in the variable group; silently skips if not set.

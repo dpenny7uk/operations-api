@@ -8,6 +8,9 @@ import re
 import socket
 import random
 import time
+import csv
+import io
+import base64
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 from dataclasses import dataclass, field
@@ -228,6 +231,185 @@ def query_databricks(query: str, env_var_override: str = None) -> list:
 
     rows = [dict(zip(columns, row)) for row in result.get('result', {}).get('data_array', [])]
     logger.info(f"Fetched {len(rows)} rows from Databricks")
+    return rows
+
+
+ALLOWED_DBFS_PATHS = {'/operations/server_list', '/operations/eol_software'}
+
+
+def read_dbfs_csv(dbfs_path: str) -> list:
+    """Download CSV from Databricks DBFS and return rows as dicts.
+
+    Spark writes CSVs as directories containing part files (e.g. part-00000-*.csv).
+    This function lists the directory, finds the CSV part file, downloads it via
+    the DBFS API, and parses it.
+
+    Args:
+        dbfs_path: DBFS directory path, e.g. '/operations/server_list'
+
+    Returns:
+        List of dicts, one per row, with lowercase column names as keys.
+    """
+    if dbfs_path not in ALLOWED_DBFS_PATHS:
+        raise ValueError(
+            f"Invalid dbfs_path '{dbfs_path}' — "
+            f"must be one of {sorted(ALLOWED_DBFS_PATHS)}"
+        )
+
+    validate_env_vars(['DATABRICKS_HOST'])
+    logger = logging.getLogger('databricks.dbfs')
+    token = _get_databricks_token()
+    host = os.environ['DATABRICKS_HOST']
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # Step 1: List files in the DBFS directory to find the CSV part file
+    list_url = f"https://{host}/api/2.0/dbfs/list"
+    resp = http_request('GET', list_url, headers=headers, params={"path": dbfs_path})
+    files = resp.json().get('files', [])
+
+    csv_files = [f for f in files if f['path'].endswith('.csv') and not f['is_dir']]
+    if not csv_files:
+        raise RuntimeError(
+            f"No CSV files found in DBFS path '{dbfs_path}'. "
+            "Has the Databricks notebook run? Check the job schedule."
+        )
+
+    csv_path = csv_files[0]['path']
+    file_size = csv_files[0].get('file_size', 0)
+    logger.info("Found CSV in DBFS: %s (%d bytes)", csv_path, file_size)
+
+    # Step 2: Download the file content (DBFS API returns base64, max 1MB per read)
+    read_url = f"https://{host}/api/2.0/dbfs/read"
+    chunk_size = 1024 * 1024  # 1MB
+    raw_bytes = b''
+    offset = 0
+
+    while True:
+        resp = http_request(
+            'GET', read_url, headers=headers,
+            params={"path": csv_path, "offset": offset, "length": chunk_size}
+        )
+        data = resp.json()
+        chunk = base64.b64decode(data.get('data', ''))
+        raw_bytes += chunk
+        bytes_read = data.get('bytes_read', 0)
+        if bytes_read < chunk_size:
+            break
+        offset += bytes_read
+
+    # Step 3: Parse CSV
+    text = raw_bytes.decode('utf-8')
+    reader = csv.DictReader(io.StringIO(text))
+    rows = [{k.lower(): v for k, v in row.items()} for row in reader]
+    logger.info("Read %d rows from DBFS CSV: %s", len(rows), csv_path)
+    return rows
+
+
+def get_job_run_output(job_id: str = None) -> list:
+    """Fetch the most recent successful run output from a Databricks SQL job.
+
+    Reads the job's latest successful run via the Jobs API, then extracts the
+    SQL task output (columns + data_array) and returns rows as dicts with
+    lowercase column names — same format as query_databricks() and read_dbfs_csv().
+
+    Args:
+        job_id: Databricks job ID. If None, reads from DATABRICKS_JOB_ID env var.
+
+    Returns:
+        List of dicts, one per row, with lowercase column names as keys.
+    """
+    validate_env_vars(['DATABRICKS_HOST'])
+    if job_id is None:
+        validate_env_vars(['DATABRICKS_JOB_ID'])
+        job_id = os.environ['DATABRICKS_JOB_ID']
+
+    logger = logging.getLogger('databricks.jobs')
+    token = _get_databricks_token()
+    host = os.environ['DATABRICKS_HOST']
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # Step 1: Get the most recent successful run
+    list_url = f"https://{host}/api/2.1/jobs/runs/list"
+    resp = http_request(
+        'GET', list_url, headers=headers,
+        params={"job_id": job_id, "limit": 5}
+    )
+    runs = resp.json().get('runs', [])
+
+    successful_run = None
+    for run in runs:
+        state = run.get('state', {})
+        if state.get('result_state') == 'SUCCESS':
+            successful_run = run
+            break
+
+    if not successful_run:
+        raise RuntimeError(
+            f"No successful runs found for Databricks job {job_id}. "
+            "Has the job been run? Check the Databricks Jobs UI."
+        )
+
+    run_id = successful_run['run_id']
+    logger.info(
+        "Found successful run %d for job %s (started: %s)",
+        run_id, job_id,
+        successful_run.get('start_time', 'unknown')
+    )
+
+    # Step 2: Get the SQL task run ID from the run's tasks
+    tasks = successful_run.get('tasks', [])
+    if not tasks:
+        raise RuntimeError(
+            f"Databricks job run {run_id} has no tasks. "
+            "Expected at least one SQL task."
+        )
+    task_run_id = tasks[0]['run_id']
+
+    # Step 3: Get the task output
+    output_url = f"https://{host}/api/2.1/jobs/runs/get-output"
+    resp = http_request(
+        'GET', output_url, headers=headers,
+        params={"run_id": task_run_id}
+    )
+    output = resp.json()
+
+    # Step 4: Parse SQL output — structure is in metadata.result
+    sql_output = output.get('sql_output')
+    if not sql_output:
+        raise RuntimeError(
+            f"Databricks job run {run_id} task {task_run_id} has no sql_output. "
+            "Is the task type SQL? Check the job configuration."
+        )
+
+    output_data = sql_output.get('output', {})
+    if not output_data:
+        raise RuntimeError(
+            f"Databricks job run {run_id} has empty sql_output.output. "
+            "The query may have returned no results."
+        )
+
+    # SQL task output has truncation_info and result_type
+    # For RESULT_SET type, we need to check if data was truncated
+    truncated = output_data.get('truncation_info', {}).get('truncated', False)
+    if truncated:
+        logger.warning(
+            "Job %s run %d output was TRUNCATED — not all rows are included. "
+            "Consider using a direct query or pagination.",
+            job_id, run_id
+        )
+
+    # Extract schema and data
+    schema = output_data.get('schema', {})
+    columns_raw = schema.get('columns', [])
+    if not columns_raw:
+        raise RuntimeError(
+            f"Databricks job run {run_id} has no columns in output schema."
+        )
+    columns = [col['name'].lower() for col in columns_raw]
+
+    data_array = output_data.get('data', [])
+    rows = [dict(zip(columns, row)) for row in data_array]
+    logger.info("Fetched %d rows from Databricks job %s run %d", len(rows), job_id, run_id)
     return rows
 
 
