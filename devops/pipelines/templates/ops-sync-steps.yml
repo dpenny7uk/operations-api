@@ -63,37 +63,12 @@ steps:
   # Alert Teams immediately on sync step failure — don't wait for the 08:00 health check.
   # Requires TEAMS_WEBHOOK_URL in the variable group; silently skips if not set.
   - script: |
-      if [ -n "$TEAMS_WEBHOOK_URL" ]; then
-        python -c "
-import os, json, urllib.request
-card = {
-  \"type\": \"message\",
-  \"attachments\": [{
-    \"contentType\": \"application/vnd.microsoft.card.adaptive\",
-    \"content\": {
-      \"type\": \"AdaptiveCard\", \"version\": \"1.4\",
-      \"body\": [
-        {\"type\": \"TextBlock\", \"weight\": \"bolder\", \"color\": \"attention\",
-         \"text\": \"Sync Failed: ${{ parameters.displayName }}\"},
-        {\"type\": \"TextBlock\", \"wrap\": True,
-         \"text\": \"Pipeline: $(Build.DefinitionName) | Run #$(Build.BuildId)\"},
-        {\"type\": \"TextBlock\", \"wrap\": True, \"isSubtle\": True,
-         \"text\": \"Check Azure DevOps for the full error log.\"}
-      ]
-    }
-  }]
-}
-req = urllib.request.Request(
-  os.environ[\"TEAMS_WEBHOOK_URL\"],
-  data=json.dumps(card).encode(),
-  headers={\"Content-Type\": \"application/json\"}
-)
-urllib.request.urlopen(req, timeout=15)
-print(\"Teams failure alert sent\")
-"
-      fi
+      REPO_ROOT="$(Build.SourcesDirectory)/operations-api"
+      python "$REPO_ROOT/sync/alerts/alert_sync_failure.py"
     displayName: 'Alert Teams on sync failure'
     condition: failed()
     continueOnError: true
     env:
       TEAMS_WEBHOOK_URL: $(TEAMS_WEBHOOK_URL)
+      ALERT_DISPLAY_NAME: "Sync Failed: ${{ parameters.displayName }}"
+      ALERT_PIPELINE_INFO: "Pipeline: $(Build.DefinitionName) | Run #$(Build.BuildId)"
