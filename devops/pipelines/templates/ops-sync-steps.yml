@@ -67,29 +67,29 @@ steps:
         python -c "
 import os, json, urllib.request
 card = {
-  'type': 'message',
-  'attachments': [{
-    'contentType': 'application/vnd.microsoft.card.adaptive',
-    'content': {
-      'type': 'AdaptiveCard', 'version': '1.4',
-      'body': [
-        {'type': 'TextBlock', 'weight': 'bolder', 'color': 'attention',
-         'text': 'Sync Failed: ${{ parameters.displayName }}'},
-        {'type': 'TextBlock', 'wrap': True,
-         'text': 'Pipeline: $(Build.DefinitionName) | Run \#$(Build.BuildId)'},
-        {'type': 'TextBlock', 'wrap': True, 'isSubtle': True,
-         'text': 'Check Azure DevOps for the full error log.'}
+  \"type\": \"message\",
+  \"attachments\": [{
+    \"contentType\": \"application/vnd.microsoft.card.adaptive\",
+    \"content\": {
+      \"type\": \"AdaptiveCard\", \"version\": \"1.4\",
+      \"body\": [
+        {\"type\": \"TextBlock\", \"weight\": \"bolder\", \"color\": \"attention\",
+         \"text\": \"Sync Failed: ${{ parameters.displayName }}\"},
+        {\"type\": \"TextBlock\", \"wrap\": True,
+         \"text\": \"Pipeline: $(Build.DefinitionName) | Run #$(Build.BuildId)\"},
+        {\"type\": \"TextBlock\", \"wrap\": True, \"isSubtle\": True,
+         \"text\": \"Check Azure DevOps for the full error log.\"}
       ]
     }
   }]
 }
 req = urllib.request.Request(
-  os.environ['TEAMS_WEBHOOK_URL'],
+  os.environ[\"TEAMS_WEBHOOK_URL\"],
   data=json.dumps(card).encode(),
-  headers={'Content-Type': 'application/json'}
+  headers={\"Content-Type\": \"application/json\"}
 )
 urllib.request.urlopen(req, timeout=15)
-print('Teams failure alert sent')
+print(\"Teams failure alert sent\")
 "
       fi
     displayName: 'Alert Teams on sync failure'
