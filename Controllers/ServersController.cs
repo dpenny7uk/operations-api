@@ -47,9 +47,21 @@ public class ServersController : ControllerBase
             InputGuard.ContainsControlChars(patchGroup) || InputGuard.ContainsControlChars(search))
             return BadRequest("Query parameter contains invalid characters.");
 
+        var clampedLimit = Math.Clamp(limit, 1, 1000);
+        var clampedOffset = Math.Clamp(offset, 0, 100000);
         var servers = await _svc.ListServersAsync(environment, application, patchGroup, search,
-            Math.Clamp(limit, 1, 1000), Math.Clamp(offset, 0, 100000));
-        return Ok(servers);
+            clampedLimit, clampedOffset);
+        var totalCount = await _svc.CountServersAsync(environment, application, patchGroup, search);
+        return Ok(new { items = servers, totalCount });
+    }
+
+    /// <summary>Get server inventory summary with counts by environment.</summary>
+    [HttpGet("summary")]
+    [ProducesResponseType(200)]
+    public async Task<IActionResult> Summary()
+    {
+        var summary = await _svc.GetServerSummaryAsync();
+        return Ok(summary);
     }
 
     /// <summary>Get a server by its numeric ID.</summary>

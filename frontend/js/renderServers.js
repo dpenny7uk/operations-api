@@ -1,12 +1,13 @@
 import { esc, num, badge, dot, fmtDate } from './utils.js';
-import { allServers, setAllServers, apiPost, usingDemo } from './api.js';
+import { allServers, setAllServers, api, apiPost, usingDemo } from './api.js';
 
-const SERVER_PAGE_SIZE = 20;
+const SERVER_PAGE_SIZE = 50;
 let unmatchedPage = 0;
 let allUnmatched = [];
 let _filteredUnmatched = [];
-let serverPage = 0;
-let _filteredServers = [];
+let serverOffset = 0;
+let serverTotalCount = 0;
+let _currentFilters = { environment: '', search: '' };
 
 const ENV_COLORS = {
   Prod: 'var(--env-red)', Dev: 'var(--env-blue)', Systest: 'var(--env-teal)',
@@ -15,35 +16,35 @@ const ENV_COLORS = {
   'Proof of Concept': 'var(--env-blue)', 'Continuous Integration': 'var(--env-yellow)'
 };
 
-export function renderServers(servers, unmatched) {
-  setAllServers(servers);
+export function renderServers(summary, servers, totalCount, unmatched) {
+  serverTotalCount = totalCount;
+  serverOffset = 0;
 
-  const active = servers.filter(s => s.isActive).length;
-  const inactive = servers.length - active;
-  const envCounts = {};
-  servers.forEach(s => { envCounts[s.environment || 'Unknown'] = (envCounts[s.environment || 'Unknown'] || 0) + 1; });
+  const total = summary.totalCount || 0;
+  const active = summary.activeCount || 0;
+  const inactive = total - active;
+  const envCounts = summary.environmentCounts || {};
 
-  // Sort environments by count descending
-  const sorted = Object.entries(envCounts).sort((a, b) => b[1] - a[1]);
-  const maxCount = sorted.length ? sorted[0][1] : 1;
+  // Sort environments by total count descending
+  const sorted = Object.entries(envCounts).sort((a, b) => b[1].total - a[1].total);
+  const maxCount = sorted.length ? sorted[0][1].total : 1;
 
   document.getElementById('serverSummaryCard').className = 'card dash-status-card overflow-hidden status-healthy';
   document.getElementById('serverSummaryCard').innerHTML = `
     <h3>Server Inventory</h3>
-    <div class="dash-status-value">${servers.length}</div>
+    <div class="dash-status-value">${total}</div>
     <div class="sub" style="margin-top:0.5rem">${active} active \u00B7 ${inactive} inactive</div>`;
 
-  document.getElementById('serverEnvBars').innerHTML = sorted.map(([env, count]) => {
-    const pct = Math.max((count / maxCount) * 100, 4);
-    const activeCount = servers.filter(s => s.environment === env && s.isActive).length;
+  document.getElementById('serverEnvBars').innerHTML = sorted.map(([env, counts]) => {
+    const pct = Math.max((counts.total / maxCount) * 100, 4);
     const color = ENV_COLORS[env] || 'var(--env-blue)';
     return `<div class="env-bar-row clickable" tabindex="0" role="button" data-filter="${esc(env)}">
       <span class="env-bar-label">${esc(env)}</span>
       <div class="env-bar-track">
         <div class="env-bar-fill" style="width:${pct.toFixed(1)}%;background:${color}"></div>
       </div>
-      <span class="env-bar-count">${count}</span>
-      <span class="env-bar-active">${activeCount} active</span>
+      <span class="env-bar-count">${counts.total}</span>
+      <span class="env-bar-active">${counts.active} active</span>
     </div>`;
   }).join('');
 
@@ -68,7 +69,7 @@ export function renderServers(servers, unmatched) {
     row.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handler(); } });
   });
 
-  renderServerTable(servers);
+  renderServerTable(servers, serverTotalCount);
   allUnmatched = unmatched;
   renderUnmatchedTable(unmatched);
 }
@@ -76,9 +77,9 @@ export function renderServers(servers, unmatched) {
 function renderUnmatchedTable(items) {
   _filteredUnmatched = items;
   const total = items.length;
-  const totalPages = Math.ceil(total / SERVER_PAGE_SIZE);
-  const start = unmatchedPage * SERVER_PAGE_SIZE;
-  const page = items.slice(start, start + SERVER_PAGE_SIZE);
+  const totalPages = Math.ceil(total / 20);
+  const start = unmatchedPage * 20;
+  const page = items.slice(start, start + 20);
 
   // Ensure shared datalist exists (populated dynamically on input)
   if (!document.getElementById('serverNameList')) {
@@ -227,19 +228,17 @@ function showRowError(row, msg) {
   setTimeout(() => err?.remove(), 4000);
 }
 
-function renderServerTable(servers) {
-  _filteredServers = servers;
-  const total = servers.length;
+function renderServerTable(servers, totalCount) {
+  const total = totalCount;
   const totalPages = Math.ceil(total / SERVER_PAGE_SIZE);
-  const start = serverPage * SERVER_PAGE_SIZE;
-  const page = servers.slice(start, start + SERVER_PAGE_SIZE);
-  const showFrom = total === 0 ? 0 : start + 1;
-  const showTo = Math.min(start + SERVER_PAGE_SIZE, total);
+  const currentPage = Math.floor(serverOffset / SERVER_PAGE_SIZE);
+  const showFrom = total === 0 ? 0 : serverOffset + 1;
+  const showTo = Math.min(serverOffset + SERVER_PAGE_SIZE, total);
 
   const indicator = document.getElementById('serverCountIndicator');
   if (indicator) indicator.textContent = `Showing ${showFrom}\u2013${showTo} of ${total} servers`;
 
-  document.getElementById('serverTable').innerHTML = page.map(s => `<tr>
+  document.getElementById('serverTable').innerHTML = servers.map(s => `<tr>
     <td><strong>${esc(s.serverName)}</strong></td>
     <td class="color-muted">${esc(s.fqdn) || '\u2014'}</td>
     <td>${badge(s.environment || 'Unknown', s.environment === 'Prod' || s.environment === 'Live Support' ? 'red' : s.environment === 'Staging' ? 'yellow' : 'blue')}</td>
@@ -253,28 +252,54 @@ function renderServerTable(servers) {
   if (totalPages > 1) {
     if (!pag) { pag = document.createElement('div'); pag.className = 'pagination flex-between'; tableCard.appendChild(pag); }
     pag.innerHTML = `
-      <span>Page ${serverPage + 1} of ${totalPages}</span>
+      <span>Page ${currentPage + 1} of ${totalPages}</span>
       <div class="page-btns flex">
-        <button ${serverPage === 0 ? 'disabled' : ''} id="serverPrev">\u2190 Prev</button>
-        <button ${serverPage >= totalPages - 1 ? 'disabled' : ''} id="serverNext">Next \u2192</button>
+        <button ${currentPage === 0 ? 'disabled' : ''} id="serverPrev">\u2190 Prev</button>
+        <button ${currentPage >= totalPages - 1 ? 'disabled' : ''} id="serverNext">Next \u2192</button>
       </div>`;
     const prev = pag.querySelector('#serverPrev');
     const next = pag.querySelector('#serverNext');
-    if (prev) prev.onclick = () => { serverPage--; renderServerTable(_filteredServers); };
-    if (next) next.onclick = () => { serverPage++; renderServerTable(_filteredServers); };
+    if (prev) prev.onclick = () => { serverOffset -= SERVER_PAGE_SIZE; fetchAndRenderServerPage(); };
+    if (next) next.onclick = () => { serverOffset += SERVER_PAGE_SIZE; fetchAndRenderServerPage(); };
   } else if (pag) {
     pag.remove();
   }
 }
 
-export function filterServers() {
-  serverPage = 0;
-  const search = document.getElementById('serverSearch').value.toLowerCase().trim();
-  const env = document.getElementById('envFilter').value;
-  const filtered = allServers.filter(s => {
-    if (env && s.environment !== env) return false;
-    if (search && !(s.serverName||'').toLowerCase().includes(search) && !(s.fqdn||'').toLowerCase().includes(search)) return false;
-    return true;
-  });
-  renderServerTable(filtered);
+async function fetchAndRenderServerPage() {
+  const env = _currentFilters.environment;
+  const search = _currentFilters.search;
+  let path = `/servers?limit=${SERVER_PAGE_SIZE}&offset=${serverOffset}`;
+  if (env) path += `&environment=${encodeURIComponent(env)}`;
+  if (search) path += `&search=${encodeURIComponent(search)}`;
+
+  const data = await api(path);
+  if (data) {
+    serverTotalCount = data.totalCount;
+    setAllServers([...allServers, ...data.items.filter(s => !allServers.some(a => a.serverId === s.serverId))]);
+    renderServerTable(data.items, data.totalCount);
+  }
+}
+
+export async function filterServers() {
+  serverOffset = 0;
+  _currentFilters.search = document.getElementById('serverSearch').value.trim();
+  _currentFilters.environment = document.getElementById('envFilter').value;
+
+  if (usingDemo) {
+    // Client-side filtering for demo mode
+    const { DEMO } = await import('./demo.js');
+    const servers = DEMO.servers;
+    const search = _currentFilters.search.toLowerCase();
+    const env = _currentFilters.environment;
+    const filtered = servers.filter(s => {
+      if (env && s.environment !== env) return false;
+      if (search && !(s.serverName||'').toLowerCase().includes(search) && !(s.fqdn||'').toLowerCase().includes(search)) return false;
+      return true;
+    });
+    renderServerTable(filtered, filtered.length);
+    return;
+  }
+
+  await fetchAndRenderServerPage();
 }

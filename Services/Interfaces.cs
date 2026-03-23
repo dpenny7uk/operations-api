@@ -20,6 +20,12 @@ public interface IServerService
         int limit,
         int offset);
     
+    Task<int> CountServersAsync(
+        string? environment,
+        string? application,
+        string? patchGroup,
+        string? search);
+    Task<ServerSummary> GetServerSummaryAsync();
     Task<ServerDetail?> GetServerByIdAsync(int id);
     Task<ServerMatch?> ResolveServerNameAsync(string name);
     Task<IEnumerable<UnmatchedServer>> GetUnmatchedServersAsync(string? source, int limit);

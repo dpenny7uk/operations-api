@@ -2,7 +2,7 @@ import { esc, num, badge, dot, fmtDate, fmtTime, statusBadge, timeAgo, durationS
 import { api, usingDemo } from './api.js';
 import { DEMO } from './demo.js';
 
-export async function renderHealth(data, servers, unmatched, certSummary, certs, nextPatch) {
+export async function renderHealth(data, serverSummary, unmatched, certSummary, certs, nextPatch) {
   const syncs = data.syncStatuses || [];
   const failCount = syncs.filter(s => s.status === 'error' || s.consecutiveFailures > 0).length;
   const status = (data.overallStatus || '').toLowerCase();
@@ -98,9 +98,8 @@ export async function renderHealth(data, servers, unmatched, certSummary, certs,
   });
 
   // Key Metrics
-  const serverList = servers || [];
-  const envCounts = {};
-  serverList.forEach(s => { envCounts[s.environment || 'Unknown'] = (envCounts[s.environment || 'Unknown'] || 0) + 1; });
+  const ss = serverSummary || {};
+  const envCounts = ss.environmentCounts || {};
 
   const cs = certSummary || {};
   const np = nextPatch || {};
@@ -110,14 +109,14 @@ export async function renderHealth(data, servers, unmatched, certSummary, certs,
   document.getElementById('keyMetrics').innerHTML = `
     <div class="metric-card">
       <h4><span role="img" aria-label="Servers">\uD83D\uDDA5\uFE0F</span> Servers</h4>
-      <div class="metric-big">${serverList.length}<span> total</span></div>
+      <div class="metric-big">${num(ss.totalCount || 0)}<span> total</span></div>
       <div class="metric-detail">
-        ${Object.entries(envCounts).map(([env, count]) => `<div class="metric-row"><span class="color-${env === 'Prod' || env === 'Live Support' ? 'red' : env === 'Staging' ? 'yellow' : 'blue'}">${count}</span> <span>${esc(env)}</span></div>`).join('')}
+        ${Object.entries(envCounts).map(([env, counts]) => `<div class="metric-row"><span class="color-${env === 'Prod' || env === 'Live Support' ? 'red' : env === 'Staging' ? 'yellow' : 'blue'}">${counts.total}</span> <span>${esc(env)}</span></div>`).join('')}
       </div>
     </div>
     <div class="metric-card metric-green">
       <h4><span role="img" aria-label="Patch Coverage">\u2705</span> Patch Coverage</h4>
-      <div class="metric-big">${patchServers > 0 ? Math.round((patchServers / Math.max(serverList.length, 1)) * 100) : '\u2014'}${patchServers > 0 ? '<span>%</span>' : ''}</div>
+      <div class="metric-big">${patchServers > 0 ? Math.round((patchServers / Math.max(ss.totalCount || 1, 1)) * 100) : '\u2014'}${patchServers > 0 ? '<span>%</span>' : ''}</div>
       <div class="metric-detail">
         <div>Scheduled: ${patchServers} servers</div>
         ${Object.entries(patchGroups).map(([g, c]) => `<div class="metric-row"><span>${esc(g)}:</span> <strong>${c}</strong></div>`).join('')}

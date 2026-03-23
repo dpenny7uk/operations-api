@@ -48,6 +48,55 @@ public class ServerService : BaseService<ServerService>, IServerService
         return await Db.QueryAsync<Server>(sql, p);
     });
 
+    public Task<int> CountServersAsync(
+        string? environment,
+        string? application,
+        string? patchGroup,
+        string? search) => RunDbAsync(async () =>
+    {
+        var sql = $@"
+            SELECT COUNT(*)
+            FROM {Sql.Tables.Servers} s
+            LEFT JOIN {Sql.Tables.Applications} a ON s.primary_application_id = a.application_id
+            WHERE s.is_active = TRUE";
+
+        var p = new DynamicParameters();
+
+        AddExactFilter(ref sql, p, "s.environment", "Env", environment);
+        AddILikeFilter(ref sql, p, "a.application_name", "App", application);
+        AddExactFilter(ref sql, p, "s.patch_group", "PG", patchGroup);
+
+        if (!string.IsNullOrEmpty(search))
+        {
+            sql += " AND (s.server_name ILIKE @Search ESCAPE '\\' OR s.fqdn ILIKE @Search ESCAPE '\\')";
+            p.Add("Search", $"%{EscapeLike(search)}%");
+        }
+
+        return await Db.ExecuteScalarAsync<int>(sql, p);
+    });
+
+    public Task<ServerSummary> GetServerSummaryAsync() => RunDbAsync(async () =>
+    {
+        var rows = await Db.QueryAsync<(string? Environment, int Total, int Active)>($@"
+            SELECT
+                s.environment AS Environment,
+                COUNT(*) AS Total,
+                COUNT(*) FILTER (WHERE s.is_active) AS Active
+            FROM {Sql.Tables.Servers} s
+            GROUP BY s.environment
+            ORDER BY COUNT(*) DESC");
+
+        var summary = new ServerSummary();
+        foreach (var row in rows)
+        {
+            var env = row.Environment ?? "Unknown";
+            summary.TotalCount += row.Total;
+            summary.ActiveCount += row.Active;
+            summary.EnvironmentCounts[env] = new EnvironmentCount { Total = row.Total, Active = row.Active };
+        }
+        return summary;
+    });
+
     public Task<ServerDetail?> GetServerByIdAsync(int id) => RunDbAsync(() =>
         Db.QueryFirstOrDefaultAsync<ServerDetail>($@"
             SELECT

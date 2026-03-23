@@ -37,10 +37,11 @@ async function loadAllData() {
 async function _loadAllDataInner() {
   setApiError(null);
   setUsingDemo(false);
-  const [healthData, servers, unmatched, next, cycles, issues, certSummary, certs, eolSummary, eolItems] =
+  const [healthData, serverData, serverSummary, unmatched, next, cycles, issues, certSummary, certs, eolSummary, eolItems] =
     await Promise.all([
       api('/health'),
-      api('/servers?limit=200'),
+      api('/servers?limit=50&offset=0'),
+      api('/servers/summary'),
       api('/servers/unmatched'),
       api('/patching/next'),
       api('/patching/cycles'),
@@ -53,12 +54,17 @@ async function _loadAllDataInner() {
 
   if (!healthData) setUsingDemo(true);
 
+  const servers = serverData ? serverData.items : null;
+  const serverTotalCount = serverData ? serverData.totalCount : 0;
+  // Keep allServers populated for unmatched server name lookups
+  if (servers) setAllServers(servers);
+
   // Hide initial page loader on first render
   const loader = document.getElementById('pageLoader');
   if (loader) loader.remove();
 
-  renderHealth(healthData || DEMO.health, servers || DEMO.servers, unmatched || DEMO.unmatched, certSummary || DEMO.certSummary, certs || DEMO.certificates, next || DEMO.nextPatch);
-  renderServers(servers || DEMO.servers, unmatched || DEMO.unmatched);
+  renderHealth(healthData || DEMO.health, serverSummary || DEMO.serverSummary, unmatched || DEMO.unmatched, certSummary || DEMO.certSummary, certs || DEMO.certificates, next || DEMO.nextPatch);
+  renderServers(serverSummary || DEMO.serverSummary, servers || DEMO.servers, serverTotalCount || DEMO.servers.length, unmatched || DEMO.unmatched);
   resetCycleServerCache();
   resetEolDetailCache();
   renderPatching(next || DEMO.nextPatch, cycles || DEMO.cycles, issues || DEMO.issues);
@@ -102,9 +108,16 @@ document.getElementById('eolProductSearch').addEventListener('input', debounce(f
 document.getElementById('eolShowAll').addEventListener('change', filterEol);
 
 // --- CSV export ---
-document.getElementById('exportServersBtn').addEventListener('click', () => {
-  const rows = allServers.map(s => [s.serverName, s.fqdn, s.environment, s.applicationName, s.patchGroup, s.isActive ? 'Yes' : 'No']);
+document.getElementById('exportServersBtn').addEventListener('click', async () => {
+  const btn = document.getElementById('exportServersBtn');
+  btn.disabled = true;
+  btn.textContent = 'Exporting\u2026';
+  const data = await api('/servers?limit=10000&offset=0');
+  const list = data ? data.items : allServers;
+  const rows = list.map(s => [s.serverName, s.fqdn, s.environment, s.applicationName, s.patchGroup, s.isActive ? 'Yes' : 'No']);
   exportCsv('servers.csv', ['Name', 'FQDN', 'Environment', 'Application', 'Patch Group', 'Active'], rows);
+  btn.disabled = false;
+  btn.textContent = 'Export CSV';
 });
 document.getElementById('exportCertsBtn').addEventListener('click', () => {
   const rows = allCerts.map(c => [c.subjectCn, c.serverName, c.validTo, c.daysUntilExpiry, c.alertLevel]);

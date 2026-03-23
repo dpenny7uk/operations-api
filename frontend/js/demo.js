@@ -130,6 +130,19 @@ export const DEMO = (() => {
     },
     unreachableServers: unreachable,
     servers,
+    serverSummary: (() => {
+      const envCounts = {};
+      let total = 0, active = 0;
+      servers.forEach(s => {
+        const env = s.environment || 'Unknown';
+        if (!envCounts[env]) envCounts[env] = { total: 0, active: 0 };
+        envCounts[env].total++;
+        if (s.isActive) envCounts[env].active++;
+        total++;
+        if (s.isActive) active++;
+      });
+      return { totalCount: total, activeCount: active, environmentCounts: envCounts };
+    })(),
     unmatched,
     nextPatch: {
       cycle: { cycleId: 12, cycleDate: new Date(Date.now() + 5 * DAY).toISOString(), serverCount: cycleItems.length, status: 'Scheduled' },

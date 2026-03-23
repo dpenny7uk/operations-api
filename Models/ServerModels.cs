@@ -26,6 +26,19 @@ public class ServerMatch
     public string MatchType { get; set; } = "";
 }
 
+public class ServerSummary
+{
+    public int TotalCount { get; set; }
+    public int ActiveCount { get; set; }
+    public Dictionary<string, EnvironmentCount> EnvironmentCounts { get; set; } = new();
+}
+
+public class EnvironmentCount
+{
+    public int Total { get; set; }
+    public int Active { get; set; }
+}
+
 public class UnmatchedServer
 {
     public string ServerNameRaw { get; set; } = "";
