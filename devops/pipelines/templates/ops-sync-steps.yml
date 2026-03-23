@@ -28,24 +28,28 @@ parameters:
     default: '--verbose'
 
 steps:
-  - script: |
-      REPO_ROOT="$(Build.SourcesDirectory)/operations-api"
-      WORK_DIR="$(Build.StagingDirectory)/sync_run"
-      mkdir -p "$WORK_DIR"
-      cp "$REPO_ROOT/sync/common.py" "$WORK_DIR/"
-      cp "$REPO_ROOT/sync/${{ parameters.scriptPath }}" "$WORK_DIR/"
-      pip install -r "$REPO_ROOT/sync/requirements.txt"
+  - powershell: |
+      $repoRoot = "$(Build.SourcesDirectory)\operations-api"
+      $workDir = "$(Build.StagingDirectory)\sync_run"
+      New-Item -ItemType Directory -Force -Path $workDir | Out-Null
+      Copy-Item "$repoRoot\sync\common.py" "$workDir\"
+      Copy-Item "$repoRoot\sync\${{ parameters.scriptPath }}" "$workDir\"
+      pip install -r "$repoRoot\sync\requirements.txt"
+      if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     displayName: 'Prepare sync environment'
     timeoutInMinutes: 10
+    errorActionPreference: stop
 
-  - script: |
-      cd "$(Build.StagingDirectory)/sync_run"
-      SCRIPT_NAME="${{ parameters.scriptPath }}"
-      python "${SCRIPT_NAME##*/}" $EXTRA_ARGS
+  - powershell: |
+      $workDir = "$(Build.StagingDirectory)\sync_run"
+      Set-Location $workDir
+      $scriptName = Split-Path "${{ parameters.scriptPath }}" -Leaf
+      python $scriptName ${{ parameters.extraArgs }}
+      if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     displayName: ${{ parameters.displayName }}
     timeoutInMinutes: 30
+    errorActionPreference: stop
     env:
-      EXTRA_ARGS: ${{ parameters.extraArgs }}
       OPS_DB_HOST: $(OPS_DB_HOST)
       OPS_DB_PORT: $(OPS_DB_PORT)
       OPS_DB_NAME: $(OPS_DB_NAME)
@@ -62,9 +66,13 @@ steps:
 
   # Alert Teams immediately on sync step failure — don't wait for the 08:00 health check.
   # Requires TEAMS_WEBHOOK_URL in the variable group; silently skips if not set.
-  - script: |
-      REPO_ROOT="$(Build.SourcesDirectory)/operations-api"
-      python "$REPO_ROOT/sync/alerts/alert_sync_failure.py"
+  - powershell: |
+      $repoRoot = "$(Build.SourcesDirectory)\operations-api"
+      if ($env:TEAMS_WEBHOOK_URL) {
+        python "$repoRoot\sync\alerts\alert_sync_failure.py"
+      } else {
+        Write-Host "TEAMS_WEBHOOK_URL not set - skipping alert"
+      }
     displayName: 'Alert Teams on sync failure'
     condition: failed()
     continueOnError: true

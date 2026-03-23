@@ -64,20 +64,25 @@ steps:
       Write-Host "Found $($csvFiles.Count) CSV file(s): $($csvFiles.Name -join ', ')"
     displayName: 'Verify certificate scan output exists'
 
-  # Step 2: Sync CSV results to PostgreSQL
-  - script: |
-      REPO_ROOT="$(Build.SourcesDirectory)/operations-api"
-      WORK_DIR="$(Build.StagingDirectory)/sync_run"
-      mkdir -p "$WORK_DIR"
-      cp "$REPO_ROOT/sync/common.py" "$WORK_DIR/"
-      cp "$REPO_ROOT/sync/certificates/sync_certificates.py" "$WORK_DIR/"
-      pip install -r "$REPO_ROOT/sync/requirements.txt"
+  # Step 2: Prepare sync environment
+  - powershell: |
+      $repoRoot = "$(Build.SourcesDirectory)\operations-api"
+      $workDir = "$(Build.StagingDirectory)\sync_run"
+      New-Item -ItemType Directory -Force -Path $workDir | Out-Null
+      Copy-Item "$repoRoot\sync\common.py" "$workDir\"
+      Copy-Item "$repoRoot\sync\certificates\sync_certificates.py" "$workDir\"
+      pip install -r "$repoRoot\sync\requirements.txt"
+      if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     displayName: 'Prepare sync environment'
+    errorActionPreference: stop
 
-  - script: |
-      cd "$(Build.StagingDirectory)/sync_run"
-      python sync_certificates.py --csv "$(Build.StagingDirectory)/SSL-CertExpiry-*.csv" --verbose
+  # Step 2b: Sync certificate data
+  - powershell: |
+      Set-Location "$(Build.StagingDirectory)\sync_run"
+      python sync_certificates.py --csv "$(Build.StagingDirectory)\SSL-CertExpiry-*.csv" --verbose
+      if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     displayName: 'Sync certificate data to PostgreSQL'
+    errorActionPreference: stop
     env:
       OPS_DB_HOST: $(OPS_DB_HOST)
       OPS_DB_PORT: $(OPS_DB_PORT)
@@ -85,18 +90,22 @@ steps:
       OPS_DB_USER: $(OPS_DB_USER)
       OPS_DB_PASSWORD: $(OPS_DB_PASSWORD)
 
-  # Step 3: Alert Teams if certificates are expiring
-  - script: |
-      REPO_ROOT="$(Build.SourcesDirectory)/operations-api"
-      WORK_DIR="$(Build.StagingDirectory)/sync_run"
-      cp "$REPO_ROOT/sync/alerts/alert_cert_expiry.py" "$WORK_DIR/"
+  # Step 3: Prepare cert expiry alert
+  - powershell: |
+      $repoRoot = "$(Build.SourcesDirectory)\operations-api"
+      $workDir = "$(Build.StagingDirectory)\sync_run"
+      Copy-Item "$repoRoot\sync\alerts\alert_cert_expiry.py" "$workDir\"
     displayName: 'Prepare cert expiry alert'
+    errorActionPreference: stop
 
-  - script: |
-      cd "$(Build.StagingDirectory)/sync_run"
+  # Step 3b: Alert Teams on expiring certificates
+  - powershell: |
+      Set-Location "$(Build.StagingDirectory)\sync_run"
       python alert_cert_expiry.py --verbose
+      if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     displayName: 'Alert Teams on expiring certificates'
     condition: succeeded()
+    errorActionPreference: stop
     env:
       OPS_DB_HOST: $(OPS_DB_HOST)
       OPS_DB_PORT: $(OPS_DB_PORT)

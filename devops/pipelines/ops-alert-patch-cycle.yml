@@ -19,19 +19,23 @@ variables:
   - group: operations-api-prod
 
 steps:
-  - script: |
-      REPO_ROOT="$(Build.SourcesDirectory)/operations-api"
-      WORK_DIR="$(Build.StagingDirectory)/sync_run"
-      mkdir -p "$WORK_DIR"
-      cp "$REPO_ROOT/sync/common.py" "$WORK_DIR/"
-      cp "$REPO_ROOT/sync/alerts/alert_patch_cycle.py" "$WORK_DIR/"
-      pip install -r "$REPO_ROOT/sync/requirements.txt"
+  - powershell: |
+      $repoRoot = "$(Build.SourcesDirectory)\operations-api"
+      $workDir = "$(Build.StagingDirectory)\sync_run"
+      New-Item -ItemType Directory -Force -Path $workDir | Out-Null
+      Copy-Item "$repoRoot\sync\common.py" "$workDir\"
+      Copy-Item "$repoRoot\sync\alerts\alert_patch_cycle.py" "$workDir\"
+      pip install -r "$repoRoot\sync\requirements.txt"
+      if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     displayName: 'Prepare sync environment'
+    errorActionPreference: stop
 
-  - script: |
-      cd "$(Build.StagingDirectory)/sync_run"
+  - powershell: |
+      Set-Location "$(Build.StagingDirectory)\sync_run"
       python alert_patch_cycle.py --days-ahead 5 --weekend --verbose
+      if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     displayName: 'Send weekend patching alert'
+    errorActionPreference: stop
     env:
       OPS_DB_HOST: $(OPS_DB_HOST)
       OPS_DB_PORT: $(OPS_DB_PORT)

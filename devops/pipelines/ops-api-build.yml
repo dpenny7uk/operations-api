@@ -32,19 +32,19 @@ steps:
       version: '10.0.x'
     displayName: 'Install .NET 10 SDK'
 
-  - script: dotnet restore
+  - powershell: dotnet restore
     workingDirectory: '$(Build.SourcesDirectory)/operations-api'
     displayName: 'Restore NuGet packages'
 
-  - script: dotnet build --configuration $(buildConfiguration) --no-restore
+  - powershell: dotnet build --configuration $(buildConfiguration) --no-restore
     workingDirectory: '$(Build.SourcesDirectory)/operations-api'
     displayName: 'Build'
 
-  - script: dotnet test tests/OperationsApi.Tests/OperationsApi.Tests.csproj --configuration $(buildConfiguration) --no-build --verbosity normal
+  - powershell: dotnet test tests/OperationsApi.Tests/OperationsApi.Tests.csproj --configuration $(buildConfiguration) --no-build --verbosity normal
     workingDirectory: '$(Build.SourcesDirectory)/operations-api'
     displayName: 'Run .NET tests'
 
-  - script: dotnet publish --configuration $(buildConfiguration) --no-build --output $(Build.ArtifactStagingDirectory)/api
+  - powershell: dotnet publish --configuration $(buildConfiguration) --no-build --output $(Build.ArtifactStagingDirectory)/api
     workingDirectory: '$(Build.SourcesDirectory)/operations-api'
     displayName: 'Publish API'
 
