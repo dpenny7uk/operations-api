@@ -36,11 +36,11 @@ public class PatchingControllerTests
     [Fact]
     public async Task GetCycleServers_clamps_limit()
     {
-        _svc.Setup(s => s.GetCycleServersAsync(1, null, null, It.IsAny<int>(), It.IsAny<int>()))
+        _svc.Setup(s => s.GetCycleServersAsync(1, null, null, It.IsAny<string?>(), It.IsAny<int>(), It.IsAny<int>()))
             .ReturnsAsync(new PagedResult<PatchScheduleItem>());
 
-        await Controller.GetCycleServers(1, null, null, limit: 1000, offset: 0);
+        await Controller.GetCycleServers(1, null, null, null, limit: 1000, offset: 0);
 
-        _svc.Verify(s => s.GetCycleServersAsync(1, null, null, 500, 0));
+        _svc.Verify(s => s.GetCycleServersAsync(1, null, null, null, 500, 0));
     }
 }

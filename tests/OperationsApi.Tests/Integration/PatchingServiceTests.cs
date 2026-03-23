@@ -78,7 +78,7 @@ public class PatchingServiceTests : IntegrationTestBase
     public async Task GetCycleServers_returns_paged_result()
     {
         var svc = CreateService();
-        var result = await svc.GetCycleServersAsync(1, null, null, 100, 0);
+        var result = await svc.GetCycleServersAsync(1, null, null, null, 100, 0);
 
         Assert.Equal(3, result.TotalCount);
         Assert.Equal(3, result.Items.Count());
@@ -88,7 +88,7 @@ public class PatchingServiceTests : IntegrationTestBase
     public async Task GetCycleServers_filter_by_patch_group()
     {
         var svc = CreateService();
-        var result = await svc.GetCycleServersAsync(1, "8a", null, 100, 0);
+        var result = await svc.GetCycleServersAsync(1, "8a", null, null, 100, 0);
 
         Assert.All(result.Items, s => Assert.Equal("8a", s.PatchGroup));
         Assert.Single(result.Items);
@@ -98,7 +98,7 @@ public class PatchingServiceTests : IntegrationTestBase
     public async Task GetCycleServers_filter_has_issues_true()
     {
         var svc = CreateService();
-        var result = await svc.GetCycleServersAsync(1, null, true, 100, 0);
+        var result = await svc.GetCycleServersAsync(1, null, true, null, 100, 0);
 
         Assert.All(result.Items, s => Assert.True(s.HasKnownIssue));
     }
@@ -107,7 +107,7 @@ public class PatchingServiceTests : IntegrationTestBase
     public async Task GetCycleServers_filter_has_issues_false()
     {
         var svc = CreateService();
-        var result = await svc.GetCycleServersAsync(1, null, false, 100, 0);
+        var result = await svc.GetCycleServersAsync(1, null, false, null, 100, 0);
 
         Assert.All(result.Items, s => Assert.False(s.HasKnownIssue));
     }
@@ -116,8 +116,8 @@ public class PatchingServiceTests : IntegrationTestBase
     public async Task GetCycleServers_pagination()
     {
         var svc = CreateService();
-        var page1 = await svc.GetCycleServersAsync(1, null, null, 2, 0);
-        var page2 = await svc.GetCycleServersAsync(1, null, null, 2, 2);
+        var page1 = await svc.GetCycleServersAsync(1, null, null, null, 2, 0);
+        var page2 = await svc.GetCycleServersAsync(1, null, null, null, 2, 2);
 
         Assert.Equal(3, page1.TotalCount);
         Assert.Equal(2, page1.Items.Count());

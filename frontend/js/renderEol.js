@@ -201,6 +201,15 @@ export async function filterEol() {
   if (items) {
     setAllEol(items);
     renderEolTable(items);
+  } else {
+    // Fallback: client-side filtering for demo/offline mode
+    const filtered = allEol.filter(e => {
+      if (level && e.alertLevel !== level) return false;
+      if (product && !(e.product||'').toLowerCase().includes(product.toLowerCase())) return false;
+      if (!showAll && !e.affectedAssets) return false;
+      return true;
+    });
+    renderEolTable(filtered);
   }
   syncCriticalCardSelection('eolCards', level);
 }
