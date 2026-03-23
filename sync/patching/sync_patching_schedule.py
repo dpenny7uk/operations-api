@@ -253,6 +253,17 @@ def main():
 
             logger.info(f"  Cycle {cycle_date}: {len(servers)} servers")
 
+        # Auto-complete past active cycles
+        with ctx.conn.cursor() as cur:
+            cur.execute("""
+                UPDATE patching.patch_cycles
+                SET status = 'completed', updated_at = CURRENT_TIMESTAMP
+                WHERE status = 'active' AND cycle_date < CURRENT_DATE
+            """)
+            auto_completed = cur.rowcount
+            if auto_completed > 0:
+                logger.info("Auto-completed %d past patch cycle(s)", auto_completed)
+
         if not ctx.dry_run:
             ctx.conn.commit()
 

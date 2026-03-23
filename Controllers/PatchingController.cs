@@ -112,4 +112,21 @@ public class PatchingController : ControllerBase
     [ProducesResponseType(200)]
     public async Task<IActionResult> GetWindows()
         => Ok(await _svc.GetPatchWindowsAsync());
+
+    /// <summary>Update the status of a patch cycle. Requires OpsAdmin role.</summary>
+    [HttpPatch("cycles/{cycleId}/status")]
+    [Authorize(Policy = "OpsAdmin")]
+    [ProducesResponseType(200)]
+    [ProducesResponseType(400)]
+    [ProducesResponseType(404)]
+    public async Task<IActionResult> UpdateCycleStatus(int cycleId, [FromBody] CycleStatusRequest req)
+    {
+        var status = req.Status?.ToLower();
+        if (status is not ("completed" or "cancelled"))
+            return BadRequest("Status must be one of: completed, cancelled.");
+        var updated = await _svc.UpdateCycleStatusAsync(cycleId, status);
+        return updated ? Ok() : NotFound();
+    }
+
+    public record CycleStatusRequest(string? Status);
 }

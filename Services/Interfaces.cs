@@ -43,6 +43,7 @@ public interface IPatchingService
     Task<IEnumerable<GlobalServerSearchResult>> SearchServersGlobalAsync(string query, int limit);
     Task<KnownIssueDetail?> GetKnownIssueByIdAsync(int id);
     Task<IEnumerable<PatchWindow>> GetPatchWindowsAsync();
+    Task<bool> UpdateCycleStatusAsync(int cycleId, string status);
 }
 
 public interface ICertificateService

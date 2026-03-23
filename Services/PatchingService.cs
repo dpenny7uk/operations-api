@@ -354,4 +354,14 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
             ORDER BY patch_group, window_type
         ")
     );
+
+    public Task<bool> UpdateCycleStatusAsync(int cycleId, string status) => RunDbAsync(async () =>
+    {
+        var rows = await Db.ExecuteAsync($@"
+            UPDATE {Sql.Tables.PatchCycles}
+            SET status = @Status, updated_at = CURRENT_TIMESTAMP
+            WHERE cycle_id = @CycleId
+        ", new { CycleId = cycleId, Status = status });
+        return rows > 0;
+    });
 }
