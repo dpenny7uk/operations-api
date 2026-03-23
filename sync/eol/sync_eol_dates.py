@@ -60,7 +60,7 @@ def sync_eol_dates(ctx, records: list):
                 version[:100],
                 r.get('eol_end_of_life') or None,
                 r.get('eol_end_of_support') or None,
-                r.get('eol_end_of_extended_support') or None,
+                r.get('eol_end_of_extended_support') or r.get('eol_end_of_extended') or None,
             ))
 
         if not values:
