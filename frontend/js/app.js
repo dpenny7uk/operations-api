@@ -6,7 +6,7 @@ import { renderPatching, resetCycleServerCache } from './renderPatching.js';
 import { renderCerts, filterCerts } from './renderCerts.js';
 import { renderEol, filterEol, resetEolDetailCache } from './renderEol.js';
 import { debounce, exportCsv } from './utils.js';
-import { allServers, allCerts, allEol } from './api.js';
+import { allServers, setAllServers, allCerts, allEol } from './api.js';
 
 // --- Navigation ---
 document.querySelectorAll('header nav button').forEach(btn => {
