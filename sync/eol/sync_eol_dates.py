@@ -104,6 +104,35 @@ def sync_eol_dates(ctx, records: list):
         rows = cur.fetchall()
         ctx.stats.inserted, ctx.stats.updated = count_upsert_results(rows)
 
+        # Propagate extended support dates from service pack rows to base version rows.
+        # E.g. mssqlserver 11.0-sp4 has end_of_extended=2025-07-08 → copy to 11.0 if NULL.
+        # Also propagates end_of_support using the same logic.
+        cur.execute("""
+            UPDATE eol.end_of_life_software base SET
+                eol_end_of_extended_support = family.max_extended,
+                eol_end_of_support = COALESCE(base.eol_end_of_support, family.max_support),
+                updated_at = CURRENT_TIMESTAMP
+            FROM (
+                SELECT
+                    eol_product,
+                    SPLIT_PART(eol_product_version, '-', 1) AS base_version,
+                    MAX(eol_end_of_extended_support) AS max_extended,
+                    MAX(eol_end_of_support) AS max_support
+                FROM tmp_eol_dates
+                WHERE eol_end_of_extended_support IS NOT NULL
+                   OR eol_end_of_support IS NOT NULL
+                GROUP BY eol_product, SPLIT_PART(eol_product_version, '-', 1)
+            ) family
+            WHERE base.eol_product = family.eol_product
+              AND base.eol_product_version = family.base_version
+              AND base.machine_name IS NULL
+              AND base.is_active = TRUE
+              AND base.eol_end_of_extended_support IS NULL
+        """)
+        extended_propagated = cur.rowcount
+        if extended_propagated > 0:
+            logger.info("Propagated extended support dates to %d base version rows", extended_propagated)
+
         # Deactivate product-level records no longer in source
         cur.execute("""
             UPDATE eol.end_of_life_software SET
