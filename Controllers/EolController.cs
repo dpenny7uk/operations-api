@@ -15,12 +15,12 @@ public class EolController : ControllerBase
 
     public EolController(IEolService svc) => _svc = svc;
 
-    /// <summary>Get EOL summary with counts by status (eol, approaching, supported).</summary>
+    /// <summary>Get EOL summary with counts by status (eol, extended, approaching, supported).</summary>
     [HttpGet("summary")]
     [ResponseCache(Duration = 60, Location = ResponseCacheLocation.Client)]
     [ProducesResponseType(200)]
-    public async Task<IActionResult> GetSummary()
-        => Ok(await _svc.GetSummaryAsync());
+    public async Task<IActionResult> GetSummary([FromQuery] bool hasServers = false)
+        => Ok(await _svc.GetSummaryAsync(hasServers));
 
     /// <summary>List EOL software entries with optional filtering.</summary>
     /// <param name="alertLevel">Filter by status (eol, approaching, supported).</param>
@@ -35,7 +35,7 @@ public class EolController : ControllerBase
         [FromQuery] int limit = 100,
         [FromQuery] bool hasServers = false)
     {
-        if (alertLevel != null && alertLevel.ToLower() is not ("eol" or "approaching" or "supported"))
+        if (alertLevel != null && alertLevel.ToLower() is not ("eol" or "extended" or "approaching" or "supported"))
             return BadRequest("alertLevel must be one of: eol, approaching, supported.");
         if (product?.Length > 255 || InputGuard.ContainsControlChars(product))
             return BadRequest("product parameter is invalid.");

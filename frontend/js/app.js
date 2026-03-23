@@ -48,7 +48,7 @@ async function _loadAllDataInner() {
       api('/patching/issues'),
       api('/certificates/summary'),
       api('/certificates?limit=200'),
-      api('/eol/summary'),
+      api('/eol/summary?hasServers=true'),
       api('/eol?limit=200&hasServers=true'),
     ]);
 

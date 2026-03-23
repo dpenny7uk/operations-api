@@ -55,7 +55,7 @@ public interface ICertificateService
 
 public interface IEolService
 {
-    Task<EolSummary> GetSummaryAsync();
+    Task<EolSummary> GetSummaryAsync(bool hasServers = false);
     Task<IEnumerable<EolSoftware>> ListEolSoftwareAsync(string? alertLevel, string? product, int limit, bool hasServers = false);
     Task<EolSoftwareDetail?> GetByProductVersionAsync(string product, string version);
     Task<IEnumerable<EolSoftware>> GetByServerAsync(string serverName, int limit = 500);

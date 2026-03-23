@@ -10,13 +10,14 @@ public class EolService : BaseService<EolService>, IEolService
     private const string AlertLevelCase = @"
         CASE
             WHEN {0} IS NULL THEN 'unknown'
-            WHEN {0} <= NOW() THEN 'eol'
+            WHEN {0} <= NOW() AND (COALESCE({1}, {0}) <= NOW()) THEN 'eol'
+            WHEN {0} <= NOW() AND {1} > NOW() THEN 'extended'
             WHEN {0} <= NOW() + INTERVAL '6 months' THEN 'approaching'
             ELSE 'supported'
         END";
 
-    private static string AlertLevel(string column = "p.eol_end_of_life")
-        => string.Format(AlertLevelCase, column);
+    private static string AlertLevel(string eolColumn = "p.eol_end_of_life", string extColumn = "p.eol_end_of_extended_support")
+        => string.Format(AlertLevelCase, eolColumn, extColumn);
 
     // CTE that combines per-server software rows with Windows Server OS mapping
     private const string AllServersCte = @"
@@ -35,14 +36,29 @@ public class EolService : BaseService<EolService>, IEolService
     public EolService(IDbConnection db, ILogger<EolService> logger)
         : base(db, logger) { }
 
-    public Task<EolSummary> GetSummaryAsync() => RunDbAsync(() =>
+    public Task<EolSummary> GetSummaryAsync(bool hasServers = false) => RunDbAsync(() =>
         Db.QueryFirstAsync<EolSummary>($@"
-            WITH {AllServers()}
+            WITH {AllServers()},
+            product_counts AS (
+                SELECT
+                    p.eol_product,
+                    p.eol_product_version,
+                    p.eol_end_of_life,
+                    p.eol_end_of_extended_support,
+                    COUNT(DISTINCT s.machine_name) AS server_count
+                FROM {Sql.Tables.EolSoftware} p
+                LEFT JOIN all_servers s
+                    ON s.eol_product = p.eol_product
+                    AND s.eol_product_version = p.eol_product_version
+                WHERE p.is_active = TRUE AND p.machine_name IS NULL
+                GROUP BY p.eol_product, p.eol_product_version, p.eol_end_of_life, p.eol_end_of_extended_support
+            )
             SELECT
-                COUNT(*) FILTER (WHERE p.eol_end_of_life <= NOW()) AS EolCount,
-                COUNT(*) FILTER (WHERE p.eol_end_of_life > NOW() AND p.eol_end_of_life <= NOW() + INTERVAL '6 months') AS ApproachingCount,
-                COUNT(*) FILTER (WHERE p.eol_end_of_life > NOW() + INTERVAL '6 months') AS SupportedCount,
-                COUNT(*) FILTER (WHERE p.eol_end_of_life IS NULL) AS UnknownCount,
+                COUNT(*) FILTER (WHERE eol_end_of_life <= NOW() AND COALESCE(eol_end_of_extended_support, eol_end_of_life) <= NOW()) AS EolCount,
+                COUNT(*) FILTER (WHERE eol_end_of_life <= NOW() AND eol_end_of_extended_support > NOW()) AS ExtendedCount,
+                COUNT(*) FILTER (WHERE eol_end_of_life > NOW() AND eol_end_of_life <= NOW() + INTERVAL '6 months') AS ApproachingCount,
+                COUNT(*) FILTER (WHERE eol_end_of_life > NOW() + INTERVAL '6 months') AS SupportedCount,
+                COUNT(*) FILTER (WHERE eol_end_of_life IS NULL) AS UnknownCount,
                 COUNT(*) AS TotalCount,
                 (SELECT COUNT(DISTINCT s.machine_name)
                  FROM all_servers s
@@ -51,8 +67,8 @@ public class EolService : BaseService<EolService>, IEolService
                     AND pd.machine_name IS NULL AND pd.is_active = TRUE
                  WHERE pd.eol_end_of_life <= NOW() + INTERVAL '6 months'
                 ) AS AffectedServers
-            FROM {Sql.Tables.EolSoftware} p
-            WHERE p.is_active = TRUE AND p.machine_name IS NULL
+            FROM product_counts
+            {(hasServers ? "WHERE server_count > 0" : "")}
         ")
     );
 
@@ -90,7 +106,8 @@ public class EolService : BaseService<EolService>, IEolService
         {
             var alertFilter = alertLevel.ToLower() switch
             {
-                "eol" => " AND p.eol_end_of_life <= NOW()",
+                "eol" => " AND p.eol_end_of_life <= NOW() AND COALESCE(p.eol_end_of_extended_support, p.eol_end_of_life) <= NOW()",
+                "extended" => " AND p.eol_end_of_life <= NOW() AND p.eol_end_of_extended_support > NOW()",
                 "approaching" => " AND p.eol_end_of_life > NOW() AND p.eol_end_of_life <= NOW() + INTERVAL '6 months'",
                 "supported" => " AND p.eol_end_of_life > NOW() + INTERVAL '6 months'",
                 _ => ""

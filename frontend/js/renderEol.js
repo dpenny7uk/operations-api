@@ -12,16 +12,12 @@ const EOL_DETAIL_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 export function resetEolDetailCache() { eolDetailCache = {}; }
 
 function eolBadge(level) {
-  const colors = { eol: 'red', approaching: 'orange', supported: 'green' };
-  const labels = { eol: 'EOL', approaching: 'Approaching', supported: 'Supported' };
+  const colors = { eol: 'red', extended: 'blue', approaching: 'orange', supported: 'green' };
+  const labels = { eol: 'EOL', extended: 'Extended Support', approaching: 'Approaching', supported: 'Supported' };
   return badge(labels[level] || level, colors[level] || 'muted');
 }
 
-export function renderEol(summary, items) {
-  setAllEol(items);
-  setActiveEolFilter(null);
-
-  // Status summary card
+function renderEolCards(summary) {
   const eolStatus = summary.eolCount > 0 ? 'status-error' : summary.approachingCount > 0 ? 'status-warning' : 'status-healthy';
   const eolLabel = summary.eolCount > 0 ? `${num(summary.affectedServers)} affected servers` : summary.approachingCount > 0 ? 'Approaching deadlines' : 'All supported';
   const eolColor = summary.eolCount > 0 ? 'red' : summary.approachingCount > 0 ? 'orange' : 'green';
@@ -35,7 +31,12 @@ export function renderEol(summary, items) {
     <div class="critical-card critical-red clickable" tabindex="0" role="button" data-filter="eol">
       <div class="critical-num">${num(summary.eolCount)}</div>
       <div class="critical-label">End of Life</div>
-      <div class="critical-delta">Past EOL date</div>
+      <div class="critical-delta">Past all support</div>
+    </div>
+    <div class="critical-card critical-blue clickable" tabindex="0" role="button" data-filter="extended">
+      <div class="critical-num">${num(summary.extendedCount)}</div>
+      <div class="critical-label">Extended Support</div>
+      <div class="critical-delta">Past EOL, support active</div>
     </div>
     <div class="critical-card critical-orange clickable" tabindex="0" role="button" data-filter="approaching">
       <div class="critical-num">${num(summary.approachingCount)}</div>
@@ -53,7 +54,12 @@ export function renderEol(summary, items) {
     document.getElementById('eolAlertFilter').value = filter || '';
     filterEol();
   });
+}
 
+export function renderEol(summary, items) {
+  setAllEol(items);
+  setActiveEolFilter(null);
+  renderEolCards(summary);
   renderEolTable(items);
 }
 
@@ -197,7 +203,11 @@ export async function filterEol() {
   if (level) params.set('alertLevel', level);
   if (product) params.set('product', product);
 
-  const items = await api(`/eol?${params}`);
+  const [items, summary] = await Promise.all([
+    api(`/eol?${params}`),
+    api(`/eol/summary${showAll ? '' : '?hasServers=true'}`)
+  ]);
+
   if (items) {
     setAllEol(items);
     renderEolTable(items);
@@ -211,5 +221,6 @@ export async function filterEol() {
     });
     renderEolTable(filtered);
   }
+  if (summary) renderEolCards(summary);
   syncCriticalCardSelection('eolCards', level);
 }
