@@ -89,6 +89,7 @@ steps:
       OPS_DB_NAME: $(OPS_DB_NAME)
       OPS_DB_USER: $(OPS_DB_USER)
       OPS_DB_PASSWORD: $(OPS_DB_PASSWORD)
+      OPS_DB_SSLMODE: $(OPS_DB_SSLMODE)
 
   # Step 3: Prepare cert expiry alert
   - powershell: |
@@ -112,4 +113,5 @@ steps:
       OPS_DB_NAME: $(OPS_DB_NAME)
       OPS_DB_USER: $(OPS_DB_USER)
       OPS_DB_PASSWORD: $(OPS_DB_PASSWORD)
+      OPS_DB_SSLMODE: $(OPS_DB_SSLMODE)
       TEAMS_WEBHOOK_URL: $(TEAMS_WEBHOOK_URL)
