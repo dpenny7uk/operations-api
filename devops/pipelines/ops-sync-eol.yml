@@ -1,11 +1,11 @@
 # Operations API - End-of-Life Software Sync from Databricks
-# Runs daily at 05:30 UTC
+# Runs daily at 05:35 UTC (after EOL dates sync at 05:30)
 
 trigger: none
 
 schedules:
-  - cron: "30 5 * * *"
-    displayName: "Daily EOL sync at 05:30"
+  - cron: "35 5 * * *"
+    displayName: "Daily EOL software sync at 05:35"
     branches:
       include:
         - main

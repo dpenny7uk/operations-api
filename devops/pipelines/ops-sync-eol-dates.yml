@@ -1,0 +1,25 @@
+# Operations API - End-of-Life Dates Sync from Databricks
+# Runs daily at 05:30 UTC (before EOL software sync at 05:35)
+
+trigger: none
+
+schedules:
+  - cron: "30 5 * * *"
+    displayName: "Daily EOL dates sync at 05:30"
+    branches:
+      include:
+        - main
+    always: true
+
+pool:
+  name: 'Default'
+
+variables:
+  - group: operations-sync-secrets
+
+steps:
+  - template: templates/ops-sync-steps.yml
+    parameters:
+      scriptPath: eol/sync_eol_dates.py
+      displayName: 'Sync EOL Dates from Databricks'
+      extraArgs: '--source jobs --verbose'
