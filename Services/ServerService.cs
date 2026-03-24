@@ -87,8 +87,9 @@ public class ServerService : BaseService<ServerService>, IServerService
             SELECT
                 s.environment AS Environment,
                 COUNT(*) AS Total,
-                COUNT(*) FILTER (WHERE s.is_active) AS Active
+                COUNT(*) AS Active
             FROM {Sql.Tables.Servers} s
+            WHERE s.is_active = TRUE
             GROUP BY s.environment
             ORDER BY COUNT(*) DESC");
 
