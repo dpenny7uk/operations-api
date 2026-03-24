@@ -226,7 +226,11 @@ def sync_certificates(ctx, records: list):
                     t.valid_from, t.valid_to, t.days_until_expiry, t.is_expired, t.alert_level,
                     s.server_id, t.server_name, t.store_name, t.scan_source,
                     CURRENT_TIMESTAMP, TRUE
-                FROM tmp_certificates t
+                FROM (
+                    SELECT DISTINCT ON (server_name, thumbprint, store_name) *
+                    FROM tmp_certificates
+                    ORDER BY server_name, thumbprint, store_name
+                ) t
                 LEFT JOIN shared.servers s
                     ON UPPER(s.server_name) = UPPER(t.server_name) AND s.is_active
                 ON CONFLICT (server_name, thumbprint, store_name) DO UPDATE SET
