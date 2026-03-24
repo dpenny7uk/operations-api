@@ -15,7 +15,7 @@ pool:
   name: 'Default'
 
 variables:
-  - group: operations-sync-secrets
+  - group: operations-api-prod
 
 steps:
   - template: templates/ops-sync-steps.yml
@@ -23,3 +23,4 @@ steps:
       scriptPath: eol/sync_eol_dates.py
       displayName: 'Sync EOL Dates from Databricks'
       extraArgs: '--source jobs --verbose'
+      databricksJobId: $(DATABRICKS_JOB_ID_EOL_DATES)

@@ -1154,7 +1154,7 @@ Pipelines read secrets from an Azure DevOps Variable Group — this keeps passwo
 2. Click **Pipelines** in the left navigation
 3. Click **Library**
 4. Click **+ Variable group**
-5. Name it: `operations-sync-secrets`
+5. Name it: `operations-api-prod`
 6. Add each variable:
 
 | Name | Value | Secret? |
@@ -1162,8 +1162,9 @@ Pipelines read secrets from an Azure DevOps Variable Group — this keeps passwo
 | `OPS_DB_HOST` | `localhost` | No |
 | `OPS_DB_PORT` | `5432` | No |
 | `OPS_DB_NAME` | `ops_platform` | No |
-| `OPS_DB_USER` | `ops_sync` | No |
-| `OPS_DB_PASSWORD` | *(your sync password)* | **Yes** (click the lock icon) |
+| `OPS_DB_USER` | `ops_api` | No |
+| `OPS_DB_PASSWORD` | *(your ops_api password)* | **Yes** (click the lock icon) |
+| `OPS_DB_SSLMODE` | `disable` | No |
 | `DATABRICKS_HOST` | *(your workspace URL)* | No |
 | `DATABRICKS_TOKEN` | *(your PAT)* | **Yes** |
 | `DATABRICKS_WAREHOUSE_ID` | *(your warehouse ID)* | No |
@@ -1201,7 +1202,7 @@ The build and deploy pipelines for the .NET API are covered separately in Step 2
 
 ### 20.4 Authorize the variable group
 
-The first time a pipeline runs, Azure DevOps will ask you to authorize access to the `operations-sync-secrets` variable group. Click **Permit** when prompted.
+The first time a pipeline runs, Azure DevOps will ask you to authorize access to the `operations-api-prod` variable group. Click **Permit** when prompted.
 
 ### 20.5 Verify the self-hosted agent is online
 
@@ -1328,25 +1329,13 @@ Look for `<environmentVariable name="ASPNETCORE_ENVIRONMENT" value="Production" 
 
 ### 23.2 Create the deployment variable group
 
-This is a **separate** variable group from `operations-sync-secrets` (which you created in Step 20). The sync variable group has credentials for Python scripts. This new one has credentials for the .NET API deployment.
-
-1. Go to your Azure DevOps project
-2. Click **Pipelines** > **Library**
-3. Click **+ Variable group**
-4. Name it: `operations-api-prod`
-5. Add each variable:
+All pipelines (sync and deploy) share the same `operations-api-prod` variable group created in Step 20. Ensure it also contains these deploy-specific variables:
 
 | Name | Value | Secret? | Notes |
 |------|-------|---------|-------|
-| `OPS_DB_HOST` | `localhost` | No | Same as sync group |
-| `OPS_DB_PORT` | `5432` | No | Same as sync group |
-| `OPS_DB_NAME` | `ops_platform` | No | Same as sync group |
-| `OPS_DB_MIGRATE_USER` | `ops_sync` | No | User that runs the SQL migration scripts |
-| `OPS_DB_PASSWORD` | *(the ops_sync password from Step 2)* | **Yes** | Click the lock icon to encrypt |
+| `OPS_DB_MIGRATE_USER` | `ops_migrate` | No | User that runs the SQL migration scripts |
 | `OPS_CONNECTIONSTRING` | *(see below)* | **Yes** | Full connection string for the .NET API |
 | `OPS_CORS_ORIGINS` | *(see below)* | No | Comma-separated URLs |
-
-6. Click **Save**
 
 **How to build the `OPS_CONNECTIONSTRING` value:**
 

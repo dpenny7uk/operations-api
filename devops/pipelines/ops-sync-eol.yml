@@ -15,10 +15,11 @@ pool:
   name: 'Default'
 
 variables:
-  - group: operations-sync-secrets
+  - group: operations-api-prod
 
 steps:
   - template: templates/ops-sync-steps.yml
     parameters:
       scriptPath: eol/sync_eol_software.py
       displayName: 'Sync EOL Software from Databricks'
+      databricksJobId: $(DATABRICKS_JOB_ID_EOL_SOFTWARE)

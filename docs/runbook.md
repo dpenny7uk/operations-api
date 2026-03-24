@@ -495,7 +495,7 @@ On the next successful run, `consecutive_failures` is automatically reset to 0.
 | `CIRCUIT_BREAKER_THRESHOLD` | `3` | Number of consecutive failures to open the circuit (minimum: 1) |
 | `CIRCUIT_BREAKER_TIMEOUT_SECONDS` | `7200` | Seconds to keep circuit open (2 hours) |
 
-Both are set in the Azure DevOps variable group `operations-sync-secrets` or as pipeline variables.
+Both are set in the Azure DevOps variable group `operations-api-prod` or as pipeline variables.
 
 ### Detecting an Open Circuit Breaker
 
@@ -1065,7 +1065,7 @@ ORDER BY active DESC;
 
 ## 11. Environment Variables Reference
 
-All secrets are stored in the Azure DevOps variable group **`operations-api-prod`** (linked to `operations-sync-secrets` for sync pipelines). Pipeline-level variables are defined inline in each `.yml` file.
+All secrets are stored in the Azure DevOps variable group **`operations-api-prod`**. Pipeline-level variables are defined inline in each `.yml` file.
 
 ### Database
 
@@ -1159,7 +1159,7 @@ Scheduled pipelines do not have a skip mechanism in YAML. To prevent a single ru
 | Run `ops-api-rollback` | Senior Engineers + Approvers | `operations-api-prod` environment — Approvals & Checks |
 | Run sync pipelines | Pipeline service account (automated) | No gate — scheduled |
 | Edit pipeline variables | DevOps Engineers | Variable group `operations-api-prod` |
-| Edit secrets | DevOps Lead | Variable group `operations-sync-secrets` (secret marked) |
+| Edit secrets | DevOps Lead | Variable group `operations-api-prod` (secret marked) |
 
 ### PostgreSQL Roles
 
@@ -1176,10 +1176,10 @@ The `OperationsApi` application pool runs under a service account with read acce
 
 ### Teams Webhook
 
-The Teams webhook URL is stored as a **secret** in the Azure DevOps variable group `operations-sync-secrets`. It is never logged or printed by any pipeline or script. To rotate it:
+The Teams webhook URL is stored as a **secret** in the Azure DevOps variable group `operations-api-prod`. It is never logged or printed by any pipeline or script. To rotate it:
 
 1. Generate a new incoming webhook URL in the Teams channel settings
-2. Update `TEAMS_WEBHOOK_URL` in the `operations-sync-secrets` variable group
+2. Update `TEAMS_WEBHOOK_URL` in the `operations-api-prod` variable group
 3. No code change or redeployment required — the next sync run picks it up automatically
 
 ### Secret Rotation Checklist

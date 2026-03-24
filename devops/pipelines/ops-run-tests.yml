@@ -22,14 +22,20 @@ pool:
   name: 'Default'
 
 steps:
-  - script: |
-      pip install -r "$(Build.SourcesDirectory)/operations-api/sync/requirements.txt"
+  - powershell: |
+      pip install -r "$(Build.SourcesDirectory)\operations-api\sync\requirements.txt"
+      if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     displayName: 'Install dependencies'
+    timeoutInMinutes: 10
+    errorActionPreference: stop
 
-  - script: |
-      cd "$(Build.SourcesDirectory)/operations-api/sync"
-      python -m pytest tests/ -v --tb=short --junitxml=$(Build.StagingDirectory)/test-results.xml
+  - powershell: |
+      Set-Location "$(Build.SourcesDirectory)\operations-api\sync"
+      python -m pytest tests/ -v --tb=short --junitxml="$(Build.StagingDirectory)\test-results.xml"
+      if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     displayName: 'Run unit tests'
+    timeoutInMinutes: 10
+    errorActionPreference: stop
 
   - task: PublishTestResults@2
     inputs:
