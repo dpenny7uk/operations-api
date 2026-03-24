@@ -125,13 +125,15 @@ function Get-CertStatus {
 #    Must be self-contained — runspaces don't share the parent scope.
 #    Get-CertStatus is injected via $sharedFunctions + scriptblock concatenation.
 
-$serverScanBlock = [ScriptBlock]::Create($sharedFunctions + @'
+$serverScanBlock = [ScriptBlock]::Create(@'
     param(
         [string]$ServerName,
         [int[]]$Ports,
         [int]$ThresholdDays,
         [int]$CriticalDays
     )
+
+'@ + $sharedFunctions + @'
 
     function New-ResultRow {
         param(
@@ -225,13 +227,15 @@ $serverScanBlock = [ScriptBlock]::Create($sharedFunctions + @'
 
 # ── Scriptblock for standalone endpoint scans (URL-based) ────────────────────
 
-$endpointScanBlock = [ScriptBlock]::Create($sharedFunctions + @'
+$endpointScanBlock = [ScriptBlock]::Create(@'
     param(
         [string]$EndpointName,
         [string]$EndpointURL,
         [int]$ThresholdDays,
         [int]$CriticalDays
     )
+
+'@ + $sharedFunctions + @'
 
     $tcpClient = $null
     $sslStream = $null
