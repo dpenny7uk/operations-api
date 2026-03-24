@@ -156,13 +156,13 @@ def sync_certificates(ctx, records: list):
             parse_cn(subject)[:500],
             issuer,
             parse_cn(issuer)[:500],
-            parse_timestamp(r.get('notbefore')),
-            parse_timestamp(r.get('notafter')),
+            parse_timestamp(r.get('notbefore') or ''),
+            parse_timestamp(r.get('notafter') or ''),
             days_until,
             is_expired,
             alert_level,
             server_name[:255],
-            map_store_name(source, r.get('url')),
+            map_store_name(source, r.get('url') or ''),
             map_scan_source(source)[:100],
         ))
 
