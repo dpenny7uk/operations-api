@@ -324,7 +324,7 @@ def validate_csv_path(csv_path: str) -> None:
     # Block absolute paths outside the working directory on non-Windows paths (e.g. /etc/passwd)
     if os.path.isabs(norm):
         # Allow Windows absolute paths to expected share/scan directories only
-        allowed_prefixes = [r'C:\Scans', r'C:\CertScans', r'\\']
+        allowed_prefixes = [r'C:\Scans', r'C:\CertScans', r'E:\AzureAgent', r'\\']
         if not any(norm.startswith(p) for p in allowed_prefixes):
             raise ValueError(
                 f"CERT_CSV_PATH '{csv_path}' is an absolute path outside allowed directories. "
