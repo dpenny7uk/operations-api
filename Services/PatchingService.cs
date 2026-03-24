@@ -18,7 +18,21 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
     public Task<NextPatchingSummary?> GetNextPatchingSummaryAsync() => RunDbAsync(async () =>
     {
         // Get next active cycle
+        // Find this week's cycle (Monday to Sunday), fall back to next upcoming
         var cycle = await Db.QueryFirstOrDefaultAsync<NextCycleRow>($@"
+            SELECT
+                cycle_id AS CycleId,
+                cycle_date AS CycleDate,
+                servers_onprem AS ServersOnprem,
+                status AS Status,
+                (cycle_date - CURRENT_DATE)::INT AS DaysUntil
+            FROM {Sql.Tables.PatchCycles}
+            WHERE status = 'active'
+              AND cycle_date >= date_trunc('week', CURRENT_DATE)::DATE
+              AND cycle_date <  (date_trunc('week', CURRENT_DATE) + INTERVAL '7 days')::DATE
+            ORDER BY cycle_date
+            LIMIT 1
+        ") ?? await Db.QueryFirstOrDefaultAsync<NextCycleRow>($@"
             SELECT
                 cycle_id AS CycleId,
                 cycle_date AS CycleDate,

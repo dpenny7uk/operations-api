@@ -87,6 +87,12 @@ public class ServersController : ControllerBase
         return match == null ? NotFound() : Ok(match);
     }
 
+    /// <summary>List servers that failed certificate or other scans (unreachable).</summary>
+    [HttpGet("unreachable")]
+    [ProducesResponseType(200)]
+    public async Task<IActionResult> GetUnreachable([FromQuery] int limit = 50)
+        => Ok(await _svc.GetUnreachableServersAsync(Math.Clamp(limit, 1, 500)));
+
     /// <summary>List servers that could not be matched to the canonical inventory.</summary>
     [HttpGet("unmatched")]
     [ProducesResponseType(200)]

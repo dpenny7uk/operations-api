@@ -39,6 +39,15 @@ public class EnvironmentCount
     public int Active { get; set; }
 }
 
+public class UnreachableServer
+{
+    public string ServerName { get; set; } = "";
+    public string? Environment { get; set; }
+    public DateTime? LastSeen { get; set; }
+    public string? ScanType { get; set; }
+    public int FailureCount { get; set; }
+}
+
 public class UnmatchedServer
 {
     public string ServerNameRaw { get; set; } = "";

@@ -168,6 +168,20 @@ public class ServerService : BaseService<ServerService>, IServerService
         return await Db.QueryAsync<UnmatchedServer>(sql, p);
     });
 
+    public Task<IEnumerable<UnreachableServer>> GetUnreachableServersAsync(int limit) => RunDbAsync(() =>
+        Db.QueryAsync<UnreachableServer>($@"
+            SELECT
+                server_name AS ServerName,
+                environment AS Environment,
+                last_failure_at AS LastSeen,
+                scan_type AS ScanType,
+                failure_count AS FailureCount
+            FROM system.v_unreachable_servers
+            ORDER BY failure_count DESC
+            LIMIT @Limit
+        ", new { Limit = limit })
+    );
+
     public Task CreateAliasAsync(string canonical, string alias, string? source, string actingUser) => RunDbAsync(async () =>
     {
         Logger.LogInformation("Creating server alias: {Alias} -> {Canonical} (source: {Source}, user: {User})", alias, canonical, source, actingUser);

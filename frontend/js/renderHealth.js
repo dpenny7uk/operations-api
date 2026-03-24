@@ -118,19 +118,21 @@ export async function renderHealth(data, serverSummary, unmatched, certSummary, 
       </div>
     </div>
     <div class="metric-card metric-green">
-      <h4><span role="img" aria-label="Patch Coverage">\u2705</span> Patch Coverage</h4>
-      <div class="metric-big">${patchServers > 0 ? Math.round((patchServers / Math.max(ss.totalCount || 1, 1)) * 100) : '\u2014'}${patchServers > 0 ? '<span>%</span>' : ''}</div>
+      <h4><span role="img" aria-label="Patch Groups">\u2705</span> Patch Groups</h4>
+      <div class="metric-big">${Object.keys(patchGroups).length > 0 ? num(patchServers) : '\u2014'}<span>${Object.keys(patchGroups).length > 0 ? ' servers' : ''}</span></div>
       <div class="metric-detail">
-        <div>Scheduled: ${patchServers} servers</div>
-        ${Object.entries(patchGroups).map(([g, c]) => `<div class="metric-row"><span>${esc(g)}:</span> <strong>${c}</strong></div>`).join('')}
+        ${Object.keys(patchGroups).length > 0
+          ? Object.entries(patchGroups).map(([g, c]) => `<div class="metric-row"><span>${esc(g)}:</span> <strong>${c}</strong></div>`).join('')
+          : '<div class="color-muted">No patching this week</div>'}
       </div>
     </div>
     <div class="metric-card metric-accent">
       <h4><span role="img" aria-label="Certificates">\uD83D\uDD12</span> Certificates</h4>
       <div class="metric-big">${num(cs.totalCount)}<span> total</span></div>
       <div class="metric-detail">
+        <div class="color-orange">${num(cs.warningCount)} Warning</div>
+        <div class="color-green">${num(cs.okCount)} OK</div>
         <div class="color-red">${num(cs.criticalCount)} Expiring Soon</div>
-        ${(certs || []).filter(c => c.alertLevel === 'critical').slice(0, 3).map(c => `<div class="metric-row"><span class="color-red">\u25CF</span> ${esc(c.serverName)}</div>`).join('')}
       </div>
     </div>`;
 
@@ -158,7 +160,7 @@ export async function renderHealth(data, serverSummary, unmatched, certSummary, 
       : '');
 
   // Sync table
-  document.getElementById('syncTable').innerHTML = syncs.map(s => `<tr>
+  document.getElementById('syncTable').innerHTML = syncs.filter(s => s.syncName !== 'ivanti_patching').map(s => `<tr>
     <td><strong>${esc(s.syncName)}</strong></td>
     <td>${statusBadge(s.freshnessStatus)}</td>
     <td>${fmtTime(s.lastSuccessAt)}</td>
