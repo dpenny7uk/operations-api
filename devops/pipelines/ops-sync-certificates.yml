@@ -50,14 +50,17 @@ steps:
   - powershell: |
       $repoRoot = "$(Build.SourcesDirectory)\operations-api"
       $portsArray = "$(certScanPorts)" -split ',' | ForEach-Object { [int]$_.Trim() }
-      & "$repoRoot\sync\certificates\Get-SSLCertificateExpiry.ps1" `
-        -ServerListPath "$(Build.StagingDirectory)\scan-servers.txt" `
-        -EndpointsPath "$repoRoot\config\certificate-endpoints.csv" `
-        -OutputPath "$(Build.StagingDirectory)" `
-        -ThresholdDays 30 `
-        -CriticalDays 7 `
-        -Ports $portsArray `
-        -ThrottleLimit 20
+      $scanArgs = @{
+          ServerListPath = "$(Build.StagingDirectory)\scan-servers.txt"
+          OutputPath     = "$(Build.StagingDirectory)"
+          ThresholdDays  = 30
+          CriticalDays   = 7
+          Ports          = $portsArray
+          ThrottleLimit  = 20
+      }
+      $endpointsFile = "$repoRoot\config\certificate-endpoints.csv"
+      if (Test-Path $endpointsFile) { $scanArgs.EndpointsPath = $endpointsFile }
+      & "$repoRoot\sync\certificates\Get-SSLCertificateExpiry.ps1" @scanArgs
     displayName: 'Scan certificates on servers'
     timeoutInMinutes: 30
     errorActionPreference: stop
