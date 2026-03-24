@@ -16,6 +16,27 @@ logger = setup_logging('sync_server_list')
 
 SERVER_QUERY = "SELECT * FROM gold.master_server_list WHERE is_active = true"
 
+ENV_PREFIX_MAP = {
+    'pr': 'Production',
+    'dv': 'Development',
+    'sy': 'Systest',
+    'ut': 'UAT',
+    'st': 'Staging',
+    'tr': 'Training',
+    'ls': 'Live Support',
+    'ss': 'Shared Services',
+    'pc': 'Proof of Concept',
+    'ci': 'Continuous Integration',
+}
+
+
+def derive_environment(server_name: str, raw_env: str | None) -> str | None:
+    """Derive environment from server name prefix if not provided by source."""
+    if raw_env and raw_env.strip():
+        return raw_env.strip()[:50]
+    prefix = server_name[:2].lower() if len(server_name) >= 2 else ''
+    return ENV_PREFIX_MAP.get(prefix)
+
 
 def sync_servers(ctx, servers: list):
     """Sync servers to PostgreSQL using temp table + upsert pattern."""
@@ -51,7 +72,7 @@ def sync_servers(ctx, servers: list):
                 (s.get('fqdn') or '').strip()[:500] or None,
                 (s.get('ip_address') or '').strip()[:50] or None,
                 (s.get('operating_system') or '').strip()[:255] or None,
-                (s.get('environment') or '').strip()[:50] or None,
+                derive_environment(s.get('server_name', ''), s.get('environment')),
                 (s.get('location') or '').strip()[:100] or None,
                 (s.get('business_unit') or '').strip()[:100] or None,
                 (s.get('combined_service') or '').strip()[:255] or None,
