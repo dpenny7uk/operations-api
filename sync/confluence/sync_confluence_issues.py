@@ -297,11 +297,16 @@ def parse_issue_page(page: dict) -> dict:
 
 def fetch_confluence_pages(ctx) -> list:
     """Fetch all child pages from Confluence parent page (handles pagination)."""
-    validate_env_vars(['CONFLUENCE_URL', 'CONFLUENCE_TOKEN', 'CONFLUENCE_PARENT_PAGE_ID'])
+    validate_env_vars(['CONFLUENCE_URL', 'CONFLUENCE_TOKEN', 'CONFLUENCE_EMAIL', 'CONFLUENCE_PARENT_PAGE_ID'])
 
     base_url = os.environ['CONFLUENCE_URL'].rstrip('/')
+    # Atlassian Cloud uses Basic auth (email:api_token)
+    import base64
+    credentials = base64.b64encode(
+        f"{os.environ['CONFLUENCE_EMAIL']}:{os.environ['CONFLUENCE_TOKEN']}".encode()
+    ).decode()
     headers = {
-        "Authorization": f"Bearer {os.environ['CONFLUENCE_TOKEN']}",
+        "Authorization": f"Basic {credentials}",
         "Accept": "application/json"
     }
     parent_id = os.environ['CONFLUENCE_PARENT_PAGE_ID']
