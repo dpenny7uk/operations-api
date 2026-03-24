@@ -320,7 +320,8 @@ def fetch_confluence_pages(ctx) -> list:
                 "start": start,
                 "expand": "body.storage"
             },
-            timeout=60
+            timeout=60,
+            verify=False
         )
 
         data = response.json()
