@@ -403,6 +403,8 @@ finally {
 
 # ── Export CSV ────────────────────────────────────────────────────────────────
 
+$allResults = @($allResults)
+
 if ($allResults.Count -eq 0) {
     Write-Warning "No results collected from any server or endpoint"
 }
@@ -415,14 +417,14 @@ $allResults | Export-Csv -Path $csvPath -NoTypeInformation -Encoding UTF8
 
 # ── Summary ───────────────────────────────────────────────────────────────────
 
-$totalCerts   = ($allResults | Where-Object { $_.Status -notin @('UNREACHABLE','ERROR') }).Count
-$unreachable  = ($allResults | Where-Object { $_.Status -eq 'UNREACHABLE' } |
+$totalCerts   = @($allResults | Where-Object { $_.Status -notin @('UNREACHABLE','ERROR') }).Count
+$unreachable  = @($allResults | Where-Object { $_.Status -eq 'UNREACHABLE' } |
                     Select-Object -ExpandProperty Name -Unique).Count
-$errors       = ($allResults | Where-Object { $_.Status -eq 'ERROR' } |
+$errors       = @($allResults | Where-Object { $_.Status -eq 'ERROR' } |
                     Select-Object -ExpandProperty Name -Unique).Count
-$expired      = ($allResults | Where-Object { $_.Status -eq 'EXPIRED' }).Count
-$critical     = ($allResults | Where-Object { $_.Status -eq 'CRITICAL' }).Count
-$warning      = ($allResults | Where-Object { $_.Status -eq 'WARNING' }).Count
+$expired      = @($allResults | Where-Object { $_.Status -eq 'EXPIRED' }).Count
+$critical     = @($allResults | Where-Object { $_.Status -eq 'CRITICAL' }).Count
+$warning      = @($allResults | Where-Object { $_.Status -eq 'WARNING' }).Count
 
 Write-Host ''
 Write-Host '========================================='
