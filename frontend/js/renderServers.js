@@ -10,7 +10,7 @@ let serverTotalCount = 0;
 let _currentFilters = { environment: '', search: '' };
 
 const ENV_COLORS = {
-  Prod: 'var(--env-red)', Dev: 'var(--env-blue)', Systest: 'var(--env-teal)',
+  Production: 'var(--env-red)', Development: 'var(--env-blue)', Systest: 'var(--env-teal)',
   UAT: 'var(--env-orange)', Staging: 'var(--env-yellow)', Training: 'var(--env-purple)',
   'Live Support': 'var(--env-red)', 'Shared Services': 'var(--env-teal)',
   'Proof of Concept': 'var(--env-blue)', 'Continuous Integration': 'var(--env-yellow)'
@@ -241,7 +241,7 @@ function renderServerTable(servers, totalCount) {
   document.getElementById('serverTable').innerHTML = servers.map(s => `<tr>
     <td><strong>${esc(s.serverName)}</strong></td>
     <td class="color-muted">${esc(s.fqdn) || '\u2014'}</td>
-    <td>${badge(s.environment || 'Unknown', s.environment === 'Prod' || s.environment === 'Live Support' ? 'red' : s.environment === 'Staging' ? 'yellow' : 'blue')}</td>
+    <td>${badge(s.environment || 'Unknown', s.environment === 'Production' || s.environment === 'Live Support' ? 'red' : s.environment === 'Staging' ? 'yellow' : 'blue')}</td>
     <td>${esc(s.applicationName) || '\u2014'}</td>
     <td>${s.patchGroup ? badge(s.patchGroup, 'muted') : '\u2014'}</td>
     <td>${s.isActive ? dot('green') + 'Yes' : dot('red') + 'No'}</td>
