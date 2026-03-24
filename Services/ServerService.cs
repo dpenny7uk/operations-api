@@ -33,7 +33,10 @@ public class ServerService : BaseService<ServerService>, IServerService
 
         var p = new DynamicParameters();
 
-        AddExactFilter(ref sql, p, "s.environment", "Env", environment);
+        if (environment == "Unknown")
+            sql += " AND s.environment IS NULL";
+        else
+            AddExactFilter(ref sql, p, "s.environment", "Env", environment);
         AddILikeFilter(ref sql, p, "a.application_name", "App", application);
         AddExactFilter(ref sql, p, "s.patch_group", "PG", patchGroup);
 
@@ -62,7 +65,10 @@ public class ServerService : BaseService<ServerService>, IServerService
 
         var p = new DynamicParameters();
 
-        AddExactFilter(ref sql, p, "s.environment", "Env", environment);
+        if (environment == "Unknown")
+            sql += " AND s.environment IS NULL";
+        else
+            AddExactFilter(ref sql, p, "s.environment", "Env", environment);
         AddILikeFilter(ref sql, p, "a.application_name", "App", application);
         AddExactFilter(ref sql, p, "s.patch_group", "PG", patchGroup);
 

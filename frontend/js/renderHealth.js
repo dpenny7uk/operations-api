@@ -111,7 +111,10 @@ export async function renderHealth(data, serverSummary, unmatched, certSummary, 
       <h4><span role="img" aria-label="Servers">\uD83D\uDDA5\uFE0F</span> Servers</h4>
       <div class="metric-big">${num(ss.totalCount || 0)}<span> total</span></div>
       <div class="metric-detail">
-        ${Object.entries(envCounts).map(([env, counts]) => `<div class="metric-row"><span class="color-${env === 'Production' || env === 'Live Support' ? 'red' : env === 'Staging' ? 'yellow' : 'blue'}">${counts.total}</span> <span>${esc(env)}</span></div>`).join('')}
+        ${Object.entries(envCounts).map(([env, counts]) => {
+          const c = {Production:'red',Development:'blue',UAT:'orange',Staging:'yellow',Systest:'teal','Live Support':'pink','Shared Services':'green',Training:'purple','Proof of Concept':'cyan','Continuous Integration':'indigo',Unknown:'muted'}[env]||'blue';
+          return `<div class="metric-row"><span class="color-${c}">${counts.total}</span> <span>${esc(env)}</span></div>`;
+        }).join('')}
       </div>
     </div>
     <div class="metric-card metric-green">

@@ -10,11 +10,25 @@ let serverTotalCount = 0;
 let _currentFilters = { environment: '', search: '' };
 
 const ENV_COLORS = {
-  Production: 'var(--env-red)', Development: 'var(--env-blue)', Systest: 'var(--env-teal)',
-  UAT: 'var(--env-orange)', Staging: 'var(--env-yellow)', Training: 'var(--env-purple)',
-  'Live Support': 'var(--env-red)', 'Shared Services': 'var(--env-teal)',
-  'Proof of Concept': 'var(--env-blue)', 'Continuous Integration': 'var(--env-yellow)'
+  Production: 'var(--env-red)', Development: 'var(--env-blue)', UAT: 'var(--env-orange)',
+  Staging: 'var(--env-yellow)', Systest: 'var(--env-teal)', 'Live Support': 'var(--env-pink)',
+  'Shared Services': 'var(--env-lime)', Training: 'var(--env-purple)',
+  'Proof of Concept': 'var(--env-cyan)', 'Continuous Integration': 'var(--env-indigo)',
+  Unknown: 'var(--env-gray)'
 };
+
+const ENV_BADGE_COLORS = {
+  Production: 'red', Development: 'blue', UAT: 'orange', Staging: 'yellow',
+  Systest: 'teal', 'Live Support': 'pink', 'Shared Services': 'lime',
+  Training: 'purple', 'Proof of Concept': 'cyan', 'Continuous Integration': 'indigo',
+  Unknown: 'muted'
+};
+
+function envBadge(env) {
+  const label = env || 'Unknown';
+  const color = ENV_BADGE_COLORS[label] || 'muted';
+  return badge(label, color);
+}
 
 export function renderServers(summary, servers, totalCount, unmatched) {
   serverTotalCount = totalCount;
@@ -241,7 +255,7 @@ function renderServerTable(servers, totalCount) {
   document.getElementById('serverTable').innerHTML = servers.map(s => `<tr>
     <td><strong>${esc(s.serverName)}</strong></td>
     <td class="color-muted">${esc(s.fqdn) || '\u2014'}</td>
-    <td>${badge(s.environment || 'Unknown', s.environment === 'Production' || s.environment === 'Live Support' ? 'red' : s.environment === 'Staging' ? 'yellow' : 'blue')}</td>
+    <td>${envBadge(s.environment)}</td>
     <td>${esc(s.applicationName) || '\u2014'}</td>
     <td>${s.patchGroup ? badge(s.patchGroup, 'muted') : '\u2014'}</td>
     <td>${s.isActive ? dot('green') + 'Yes' : dot('red') + 'No'}</td>

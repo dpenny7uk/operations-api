@@ -491,6 +491,11 @@ main {
   --env-orange: #ea580c;
   --env-yellow: #ca8a04;
   --env-purple: #7c3aed;
+  --env-pink: #db2777;
+  --env-lime: #65a30d;
+  --env-cyan: #0891b2;
+  --env-indigo: #4f46e5;
+  --env-gray: #6b7280;
 }
 
 @media (max-width: 600px) {
@@ -828,6 +833,12 @@ table tr:hover td { background: var(--row-hover); }
 .badge.red    { background: rgba(239, 68, 68, 0.1);   color: var(--red);    border-color: rgba(239, 68, 68, 0.15); }
 .badge.blue   { background: rgba(59, 130, 246, 0.1);  color: var(--blue);   border-color: rgba(59, 130, 246, 0.15); }
 .badge.muted  { background: rgba(122, 143, 165, 0.08); color: var(--text-muted); border-color: rgba(122, 143, 165, 0.12); }
+.badge.teal   { background: rgba(13, 148, 136, 0.1);  color: var(--env-teal);   border-color: rgba(13, 148, 136, 0.15); }
+.badge.purple { background: rgba(124, 58, 237, 0.1);  color: var(--env-purple); border-color: rgba(124, 58, 237, 0.15); }
+.badge.pink   { background: rgba(219, 39, 119, 0.1);  color: var(--env-pink);   border-color: rgba(219, 39, 119, 0.15); }
+.badge.lime   { background: rgba(101, 163, 13, 0.1);  color: var(--env-lime);   border-color: rgba(101, 163, 13, 0.15); }
+.badge.cyan   { background: rgba(8, 145, 178, 0.1);   color: var(--env-cyan);   border-color: rgba(8, 145, 178, 0.15); }
+.badge.indigo { background: rgba(79, 70, 229, 0.1);   color: var(--env-indigo); border-color: rgba(79, 70, 229, 0.15); }
 
 /* ── Status dots ─────────────────────────────────────────────────────────── */
 
