@@ -26,9 +26,9 @@ steps:
   # Step 1: Build server list from database (only real servers, no desktops)
   - powershell: |
       $serverList = "$(Build.StagingDirectory)\scan-servers.txt"
-      $env:PGPASSWORD = $env:OPS_DB_PASSWORD
-      $query = "SELECT server_name FROM shared.servers WHERE is_active = TRUE AND LEFT(LOWER(server_name), 2) IN ('pr','dv','sy','ut','st','tr','ls','ss','pc','ci') ORDER BY server_name"
-      & psql -h $env:OPS_DB_HOST -p $env:OPS_DB_PORT -d $env:OPS_DB_NAME -U $env:OPS_DB_USER -t -A -c $query | Out-File -Encoding utf8 $serverList
+      $repoRoot = "$(Build.SourcesDirectory)\operations-api"
+      python "$repoRoot\sync\certificates\query_servers.py" $serverList
+      if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       $entries = Get-Content $serverList | Where-Object { $_.Trim() -ne '' }
       if ($entries.Count -eq 0) {
           Write-Error "No active servers found in shared.servers — aborting scan"
