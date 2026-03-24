@@ -19,7 +19,7 @@ export function renderCerts(summary, certs) {
   document.getElementById('certStatusCard').className = `card dash-status-card overflow-hidden ${certStatus}`;
   document.getElementById('certStatusCard').innerHTML = `
     <h3>Certificates</h3>
-    <div class="dash-status-value">${num(summary.totalCount)}</div>
+    <div class="dash-status-value">${num(summary.criticalCount + summary.warningCount)}</div>
     <div class="sub color-${certStatusColor}" style="margin-top:0.5rem">${certStatusLabel}</div>`;
 
   // Gradient cards with click-to-filter
