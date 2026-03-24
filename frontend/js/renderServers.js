@@ -46,8 +46,8 @@ export function renderServers(summary, servers, totalCount, unmatched) {
   document.getElementById('serverSummaryCard').className = 'card dash-status-card overflow-hidden status-healthy';
   document.getElementById('serverSummaryCard').innerHTML = `
     <h3>Server Inventory</h3>
-    <div class="dash-status-value">${total}</div>
-    <div class="sub" style="margin-top:0.5rem">${active} active \u00B7 ${inactive} inactive</div>`;
+    <div class="dash-status-value">${active}</div>
+    <div class="sub" style="margin-top:0.5rem">active servers</div>`;
 
   document.getElementById('serverEnvBars').innerHTML = sorted.map(([env, counts]) => {
     const pct = Math.max((counts.total / maxCount) * 100, 4);
