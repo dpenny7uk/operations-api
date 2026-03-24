@@ -22,4 +22,5 @@ steps:
     parameters:
       scriptPath: servers/sync_server_list.py
       displayName: 'Sync Server List from Databricks'
+      extraArgs: '--source jobs --verbose'
       databricksJobId: $(DATABRICKS_JOB_ID_SERVERS)
