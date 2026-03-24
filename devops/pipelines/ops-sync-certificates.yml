@@ -1,6 +1,7 @@
 # Operations API - Certificate Scan + Sync
-# Step 1: PowerShell scans servers for certificates (outputs CSV)
-# Step 2: Python syncs CSV data into PostgreSQL
+# Step 1: Query active servers from shared.servers (excludes desktops)
+# Step 2: PowerShell scans servers for certificates (outputs CSV)
+# Step 3: Python syncs CSV data into PostgreSQL
 # Runs daily at 06:00 UTC
 
 trigger: none
@@ -22,66 +23,20 @@ variables:
     value: '443,8443'
 
 steps:
-  # Step 0: Validate server list before running the scan
+  # Step 1: Build server list from database (only real servers, no desktops)
   - powershell: |
-      $serverList = "$env:BUILD_SOURCESDIRECTORY/operations-api/config/certificate-servers.txt"
-      if (-not (Test-Path $serverList)) {
-          Write-Error "certificate-servers.txt not found: $serverList"
-          exit 1
-      }
-      $entries = Get-Content $serverList |
-          Where-Object { $_ -notmatch '^\s*#' -and $_.Trim() -ne '' }
+      $serverList = "$(Build.StagingDirectory)\scan-servers.txt"
+      $env:PGPASSWORD = $env:OPS_DB_PASSWORD
+      $query = "SELECT server_name FROM shared.servers WHERE is_active = TRUE AND LEFT(LOWER(server_name), 2) IN ('pr','dv','sy','ut','st','tr','ls','ss','pc','ci') ORDER BY server_name"
+      & psql -h $env:OPS_DB_HOST -p $env:OPS_DB_PORT -d $env:OPS_DB_NAME -U $env:OPS_DB_USER -t -A -c $query | Out-File -Encoding utf8 $serverList
+      $entries = Get-Content $serverList | Where-Object { $_.Trim() -ne '' }
       if ($entries.Count -eq 0) {
-          Write-Error "certificate-servers.txt is empty or contains only comments — aborting scan"
+          Write-Error "No active servers found in shared.servers — aborting scan"
           exit 1
       }
-      Write-Host "certificate-servers.txt has $($entries.Count) server(s) — proceeding"
-    displayName: 'Validate certificate-servers.txt is non-empty'
-    errorActionPreference: stop
-
-  # Step 1: Run PowerShell certificate scan
-  - powershell: |
-      $repoRoot = "$(Build.SourcesDirectory)/operations-api"
-      $portsArray = "$(certScanPorts)" -split ',' | ForEach-Object { [int]$_.Trim() }
-      & "$repoRoot/sync/certificates/Get-SSLCertificateExpiry.ps1" `
-        -ServerListPath "$repoRoot/config/certificate-servers.txt" `
-        -EndpointsPath "$repoRoot/config/certificate-endpoints.csv" `
-        -OutputPath "$(Build.StagingDirectory)" `
-        -ThresholdDays 30 `
-        -CriticalDays 7 `
-        -Ports $portsArray `
-        -ThrottleLimit 20
-    displayName: 'Scan certificates on servers'
-    errorActionPreference: stop
-
-  # Step 1b: Verify at least one CSV was produced before running sync
-  - powershell: |
-      $csvFiles = Get-ChildItem -Path "$(Build.StagingDirectory)" -Filter "SSL-CertExpiry-*.csv" -ErrorAction SilentlyContinue
-      if (-not $csvFiles) {
-          Write-Error "Certificate scan produced no CSV output — aborting sync to prevent mass cert deactivation."
-          exit 1
-      }
-      Write-Host "Found $($csvFiles.Count) CSV file(s): $($csvFiles.Name -join ', ')"
-    displayName: 'Verify certificate scan output exists'
-
-  # Step 2: Prepare sync environment
-  - powershell: |
-      $repoRoot = "$(Build.SourcesDirectory)\operations-api"
-      $workDir = "$(Build.StagingDirectory)\sync_run"
-      New-Item -ItemType Directory -Force -Path $workDir | Out-Null
-      Copy-Item "$repoRoot\sync\common.py" "$workDir\"
-      Copy-Item "$repoRoot\sync\certificates\sync_certificates.py" "$workDir\"
-      pip install -r "$repoRoot\sync\requirements.txt"
-      if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-    displayName: 'Prepare sync environment'
-    errorActionPreference: stop
-
-  # Step 2b: Sync certificate data
-  - powershell: |
-      Set-Location "$(Build.StagingDirectory)\sync_run"
-      python sync_certificates.py --csv "$(Build.StagingDirectory)\SSL-CertExpiry-*.csv" --verbose
-      if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-    displayName: 'Sync certificate data to PostgreSQL'
+      Write-Host "Built server list with $($entries.Count) server(s) from database"
+    displayName: 'Build server list from database'
+    timeoutInMinutes: 5
     errorActionPreference: stop
     env:
       OPS_DB_HOST: $(OPS_DB_HOST)
@@ -91,7 +46,62 @@ steps:
       OPS_DB_PASSWORD: $(OPS_DB_PASSWORD)
       OPS_DB_SSLMODE: $(OPS_DB_SSLMODE)
 
-  # Step 3: Prepare cert expiry alert
+  # Step 2: Run PowerShell certificate scan
+  - powershell: |
+      $repoRoot = "$(Build.SourcesDirectory)\operations-api"
+      $portsArray = "$(certScanPorts)" -split ',' | ForEach-Object { [int]$_.Trim() }
+      & "$repoRoot\sync\certificates\Get-SSLCertificateExpiry.ps1" `
+        -ServerListPath "$(Build.StagingDirectory)\scan-servers.txt" `
+        -EndpointsPath "$repoRoot\config\certificate-endpoints.csv" `
+        -OutputPath "$(Build.StagingDirectory)" `
+        -ThresholdDays 30 `
+        -CriticalDays 7 `
+        -Ports $portsArray `
+        -ThrottleLimit 20
+    displayName: 'Scan certificates on servers'
+    timeoutInMinutes: 30
+    errorActionPreference: stop
+
+  # Step 2b: Verify at least one CSV was produced before running sync
+  - powershell: |
+      $csvFiles = Get-ChildItem -Path "$(Build.StagingDirectory)" -Filter "SSL-CertExpiry-*.csv" -ErrorAction SilentlyContinue
+      if (-not $csvFiles) {
+          Write-Error "Certificate scan produced no CSV output — aborting sync to prevent mass cert deactivation."
+          exit 1
+      }
+      Write-Host "Found $($csvFiles.Count) CSV file(s): $($csvFiles.Name -join ', ')"
+    displayName: 'Verify certificate scan output exists'
+
+  # Step 3: Prepare sync environment
+  - powershell: |
+      $repoRoot = "$(Build.SourcesDirectory)\operations-api"
+      $workDir = "$(Build.StagingDirectory)\sync_run"
+      New-Item -ItemType Directory -Force -Path $workDir | Out-Null
+      Copy-Item "$repoRoot\sync\common.py" "$workDir\"
+      Copy-Item "$repoRoot\sync\certificates\sync_certificates.py" "$workDir\"
+      pip install -r "$repoRoot\sync\requirements.txt"
+      if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    displayName: 'Prepare sync environment'
+    timeoutInMinutes: 10
+    errorActionPreference: stop
+
+  # Step 3b: Sync certificate data
+  - powershell: |
+      Set-Location "$(Build.StagingDirectory)\sync_run"
+      python sync_certificates.py --csv "$(Build.StagingDirectory)\SSL-CertExpiry-*.csv" --verbose
+      if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    displayName: 'Sync certificate data to PostgreSQL'
+    timeoutInMinutes: 30
+    errorActionPreference: stop
+    env:
+      OPS_DB_HOST: $(OPS_DB_HOST)
+      OPS_DB_PORT: $(OPS_DB_PORT)
+      OPS_DB_NAME: $(OPS_DB_NAME)
+      OPS_DB_USER: $(OPS_DB_USER)
+      OPS_DB_PASSWORD: $(OPS_DB_PASSWORD)
+      OPS_DB_SSLMODE: $(OPS_DB_SSLMODE)
+
+  # Step 4: Prepare cert expiry alert
   - powershell: |
       $repoRoot = "$(Build.SourcesDirectory)\operations-api"
       $workDir = "$(Build.StagingDirectory)\sync_run"
@@ -99,7 +109,7 @@ steps:
     displayName: 'Prepare cert expiry alert'
     errorActionPreference: stop
 
-  # Step 3b: Alert Teams on expiring certificates
+  # Step 4b: Alert Teams on expiring certificates
   - powershell: |
       Set-Location "$(Build.StagingDirectory)\sync_run"
       python alert_cert_expiry.py --verbose
