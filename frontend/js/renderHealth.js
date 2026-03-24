@@ -136,15 +136,18 @@ export async function renderHealth(data, serverSummary, unmatched, certSummary, 
       </div>
     </div>`;
 
-  // Unreachable servers table
+  // Unreachable servers table (show first 5, like unmatched)
+  const unreachableShown = unreachable.slice(0, 5);
   document.getElementById('unreachableTable').innerHTML = unreachable.length === 0
     ? `<tr><td colspan="4" class="empty-state">No unreachable servers</td></tr>`
-    : unreachable.map(s => `<tr>
+    : unreachableShown.map(s => `<tr>
       <td><strong>${esc(s.serverName)}</strong></td>
       <td>${badge(s.environment || 'Unknown', s.environment === 'Production' ? 'red' : 'blue')}</td>
       <td class="color-muted">${timeAgo(s.lastSeen)}</td>
       <td class="color-muted">${durationStr(s.lastSeen)}</td>
-    </tr>`).join('');
+    </tr>`).join('') + (unreachable.length > 5
+      ? `<tr><td colspan="4" class="color-muted" style="text-align:center;padding:0.5rem">Showing 5 of ${unreachable.length}</td></tr>`
+      : '');
 
   // #10: Unmatched servers summary with count indicator
   const unmatchedList = unmatched || [];
