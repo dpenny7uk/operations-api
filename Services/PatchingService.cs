@@ -9,7 +9,7 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
 {
     // Typed DTOs for intermediate query results (replaces dynamic)
     private record NextCycleRow(int CycleId, DateOnly CycleDate, int? ServersOnprem, string? Status, int? DaysUntil);
-    private record GroupCount(string? PatchGroup, int Count);
+    private record GroupCount(int CycleId, string? PatchGroup, int Count);
     private record SeverityCount(string? Severity, int ServerCount);
 
     public PatchingService(IDbConnection db, ILogger<PatchingService> logger)
@@ -57,10 +57,10 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
 
         // Get servers by group and issues by severity across ALL cycles
         using var multi = await Db.QueryMultipleAsync($@"
-            SELECT patch_group AS PatchGroup, COUNT(*)::INT AS Count
+            SELECT cycle_id AS CycleId, patch_group AS PatchGroup, COUNT(*)::INT AS Count
             FROM {Sql.Tables.PatchSchedule}
             WHERE cycle_id = ANY(@CycleIds)
-            GROUP BY patch_group;
+            GROUP BY cycle_id, patch_group;
 
             SELECT ki.severity AS Severity, COUNT(DISTINCT ps.server_name)::INT AS ServerCount
             FROM {Sql.Tables.PatchSchedule} ps
@@ -70,9 +70,24 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
             GROUP BY ki.severity;
         ", new { CycleIds = cycleIds });
 
-        var groups = await multi.ReadAsync<GroupCount>();
+        var groups = (await multi.ReadAsync<GroupCount>()).ToList();
         var issues = (await multi.ReadAsync<SeverityCount>()).ToList();
         var first = cycles[0];
+
+        // Build per-cycle detail (date + groups for that date)
+        var cycleMap = cycles.ToDictionary(c => c.CycleId);
+        var cycleDetails = cycles.Select(c => new CycleDetailItem
+        {
+            CycleDate = c.CycleDate,
+            ServersByGroup = groups
+                .Where(g => g.CycleId == c.CycleId)
+                .ToDictionary(g => g.PatchGroup ?? "Unassigned", g => g.Count)
+        }).ToList();
+
+        // Aggregate across all cycles for the total
+        var aggregatedGroups = groups
+            .GroupBy(g => g.PatchGroup ?? "Unassigned")
+            .ToDictionary(g => g.Key, g => g.Sum(x => x.Count));
 
         return (NextPatchingSummary?)new NextPatchingSummary
         {
@@ -85,10 +100,8 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
             },
             DaysUntil = first.DaysUntil ?? 0,
             CycleDates = cycles.Select(c => c.CycleDate).ToList(),
-            ServersByGroup = groups.ToDictionary(
-                g => g.PatchGroup ?? "Unassigned",
-                g => g.Count
-            ),
+            CycleDetails = cycleDetails,
+            ServersByGroup = aggregatedGroups,
             IssuesBySeverity = issues.ToDictionary(
                 i => i.Severity ?? "Unknown",
                 i => i.ServerCount

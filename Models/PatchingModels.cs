@@ -14,9 +14,16 @@ public class NextPatchingSummary
     public PatchCycle Cycle { get; set; } = new();
     public int DaysUntil { get; set; }
     public List<DateOnly> CycleDates { get; set; } = new();
+    public List<CycleDetailItem> CycleDetails { get; set; } = new();
     public Dictionary<string, int> ServersByGroup { get; set; } = new();
     public Dictionary<string, int> IssuesBySeverity { get; set; } = new();
     public int TotalIssuesAffectingServers { get; set; }
+}
+
+public class CycleDetailItem
+{
+    public DateOnly CycleDate { get; set; }
+    public Dictionary<string, int> ServersByGroup { get; set; } = new();
 }
 
 public class PatchScheduleItem

@@ -25,11 +25,6 @@ export async function renderHealth(data, serverSummary, unmatched, certSummary, 
 
   // Critical Issues cards
   document.getElementById('criticalCards').innerHTML = `
-    <div class="critical-card critical-teal">
-      <div class="critical-num">${num(data.unreachableServersCount)}</div>
-      <div class="critical-label">Unreachable</div>
-      <div class="critical-delta">${num(data.unreachableServersCount)} total</div>
-    </div>
     <div class="critical-card critical-orange">
       <div class="critical-num">${num(data.unmatchedServersCount)}</div>
       <div class="critical-label">Unmatched Servers</div>
@@ -41,26 +36,8 @@ export async function renderHealth(data, serverSummary, unmatched, certSummary, 
       <div class="critical-delta">${failCount > 0 ? `${failCount} sync${failCount !== 1 ? 's' : ''} failing` : 'All syncs healthy'}</div>
     </div>`;
 
-  // #3: Fetch unreachable servers from API (not just demo mode)
-  let unreachable = [];
-  if (usingDemo) {
-    unreachable = DEMO.unreachableServers || [];
-  } else {
-    const unreachableData = await api('/servers/unreachable');
-    unreachable = unreachableData || [];
-  }
-
   // Recent Alerts
   const alerts = [];
-  unreachable.forEach(s => {
-    alerts.push({
-      icon: 'icon-red', iconChar: '\u25A0',
-      title: `<strong>${esc(s.serverName)}</strong> <span class="alert-status color-red">unreachable</span>`,
-      sub: `${num(data.unreachableServersCount)} total`,
-      time: timeAgo(s.lastSeen),
-      goto: 'servers'
-    });
-  });
   syncs.filter(s => s.consecutiveFailures > 0).forEach(s => {
     alerts.push({
       icon: 'icon-orange', iconChar: '\u25A0',
@@ -121,26 +98,26 @@ export async function renderHealth(data, serverSummary, unmatched, certSummary, 
       <h4><span role="img" aria-label="Patching">\u2705</span> Patching</h4>
       <div class="metric-big">${Object.keys(patchGroups).length > 0 ? num(patchServers) : '\u2014'}<span>${Object.keys(patchGroups).length > 0 ? ' servers' : ''}</span></div>
       <div class="metric-detail">
-        ${Object.keys(patchGroups).length > 0
-          ? (() => {
-              const dates = (np.cycleDates || []).map(d => {
-                const dt = new Date(d + 'T00:00:00');
-                return dt.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
-              });
-              const dateLabel = dates.length > 0 ? dates.join(', ') : '';
-              return `<div class="color-muted" style="margin-bottom:4px">${esc(dateLabel)}</div>`
-                + Object.entries(patchGroups).map(([g, c]) => `<div class="metric-row"><span>${esc(g)}:</span> <strong>${c}</strong></div>`).join('');
-            })()
-          : '<div class="color-muted">No patching this week</div>'}
+        ${(() => {
+          const details = np.cycleDetails || [];
+          if (details.length === 0) return '<div class="color-muted">No patching this week</div>';
+          return details.map(cd => {
+            const dt = new Date(cd.cycleDate + 'T00:00:00');
+            const label = dt.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+            const groups = cd.serversByGroup || {};
+            return `<div class="color-muted" style="margin-top:6px;margin-bottom:2px"><strong>${esc(label)}</strong></div>`
+              + Object.entries(groups).map(([g, c]) => `<div class="metric-row"><span>${esc(g)}:</span> <strong>${c}</strong></div>`).join('');
+          }).join('');
+        })()}
       </div>
     </div>
     <div class="metric-card metric-accent">
       <h4><span role="img" aria-label="Certificates">\uD83D\uDD12</span> Certificates</h4>
       <div class="metric-big">${num(cs.totalCount)}<span> total</span></div>
       <div class="metric-detail">
-        <div class="color-orange">${num(cs.warningCount)} Warning</div>
-        <div class="color-green">${num(cs.okCount)} OK</div>
         <div class="color-red">${num(cs.criticalCount)} Expiring Soon</div>
+        <div class="color-orange">${num(cs.warningCount)} ${cs.warningCount === 1 ? 'Warning' : 'Warnings'}</div>
+        <div class="color-green">${num(cs.okCount)} OK</div>
       </div>
     </div>`;
 
