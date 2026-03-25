@@ -115,13 +115,20 @@ class TestParseGroupSections:
         from bs4 import BeautifulSoup
         return BeautifulSoup(html, "html.parser")
 
+    _fallback = datetime(2026, 3, 25)
+
+    def _all_servers(self, cycles):
+        """Flatten cycle dict to a list of all servers."""
+        return [s for servers in cycles.values() for s in servers]
+
     def test_basic_parse(self):
         soup = self._make_html()
-        result = parse_group_sections(soup)
-        assert len(result) == 1
-        assert result[0]['server_name'] == 'SRV01'
-        assert result[0]['domain'] == 'domain.local'
-        assert result[0]['patch_group'] == '8a'
+        result = parse_group_sections(soup, self._fallback)
+        servers = self._all_servers(result)
+        assert len(servers) == 1
+        assert servers[0]['server_name'] == 'SRV01'
+        assert servers[0]['domain'] == 'domain.local'
+        assert servers[0]['patch_group'] == '8a'
 
     def test_multiple_servers(self):
         servers = [
@@ -129,8 +136,8 @@ class TestParseGroupSections:
             ("SRV02", "d2", "A2", "S2", "T2"),
         ]
         soup = self._make_html(servers=servers)
-        result = parse_group_sections(soup)
-        assert len(result) == 2
+        result = parse_group_sections(soup, self._fallback)
+        assert len(self._all_servers(result)) == 2
 
     def test_no_shavlik_heading_skipped(self):
         from bs4 import BeautifulSoup
@@ -139,7 +146,7 @@ class TestParseGroupSections:
         <table><tr><th>Server</th></tr><tr><td>SRV01</td></tr></table>
         </body></html>"""
         soup = BeautifulSoup(html, "html.parser")
-        assert parse_group_sections(soup) == []
+        assert parse_group_sections(soup, self._fallback) == {}
 
     def test_mismatched_columns_skipped(self):
         from bs4 import BeautifulSoup
@@ -151,14 +158,15 @@ class TestParseGroupSections:
         </table>
         </body></html>"""
         soup = BeautifulSoup(html, "html.parser")
-        result = parse_group_sections(soup)
-        assert result == []
+        result = parse_group_sections(soup, self._fallback)
+        assert self._all_servers(result) == []
 
     def test_value_truncated_to_255(self):
         long_name = "A" * 300
         soup = self._make_html(servers=[(long_name, "d", "a", "s", "t")])
-        result = parse_group_sections(soup)
-        assert len(result[0]['server_name']) == 255
+        result = parse_group_sections(soup, self._fallback)
+        servers = self._all_servers(result)
+        assert len(servers[0]['server_name']) == 255
 
 
 # ── Ivanti: process_servers (mocked DB) ─────────────────────────────────────

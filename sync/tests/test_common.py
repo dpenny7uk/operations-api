@@ -370,7 +370,7 @@ class TestGetJobRunOutput:
                     get_job_run_output()
                     assert False, "Should have raised"
                 except RuntimeError as e:
-                    assert 'no sql_output' in str(e)
+                    assert 'neither notebook_output nor sql_output' in str(e)
 
 
 # ── SyncStats ────────────────────────────────────────────────────────────────
