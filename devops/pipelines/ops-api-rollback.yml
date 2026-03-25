@@ -121,7 +121,7 @@ stages:
 
                       $pgpassFile = [System.IO.Path]::GetTempFileName()
                       try {
-                          $pgpassEntry = "$(OPS_DB_HOST):$(OPS_DB_PORT):$(OPS_DB_NAME):$(OPS_DB_MIGRATE_USER):" + $env:OPS_DB_PASSWORD
+                          $pgpassEntry = "$(OPS_DB_HOST):$(OPS_DB_PORT):$(OPS_DB_NAME):$(OPS_DB_MIGRATE_USER):" + $env:OPS_DB_MIGRATE_PASSWORD
                           [System.IO.File]::WriteAllText($pgpassFile, $pgpassEntry, [System.Text.Encoding]::ASCII)
                           $env:PGPASSFILE = $pgpassFile
 
@@ -138,7 +138,7 @@ stages:
 
                       Write-Host "Database restored successfully from $dumpFile"
                   env:
-                    OPS_DB_PASSWORD: $(OPS_DB_PASSWORD)
+                    OPS_DB_MIGRATE_PASSWORD: $(OPS_DB_MIGRATE_PASSWORD)
 
                 # ── Stop IIS app pool ────────────────────────────────────
                 - task: PowerShell@2
