@@ -25,22 +25,20 @@ export async function renderHealth(data, serverSummary, unmatched, certSummary, 
 
   // Critical Issues cards
   const patchDays = nextPatch && nextPatch.daysUntil != null ? nextPatch.daysUntil : null;
-  const patchDaysLabel = patchDays === 0 ? 'Today' : patchDays === 1 ? 'Tomorrow' : patchDays != null ? `in ${patchDays} days` : '';
   const patchColor = patchDays != null && patchDays <= 1 ? 'critical-orange' : 'critical-teal';
   document.getElementById('criticalCards').innerHTML = `
     <div class="critical-card ${patchColor}">
-      <div class="critical-num">${patchDays != null ? patchDays : '\u2014'}</div>
-      <div class="critical-label">Next Patching</div>
-      <div class="critical-delta">${patchDays != null ? patchDaysLabel : 'No upcoming cycles'}</div>
+      <div class="critical-label">Next Patching Cycle Starts:</div>
+      <div class="critical-num">${patchDays != null ? `${patchDays} day${patchDays !== 1 ? 's' : ''}` : '\u2014'}</div>
     </div>
     <div class="critical-card critical-orange">
+      <div class="critical-label">Unmatched Servers:</div>
       <div class="critical-num">${num(data.unmatchedServersCount)}</div>
-      <div class="critical-label">Unmatched Servers</div>
-      <div class="critical-delta">${num(data.unmatchedServersCount)} pending review</div>
+      <div class="critical-delta">pending review</div>
     </div>
     <div class="critical-card critical-red">
+      <div class="critical-label">Sync ${failCount === 1 ? 'Failure' : 'Failures'}:</div>
       <div class="critical-num">${failCount}</div>
-      <div class="critical-label">Sync Failures</div>
       <div class="critical-delta">${failCount > 0 ? `${failCount} sync${failCount !== 1 ? 's' : ''} failing` : 'All syncs healthy'}</div>
     </div>`;
 
