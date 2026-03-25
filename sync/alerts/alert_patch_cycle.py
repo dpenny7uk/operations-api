@@ -23,7 +23,9 @@ from common import (
 
 logger = setup_logging('patch_cycle_alert')
 
-_TEAMS_WEBHOOK_RE = re.compile(r'^https://[a-zA-Z0-9-]+\.webhook\.office\.com/')
+_TEAMS_WEBHOOK_RE = re.compile(
+    r'^https://[a-zA-Z0-9.-]+\.(webhook\.office\.com|powerplatform\.com)[:/]'
+)
 
 CARD_SIZE_LIMIT = 25_000  # Teams Adaptive Card limit ~28KB, leave margin
 

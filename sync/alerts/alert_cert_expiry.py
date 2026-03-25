@@ -20,7 +20,7 @@ from common import (
 logger = setup_logging('cert_expiry_alert')
 
 _TEAMS_WEBHOOK_RE = re.compile(
-    r'^https://[a-zA-Z0-9-]+\.(webhook\.office\.com|powerplatform\.com)/'
+    r'^https://[a-zA-Z0-9.-]+\.(webhook\.office\.com|powerplatform\.com)[:/]'
 )
 
 

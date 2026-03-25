@@ -16,13 +16,15 @@ from common import (
 
 logger = setup_logging('health_alert')
 
-_TEAMS_WEBHOOK_RE = re.compile(r'^https://[a-zA-Z0-9-]+\.webhook\.office\.com/')
+_TEAMS_WEBHOOK_RE = re.compile(
+    r'^https://[a-zA-Z0-9.-]+\.(webhook\.office\.com|powerplatform\.com)[:/]'
+)
 
 
 def _validate_teams_url(url: str) -> None:
     if not _TEAMS_WEBHOOK_RE.match(url):
         raise ValueError(
-            f"TEAMS_WEBHOOK_URL must be an outlook.webhook.office.com URL — "
+            f"TEAMS_WEBHOOK_URL must be a webhook.office.com or powerplatform.com URL — "
             f"got: {url!r}. Set TEAMS_WEBHOOK_URL to the webhook URL from your Teams channel."
         )
 
