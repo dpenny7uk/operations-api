@@ -24,7 +24,15 @@ export async function renderHealth(data, serverSummary, unmatched, certSummary, 
     </div>`;
 
   // Critical Issues cards
+  const patchDays = nextPatch && nextPatch.daysUntil != null ? nextPatch.daysUntil : null;
+  const patchDaysLabel = patchDays === 0 ? 'Today' : patchDays === 1 ? 'Tomorrow' : patchDays != null ? `in ${patchDays} days` : '';
+  const patchColor = patchDays != null && patchDays <= 1 ? 'critical-orange' : 'critical-teal';
   document.getElementById('criticalCards').innerHTML = `
+    <div class="critical-card ${patchColor}">
+      <div class="critical-num">${patchDays != null ? patchDays : '\u2014'}</div>
+      <div class="critical-label">Next Patching</div>
+      <div class="critical-delta">${patchDays != null ? patchDaysLabel : 'No upcoming cycles'}</div>
+    </div>
     <div class="critical-card critical-orange">
       <div class="critical-num">${num(data.unmatchedServersCount)}</div>
       <div class="critical-label">Unmatched Servers</div>
@@ -122,6 +130,12 @@ export async function renderHealth(data, serverSummary, unmatched, certSummary, 
     </div>`;
 
   // Unreachable servers table (show first 5, like unmatched)
+  let unreachable = [];
+  if (usingDemo) {
+    unreachable = DEMO.unreachableServers || [];
+  } else {
+    unreachable = (await api('/servers/unreachable')) || [];
+  }
   const unreachableShown = unreachable.slice(0, 5);
   document.getElementById('unreachableTable').innerHTML = unreachable.length === 0
     ? `<tr><td colspan="4" class="empty-state">No unreachable servers</td></tr>`
