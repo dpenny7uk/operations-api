@@ -20,6 +20,19 @@ from common import (
 
 logger = setup_logging('sync_eol_software')
 
+# Valid server name prefixes — same set used by sync_server_list.py and the
+# push_server_list Databricks notebook.  Entries whose machine_name does not
+# start with one of these prefixes are desktops / non-server assets.
+VALID_SERVER_PREFIXES = frozenset([
+    'pr', 'dv', 'sy', 'ut', 'st', 'tr', 'ls', 'ss', 'pc', 'ci',
+])
+
+
+def is_server(machine_name: str) -> bool:
+    """Return True if the machine_name looks like a server (known env prefix)."""
+    return len(machine_name) >= 2 and machine_name[:2].lower() in VALID_SERVER_PREFIXES
+
+
 # Databricks query for direct SQL API access (fallback).
 # The Jobs API approach uses a saved query in Databricks instead.
 EOL_SOFTWARE_QUERY = """\
@@ -79,12 +92,17 @@ def sync_eol_software(ctx, records: list):
     # Map raw asset_inventory records to (eol_product, eol_product_version, machine_name)
     mapped = {}  # deduplicate: (product, version, machine_name) -> True
     skipped = 0
+    filtered_desktops = 0
     for r in records:
         machine_name = (r.get('machine_name') or '').strip()
         software_name = r.get('ivanti_installed_software') or ''
 
         if not machine_name or not software_name:
             skipped += 1
+            continue
+
+        if not is_server(machine_name):
+            filtered_desktops += 1
             continue
 
         match = map_software_to_product(software_name)
@@ -98,6 +116,8 @@ def sync_eol_software(ctx, records: list):
         if key not in mapped:
             mapped[key] = True
 
+    if filtered_desktops:
+        logger.info("Filtered %d non-server records (desktop/unknown prefix)", filtered_desktops)
     if skipped:
         logger.info("Skipped %d records (no pattern match or empty fields)", skipped)
 

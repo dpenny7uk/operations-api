@@ -22,9 +22,10 @@ public class EolService : BaseService<EolService>, IEolService
     // CTE that combines per-server software rows with Windows Server OS mapping
     private const string AllServersCte = @"
         all_servers AS (
-            SELECT machine_name, eol_product, eol_product_version
-            FROM {0}
-            WHERE is_active = TRUE AND machine_name IS NOT NULL
+            SELECT e.machine_name, e.eol_product, e.eol_product_version
+            FROM {0} e
+            INNER JOIN shared.servers s ON UPPER(s.server_name) = UPPER(e.machine_name) AND s.is_active = TRUE
+            WHERE e.is_active = TRUE AND e.machine_name IS NOT NULL
             UNION
             SELECT machine_name, eol_product, eol_product_version
             FROM eol.v_os_eol_mapping

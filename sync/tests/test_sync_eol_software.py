@@ -74,7 +74,7 @@ class TestMapSoftwareToProduct:
 
 def _make_record(**overrides):
     base = {
-        'machine_name': 'WEB01',
+        'machine_name': 'PR0602-WEB01',
         'ivanti_installed_software': 'SQL Server 2016 Database Engine Services',
         'ivanti_software_version': '13.0.7037.1',
     }
@@ -115,8 +115,8 @@ class TestSyncEolSoftware:
         ctx, cursor = _make_ctx()
         cursor.fetchall.return_value = [{'is_insert': True}, {'is_insert': True}]
         records = [
-            _make_record(machine_name='WEB01'),
-            _make_record(machine_name='WEB02'),
+            _make_record(machine_name='PR0602-WEB01'),
+            _make_record(machine_name='DV0301-WEB02'),
         ]
         sync_eol_software(ctx, records)
         assert ctx.stats.processed == 2
@@ -145,7 +145,17 @@ class TestSyncEolSoftware:
         ctx, cursor = _make_ctx()
         records = [
             _make_record(machine_name=''),
-            _make_record(machine_name='WEB01'),
+            _make_record(machine_name='PR0602-WEB01'),
+        ]
+        sync_eol_software(ctx, records)
+        assert ctx.stats.processed == 1
+
+    def test_desktop_machine_names_filtered(self, mock_ev):
+        ctx, cursor = _make_ctx()
+        records = [
+            _make_record(machine_name='XDDX11361'),  # desktop — should be filtered
+            _make_record(machine_name='LAPTOP01'),    # desktop — should be filtered
+            _make_record(machine_name='PR0602-WEB01'),  # server — should pass
         ]
         sync_eol_software(ctx, records)
         assert ctx.stats.processed == 1
