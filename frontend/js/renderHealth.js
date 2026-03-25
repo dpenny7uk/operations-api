@@ -25,9 +25,8 @@ export async function renderHealth(data, serverSummary, unmatched, certSummary, 
 
   // Critical Issues cards
   const patchDays = nextPatch && nextPatch.daysUntil != null ? nextPatch.daysUntil : null;
-  const patchColor = patchDays != null && patchDays <= 1 ? 'critical-orange' : 'critical-teal';
   document.getElementById('criticalCards').innerHTML = `
-    <div class="critical-card ${patchColor}">
+    <div class="critical-card critical-blue">
       <div class="critical-label">Next Patching Cycle Starts:</div>
       <div class="critical-num">${patchDays != null ? `${patchDays} day${patchDays !== 1 ? 's' : ''}` : '\u2014'}</div>
     </div>
@@ -52,7 +51,7 @@ export async function renderHealth(data, serverSummary, unmatched, certSummary, 
       time: timeAgo(s.lastSuccessAt)
     });
   });
-  (certs || []).filter(c => (c.alertLevel || '').toLowerCase() === 'critical').slice(0, 2).forEach(c => {
+  (certs || []).filter(c => ['critical', 'warning'].includes((c.alertLevel || '').toLowerCase())).slice(0, 2).forEach(c => {
     alerts.push({
       icon: 'icon-yellow', iconChar: '\u25C6',
       title: `<strong>${esc(c.serverName)}</strong> cert <span class="alert-status color-orange">expires in ${num(c.daysUntilExpiry)} days</span>`,

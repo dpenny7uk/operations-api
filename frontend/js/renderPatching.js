@@ -28,7 +28,7 @@ export function renderPatching(next, cycles, issues) {
         <div class="patch-banner-layout flex-between gap-xl">
           <div class="patch-banner-main">
             <h3>Next Patch Cycle</h3>
-            <div class="value">${num(next.daysUntil)} days</div>
+            <div class="value">${num(next.daysUntil)} day${next.daysUntil !== 1 ? 's' : ''}</div>
             <div class="sub">${fmtDate(next.cycle.cycleDate)} \u00B7 ${num(next.cycle.serverCount)} servers</div>
           </div>
           <div class="patch-banner-details">
@@ -38,7 +38,9 @@ export function renderPatching(next, cycles, issues) {
             </div>
             <div class="patch-banner-col">
               <h3>Issues by Severity</h3>
-              ${Object.entries(next.issuesBySeverity).map(([s,c])=>`<div class="patch-detail-row">${severityBadge(s)} <strong>${esc(String(c))}</strong></div>`).join('')}
+              ${Object.keys(next.issuesBySeverity).length > 0
+                ? Object.entries(next.issuesBySeverity).map(([s,c])=>`<div class="patch-detail-row">${severityBadge(s)} <strong>${esc(String(c))}</strong></div>`).join('')
+                : '<div class="color-muted">No known issues</div>'}
             </div>
           </div>
         </div>
