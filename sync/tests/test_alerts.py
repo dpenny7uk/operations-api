@@ -300,23 +300,21 @@ class TestPatchCycleCard:
         title = body[0]['text']
         assert 'Services' in title
 
-    def test_card2_is_server_detail(self):
+    def test_card2_is_environment_breakdown(self):
         cards = build_patch_cards(self._make_rows(), 5)
         body = cards[1]['body']
         title = body[0]['text']
-        assert 'Patch Cycle' in title
+        assert 'Environment' in title
 
     def test_service_deduplication(self):
         rows = self._make_rows(4)  # ServiceA, ServiceB, ServiceC, ServiceA
         cards = build_patch_cards(rows, 5)
-        body_json = json.dumps(cards[0]['body'])
-        # ServiceA appears in both 8a and 9b groups, so 2 entries
-        # Count ColumnSet rows (exclude header row)
+        # Card 1 is the services card — services are deduplicated by name
         col_sets = [b for b in cards[0]['body'] if b.get('type') == 'ColumnSet']
         # First ColumnSet is the header row, rest are service rows
         service_rows = col_sets[1:]
-        # 4 rows: ServiceA/8a, ServiceB/9b, ServiceC/8a, ServiceA/9b — but deduped by (service, patch_group)
-        assert len(service_rows) == 4
+        # 3 unique services: ServiceA, ServiceB, ServiceC
+        assert len(service_rows) == 3
 
     def test_server_detail_has_domain(self):
         cards = build_patch_cards(self._make_rows(), 5)
@@ -337,12 +335,12 @@ class TestPatchCycleCard:
         date_str = _format_date_range(rows)
         assert '21 March 2026' == date_str
 
-    def test_known_issues_on_server_card(self):
+    def test_known_issues_on_services_card(self):
         rows = self._make_rows(2)
         rows[0]['issue_title'] = 'KB12345 breaks IIS'
         rows[0]['issue_severity'] = 'HIGH'
         rows[0]['confluence_url'] = 'https://confluence.example.com/fix'
         cards = build_patch_cards(rows, 5)
-        server_card_json = json.dumps(cards[1]['body'])
-        assert 'KB12345 breaks IIS' in server_card_json
-        assert 'KNOWN ISSUES' in server_card_json
+        services_card_json = json.dumps(cards[0]['body'])
+        assert 'KB12345 breaks IIS' in services_card_json
+        assert 'KNOWN ISSUES' in services_card_json
