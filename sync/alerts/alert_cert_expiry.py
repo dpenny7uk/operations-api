@@ -36,7 +36,7 @@ def _validate_teams_url(url: str) -> None:
         )
 
 
-CRITICAL_QUERY = """
+_CERT_ALERT_BASE = """
     SELECT
         c.certificate_id,
         c.subject_cn,
@@ -54,16 +54,11 @@ CRITICAL_QUERY = """
     LEFT JOIN shared.servers s ON c.server_id = s.server_id
     LEFT JOIN shared.applications a ON s.primary_application_id = a.application_id
     WHERE c.is_active
-      AND c.days_until_expiry <= 14
       AND c.valid_to IS NOT NULL
-      -- Exclude certs from servers with unresolved scan failures: last_seen_at may be
-      -- stale, making alert_level and days_until_expiry unreliable.
       AND UPPER(c.server_name) NOT IN (
           SELECT UPPER(server_name) FROM system.scan_failures
           WHERE scan_type = 'certificate' AND NOT is_resolved
       )
-      -- Deduplication: suppress alerts sent within the last 7 days.
-      -- After 7 days the alert re-fires so renewed/updated certs are re-checked.
       AND c.certificate_id NOT IN (
           SELECT certificate_id FROM certificates.alerts
           WHERE alert_type = 'expiry_teams'
@@ -71,13 +66,24 @@ CRITICAL_QUERY = """
             AND NOT resolved
             AND notification_sent_at >= CURRENT_TIMESTAMP - INTERVAL '7 days'
       )
+"""
+
+CRITICAL_QUERY = _CERT_ALERT_BASE + """
+      AND c.days_until_expiry <= 14
+    ORDER BY c.days_until_expiry, c.server_name
+"""
+
+WARNING_QUERY = _CERT_ALERT_BASE + """
+      AND c.days_until_expiry > 14
+      AND c.days_until_expiry <= 30
     ORDER BY c.days_until_expiry, c.server_name
 """
 
 
-def build_adaptive_card(expired: list, critical: list) -> dict:
+def build_adaptive_card(expired: list, critical: list, warning: list | None = None) -> dict:
     """Build a Teams Adaptive Card for expiring certificates."""
-    total = len(expired) + len(critical)
+    warning = warning or []
+    total = len(expired) + len(critical) + len(warning)
     title = f"Certificate Alert: {total} certificate(s) require attention"
 
     body = [
@@ -111,6 +117,17 @@ def build_adaptive_card(expired: list, critical: list) -> dict:
         body.append({
             "type": "FactSet",
             "facts": [_cert_fact(c) for c in critical]
+        })
+
+    if warning:
+        body.append({
+            "type": "TextBlock",
+            "text": f"\U0001f7e1 **EXPIRING WITHIN 30 DAYS ({len(warning)})**",
+            "weight": "bolder"
+        })
+        body.append({
+            "type": "FactSet",
+            "facts": [_cert_fact(c) for c in warning]
         })
 
     return {
@@ -186,8 +203,10 @@ def main():
         with conn.cursor() as cur:
             cur.execute(CRITICAL_QUERY)
             certs = [dict(row) for row in cur.fetchall()]
+            cur.execute(WARNING_QUERY)
+            warning_certs = [dict(row) for row in cur.fetchall()]
 
-        if not certs:
+        if not certs and not warning_certs:
             logger.info("No new certificate expiry alerts to send")
             return
 
@@ -196,20 +215,20 @@ def main():
         critical = [c for c in certs if c['days_until_expiry'] is None or c['days_until_expiry'] >= 0]
 
         logger.warning(
-            f"Found {len(expired)} expired + {len(critical)} critical certs — sending alert"
+            f"Found {len(expired)} expired + {len(critical)} critical + {len(warning_certs)} warning certs — sending alert"
         )
-        card = build_adaptive_card(expired, critical)
+        card = build_adaptive_card(expired, critical, warning_certs)
 
         if args.dry_run:
             import json
             logger.info(f"[DRY RUN] Would post to Teams:\n{json.dumps(card, indent=2, default=str)}")
-            logger.info(f"[DRY RUN] Would record alerts for {len(certs)} certificates")
+            logger.info(f"[DRY RUN] Would record alerts for {len(certs) + len(warning_certs)} certificates")
             return
 
         http_request('POST', webhook_url, json=card, retries=2, timeout=15)
         logger.info("Teams alert sent")
 
-        cert_ids = [c['certificate_id'] for c in certs]
+        cert_ids = [c['certificate_id'] for c in certs] + [c['certificate_id'] for c in warning_certs]
         record_alerts(conn, cert_ids)
         logger.info(f"Recorded {len(cert_ids)} alert(s) in certificates.alerts")
     finally:
