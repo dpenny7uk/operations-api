@@ -40,7 +40,7 @@ export function renderPatching(next, cycles, issues) {
               <h3>Issues by Severity</h3>
               ${Object.keys(next.issuesBySeverity).length > 0
                 ? Object.entries(next.issuesBySeverity).map(([s,c])=>`<div class="patch-detail-row">${severityBadge(s)} <strong>${esc(String(c))}</strong></div>`).join('')
-                : '<div class="color-muted">No known issues</div>'}
+                : '<div class="color-green">\u2705 No known issues</div>'}
             </div>
           </div>
         </div>

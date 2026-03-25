@@ -65,7 +65,7 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
             SELECT ki.severity AS Severity, COUNT(DISTINCT ps.server_name)::INT AS ServerCount
             FROM {Sql.Tables.PatchSchedule} ps
             JOIN {Sql.Tables.KnownIssues} ki ON ki.is_active
-                AND (ps.app = ANY(COALESCE(ki.affected_apps, ARRAY[]::TEXT[])) OR ps.service = ANY(COALESCE(ki.affected_services, ARRAY[]::TEXT[])))
+                AND (LOWER(ps.app) = ANY(COALESCE(ki.affected_apps, ARRAY[]::TEXT[])) OR LOWER(ps.service) = ANY(COALESCE(ki.affected_services, ARRAY[]::TEXT[])))
             WHERE ps.cycle_id = ANY(@CycleIds)
             GROUP BY ki.severity;
         ", new { CycleIds = cycleIds });

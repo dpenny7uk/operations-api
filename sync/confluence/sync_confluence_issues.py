@@ -240,7 +240,7 @@ def parse_issue_page(page: dict) -> dict:
 
     # ── Build affected_apps from Application field ───────────────────────
     app = (issue.get('application') or '').strip()
-    issue['affected_apps'] = [app] if app else []
+    issue['affected_apps'] = [app.lower()] if app else []
 
     # ── Extract affected_services from Fix/Signature + all table cells ──
     services = set()
@@ -262,7 +262,7 @@ def parse_issue_page(page: dict) -> dict:
                     if svc and svc not in _SERVICE_NAME_STOPLIST:
                         services.add(svc)
 
-    issue['affected_services'] = sorted(services)
+    issue['affected_services'] = sorted(s.lower() for s in services)
 
     # ── Severity: derive from title/content since category is patch type ─
     title_lower = (issue['title'] or '').lower()

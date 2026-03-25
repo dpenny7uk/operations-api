@@ -227,14 +227,14 @@ class TestParseIssuePage:
     def test_risklink_services_extracted(self):
         issue = parse_issue_page(_make_page(RISKLINK_PAGE_HTML))
         services = issue['affected_services']
-        assert 'Rms.MRIService' in services
-        assert 'Rms.TelemetryService' in services
-        assert 'Rms.EdmToEdmExportService' in services
-        assert 'RmsEngines' in services
+        assert 'rms.mriservice' in services
+        assert 'rms.telemetryservice' in services
+        assert 'rms.edmtoedmexportservice' in services
+        assert 'rmsengines' in services
 
     def test_risklink_affected_apps(self):
         issue = parse_issue_page(_make_page(RISKLINK_PAGE_HTML))
-        assert issue['affected_apps'] == ['RiskLink']
+        assert issue['affected_apps'] == ['risklink']
 
     def test_windows_patch_type_flags(self):
         issue = parse_issue_page(_make_page(RISKLINK_PAGE_HTML))
