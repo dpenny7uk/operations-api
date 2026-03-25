@@ -97,38 +97,33 @@ def build_adaptive_card(expired: list, critical: list, warning: list | None = No
         }
     ]
 
-    if expired:
-        body.append({
-            "type": "TextBlock",
-            "text": f"\U0001f534 **EXPIRED ({len(expired)})**",
-            "weight": "bolder"
-        })
-        body.append({
-            "type": "FactSet",
-            "facts": [_cert_fact(c) for c in expired]
-        })
+    _TABLE_HEADER = {
+        "type": "ColumnSet",
+        "columns": [
+            {"type": "Column", "width": "stretch", "items": [
+                {"type": "TextBlock", "text": "**Certificate**", "weight": "bolder", "size": "small"}
+            ]},
+            {"type": "Column", "width": "auto", "items": [
+                {"type": "TextBlock", "text": "**Status**", "weight": "bolder", "size": "small"}
+            ]}
+        ],
+        "spacing": "small"
+    }
 
-    if critical:
-        body.append({
-            "type": "TextBlock",
-            "text": f"\U0001f7e0 **EXPIRING WITHIN 14 DAYS ({len(critical)})**",
-            "weight": "bolder"
-        })
-        body.append({
-            "type": "FactSet",
-            "facts": [_cert_fact(c) for c in critical]
-        })
-
-    if warning:
-        body.append({
-            "type": "TextBlock",
-            "text": f"\U0001f7e1 **EXPIRING WITHIN 30 DAYS ({len(warning)})**",
-            "weight": "bolder"
-        })
-        body.append({
-            "type": "FactSet",
-            "facts": [_cert_fact(c) for c in warning]
-        })
+    for section_icon, section_label, section_certs in [
+        ("\U0001f534", "EXPIRED", expired),
+        ("\U0001f7e0", "EXPIRING WITHIN 14 DAYS", critical),
+        ("\U0001f7e1", "EXPIRING WITHIN 30 DAYS", warning),
+    ]:
+        if section_certs:
+            body.append({
+                "type": "TextBlock",
+                "text": f"{section_icon} **{section_label} ({len(section_certs)})**",
+                "weight": "bolder",
+                "spacing": "medium"
+            })
+            body.append(_TABLE_HEADER)
+            body.extend(_cert_row(c) for c in section_certs)
 
     return {
         "type": "message",
@@ -166,6 +161,45 @@ def _cert_fact(cert: dict) -> dict:
         value += f" — {app}"
 
     return {"title": label, "value": value}
+
+
+def _cert_row(cert: dict) -> dict:
+    cn = cert['subject_cn'] or cert['thumbprint'][:16]
+    server = cert['server_name']
+    env = cert.get('environment') or ''
+    app = cert.get('application_name') or ''
+    days = cert['days_until_expiry']
+    expiry = cert['valid_to'].strftime('%Y-%m-%d') if cert['valid_to'] else '?'
+
+    label = f"{cn} on {server}"
+    if env:
+        label += f" ({env})"
+    if app:
+        label += f" \u2014 {app}"
+
+    if days is None or days < 0:
+        status = f"Expired {abs(days)}d ago" if days is not None else "Unknown"
+        color = "attention"
+    elif days == 0:
+        status = "Expires today"
+        color = "attention"
+    else:
+        status = f"{days}d ({expiry})"
+        color = "warning" if days <= 14 else "default"
+
+    return {
+        "type": "ColumnSet",
+        "separator": True,
+        "columns": [
+            {"type": "Column", "width": "stretch", "items": [
+                {"type": "TextBlock", "text": label, "size": "small", "wrap": True}
+            ]},
+            {"type": "Column", "width": "auto", "items": [
+                {"type": "TextBlock", "text": status, "size": "small", "color": color}
+            ]}
+        ],
+        "spacing": "none"
+    }
 
 
 def record_alerts(conn, cert_ids: list):
