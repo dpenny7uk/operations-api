@@ -166,7 +166,7 @@ $serverScanBlock = [ScriptBlock]::Create(@'
         try {
             $tcpClient = New-Object System.Net.Sockets.TcpClient
             $connectTask = $tcpClient.ConnectAsync($ServerName, $port)
-            if (-not $connectTask.Wait(5000)) {
+            if (-not $connectTask.Wait(2000)) {
                 $tcpClient.Dispose()
                 continue
             }
