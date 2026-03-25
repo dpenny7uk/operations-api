@@ -344,7 +344,7 @@ main {
   border: 1px solid;
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  justify-content: flex-start;
 }
 .critical-card .critical-num {
   font-size: 2.25rem;
@@ -352,12 +352,12 @@ main {
   letter-spacing: -0.04em;
   line-height: 1;
   color: #fff;
+  margin-top: 0.75rem;
 }
 .critical-card .critical-label {
   font-size: 0.9rem;
   font-weight: 600;
   color: rgba(255,255,255,0.9);
-  margin-top: 0.25rem;
   text-decoration: underline;
   text-decoration-color: rgba(255,255,255,0.3);
   text-underline-offset: 2px;
