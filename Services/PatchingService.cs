@@ -17,9 +17,8 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
 
     public Task<NextPatchingSummary?> GetNextPatchingSummaryAsync() => RunDbAsync(async () =>
     {
-        // Get next active cycle
-        // Find this week's cycle (Monday to Sunday), fall back to next upcoming
-        var cycle = await Db.QueryFirstOrDefaultAsync<NextCycleRow>($@"
+        // Find ALL active cycles this week (Monday to Sunday)
+        var cycles = (await Db.QueryAsync<NextCycleRow>($@"
             SELECT
                 cycle_id AS CycleId,
                 cycle_date AS CycleDate,
@@ -31,51 +30,61 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
               AND cycle_date >= date_trunc('week', CURRENT_DATE)::DATE
               AND cycle_date <  (date_trunc('week', CURRENT_DATE) + INTERVAL '7 days')::DATE
             ORDER BY cycle_date
-            LIMIT 1
-        ") ?? await Db.QueryFirstOrDefaultAsync<NextCycleRow>($@"
-            SELECT
-                cycle_id AS CycleId,
-                cycle_date AS CycleDate,
-                servers_onprem AS ServersOnprem,
-                status AS Status,
-                (cycle_date - CURRENT_DATE)::INT AS DaysUntil
-            FROM {Sql.Tables.PatchCycles}
-            WHERE cycle_date >= CURRENT_DATE AND status = 'active'
-            ORDER BY cycle_date
-            LIMIT 1
-        ");
+        ")).ToList();
 
-        if (cycle == null)
+        // Fall back to next single upcoming cycle if nothing this week
+        if (cycles.Count == 0)
+        {
+            var next = await Db.QueryFirstOrDefaultAsync<NextCycleRow>($@"
+                SELECT
+                    cycle_id AS CycleId,
+                    cycle_date AS CycleDate,
+                    servers_onprem AS ServersOnprem,
+                    status AS Status,
+                    (cycle_date - CURRENT_DATE)::INT AS DaysUntil
+                FROM {Sql.Tables.PatchCycles}
+                WHERE cycle_date >= CURRENT_DATE AND status = 'active'
+                ORDER BY cycle_date
+                LIMIT 1
+            ");
+            if (next != null) cycles.Add(next);
+        }
+
+        if (cycles.Count == 0)
             return null;
 
-        // Get servers by group and issues by severity in a single roundtrip
+        var cycleIds = cycles.Select(c => c.CycleId).ToArray();
+
+        // Get servers by group and issues by severity across ALL cycles
         using var multi = await Db.QueryMultipleAsync($@"
             SELECT patch_group AS PatchGroup, COUNT(*)::INT AS Count
             FROM {Sql.Tables.PatchSchedule}
-            WHERE cycle_id = @CycleId
+            WHERE cycle_id = ANY(@CycleIds)
             GROUP BY patch_group;
 
             SELECT ki.severity AS Severity, COUNT(DISTINCT ps.server_name)::INT AS ServerCount
             FROM {Sql.Tables.PatchSchedule} ps
             JOIN {Sql.Tables.KnownIssues} ki ON ki.is_active
                 AND (ps.app = ANY(COALESCE(ki.affected_apps, ARRAY[]::TEXT[])) OR ps.service = ANY(COALESCE(ki.affected_services, ARRAY[]::TEXT[])))
-            WHERE ps.cycle_id = @CycleId
+            WHERE ps.cycle_id = ANY(@CycleIds)
             GROUP BY ki.severity;
-        ", new { CycleId = cycle.CycleId });
+        ", new { CycleIds = cycleIds });
 
         var groups = await multi.ReadAsync<GroupCount>();
         var issues = (await multi.ReadAsync<SeverityCount>()).ToList();
+        var first = cycles[0];
 
         return (NextPatchingSummary?)new NextPatchingSummary
         {
             Cycle = new PatchCycle
             {
-                CycleId = cycle.CycleId,
-                CycleDate = cycle.CycleDate,
+                CycleId = first.CycleId,
+                CycleDate = first.CycleDate,
                 ServerCount = groups.Sum(g => g.Count),
-                Status = cycle.Status ?? "unknown"
+                Status = first.Status ?? "unknown"
             },
-            DaysUntil = cycle.DaysUntil ?? 0,
+            DaysUntil = first.DaysUntil ?? 0,
+            CycleDates = cycles.Select(c => c.CycleDate).ToList(),
             ServersByGroup = groups.ToDictionary(
                 g => g.PatchGroup ?? "Unassigned",
                 g => g.Count

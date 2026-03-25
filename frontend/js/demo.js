@@ -147,6 +147,7 @@ export const DEMO = (() => {
     nextPatch: {
       cycle: { cycleId: 12, cycleDate: new Date(Date.now() + 5 * DAY).toISOString(), serverCount: cycleItems.length, status: 'Scheduled' },
       daysUntil: 5,
+      cycleDates: [new Date(Date.now() + 5 * DAY).toISOString().slice(0, 10), new Date(Date.now() + 6 * DAY).toISOString().slice(0, 10)],
       serversByGroup: { 'Group-A': Math.ceil(cycleItems.length * 0.28), 'Group-B': Math.ceil(cycleItems.length * 0.26), 'Group-C': Math.ceil(cycleItems.length * 0.25), 'Group-D': Math.ceil(cycleItems.length * 0.21) },
       issuesBySeverity: { 'High': 2, 'Medium': 5, 'Low': 3 },
       totalIssuesAffectingServers: 48

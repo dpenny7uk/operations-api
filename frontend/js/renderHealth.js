@@ -118,11 +118,19 @@ export async function renderHealth(data, serverSummary, unmatched, certSummary, 
       </div>
     </div>
     <div class="metric-card metric-green">
-      <h4><span role="img" aria-label="Patch Groups">\u2705</span> Patch Groups</h4>
+      <h4><span role="img" aria-label="Patching">\u2705</span> Patching</h4>
       <div class="metric-big">${Object.keys(patchGroups).length > 0 ? num(patchServers) : '\u2014'}<span>${Object.keys(patchGroups).length > 0 ? ' servers' : ''}</span></div>
       <div class="metric-detail">
         ${Object.keys(patchGroups).length > 0
-          ? Object.entries(patchGroups).map(([g, c]) => `<div class="metric-row"><span>${esc(g)}:</span> <strong>${c}</strong></div>`).join('')
+          ? (() => {
+              const dates = (np.cycleDates || []).map(d => {
+                const dt = new Date(d + 'T00:00:00');
+                return dt.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+              });
+              const dateLabel = dates.length > 0 ? dates.join(', ') : '';
+              return `<div class="color-muted" style="margin-bottom:4px">${esc(dateLabel)}</div>`
+                + Object.entries(patchGroups).map(([g, c]) => `<div class="metric-row"><span>${esc(g)}:</span> <strong>${c}</strong></div>`).join('');
+            })()
           : '<div class="color-muted">No patching this week</div>'}
       </div>
     </div>
