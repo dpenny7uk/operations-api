@@ -1,0 +1,47 @@
+# Operations API - Daily Maintenance
+# Refreshes certificate expiry calculations (days_until_expiry, alert_level)
+# Runs daily at 07:30 UTC (after cert scan at 06:00, before health alert at 08:00)
+
+trigger: none
+
+schedules:
+  - cron: "30 7 * * *"
+    displayName: "Daily cert expiry refresh at 07:30"
+    branches:
+      include:
+        - main
+    always: true
+
+pool:
+  name: 'Default'
+
+variables:
+  - group: operations-api-prod
+
+steps:
+  - powershell: |
+      $repoRoot = "$(Build.SourcesDirectory)\operations-api"
+      $workDir = "$(Build.StagingDirectory)\sync_run"
+      New-Item -ItemType Directory -Force -Path $workDir | Out-Null
+      Copy-Item "$repoRoot\sync\common.py" "$workDir\"
+      Copy-Item "$repoRoot\sync\maintenance\run_maintenance.py" "$workDir\"
+      pip install -r "$repoRoot\sync\requirements.txt"
+      if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    displayName: 'Prepare maintenance environment'
+    timeoutInMinutes: 10
+    errorActionPreference: stop
+
+  - powershell: |
+      Set-Location "$(Build.StagingDirectory)\sync_run"
+      python run_maintenance.py refresh_expiry --verbose
+      if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    displayName: 'Refresh certificate expiry calculations'
+    timeoutInMinutes: 10
+    errorActionPreference: stop
+    env:
+      OPS_DB_HOST: $(OPS_DB_HOST)
+      OPS_DB_PORT: $(OPS_DB_PORT)
+      OPS_DB_NAME: $(OPS_DB_NAME)
+      OPS_DB_USER: $(OPS_DB_USER)
+      OPS_DB_PASSWORD: $(OPS_DB_PASSWORD)
+      OPS_DB_SSLMODE: $(OPS_DB_SSLMODE)

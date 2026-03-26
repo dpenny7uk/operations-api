@@ -15,7 +15,9 @@
 #   06:00  ops-sync-certificates      (PowerShell cert scan + sync)
 #   06:30  ops-sync-patching-schedule (patching HTML page)
 #   07:00  ops-alert-unmatched        (unmatched server spike check)
+#   07:30  ops-maintenance-daily      (refresh cert expiry calculations)
 #   08:00  ops-health-alert           (overall sync health — runs after all syncs)
+#   03:00  ops-maintenance-monthly    (purge sync_history >90 days — 1st of month only)
 
 parameters:
   - name: scriptPath
