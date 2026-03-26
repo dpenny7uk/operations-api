@@ -14,7 +14,7 @@ public class HealthServiceTests : IntegrationTestBase
 
     // ── GetHealthSummaryAsync ────────────────────────────────────────
 
-    [Fact]
+    [DockerFact]
     public async Task Summary_reflects_overall_status()
     {
         var svc = CreateService();
@@ -24,7 +24,7 @@ public class HealthServiceTests : IntegrationTestBase
         Assert.NotEqual("healthy", summary.OverallStatus);
     }
 
-    [Fact]
+    [DockerFact]
     public async Task Summary_counts_unmatched_servers()
     {
         var svc = CreateService();
@@ -34,7 +34,7 @@ public class HealthServiceTests : IntegrationTestBase
         Assert.Equal(2, summary.UnmatchedServersCount);
     }
 
-    [Fact]
+    [DockerFact]
     public async Task Summary_counts_unreachable_servers()
     {
         var svc = CreateService();
@@ -44,7 +44,7 @@ public class HealthServiceTests : IntegrationTestBase
         Assert.Equal(2, summary.UnreachableServersCount);
     }
 
-    [Fact]
+    [DockerFact]
     public async Task Summary_includes_sync_statuses()
     {
         var svc = CreateService();
@@ -57,7 +57,7 @@ public class HealthServiceTests : IntegrationTestBase
 
     // ── GetSyncStatusesAsync ─────────────────────────────────────────
 
-    [Fact]
+    [DockerFact]
     public async Task SyncStatuses_healthy_sync_correct()
     {
         var svc = CreateService();
@@ -70,7 +70,7 @@ public class HealthServiceTests : IntegrationTestBase
         Assert.True(dbSync.HoursSinceSuccess < 24);
     }
 
-    [Fact]
+    [DockerFact]
     public async Task SyncStatuses_stale_sync_flagged()
     {
         var svc = CreateService();
@@ -81,7 +81,7 @@ public class HealthServiceTests : IntegrationTestBase
         Assert.True(certSync.ConsecutiveFailures > 0);
     }
 
-    [Fact]
+    [DockerFact]
     public async Task SyncStatuses_error_message_sanitized()
     {
         var svc = CreateService();
@@ -95,7 +95,7 @@ public class HealthServiceTests : IntegrationTestBase
 
     // ── GetSyncHistoryAsync ──────────────────────────────────────────
 
-    [Fact]
+    [DockerFact]
     public async Task SyncHistory_returns_entries_for_known_sync()
     {
         var svc = CreateService();
@@ -105,7 +105,7 @@ public class HealthServiceTests : IntegrationTestBase
         Assert.All(history, h => Assert.Equal("databricks_servers", h.SyncName));
     }
 
-    [Fact]
+    [DockerFact]
     public async Task SyncHistory_ordered_by_most_recent()
     {
         var svc = CreateService();
@@ -114,7 +114,7 @@ public class HealthServiceTests : IntegrationTestBase
         Assert.True(history[0].StartedAt > history[1].StartedAt);
     }
 
-    [Fact]
+    [DockerFact]
     public async Task SyncHistory_empty_for_unknown_sync()
     {
         var svc = CreateService();
@@ -125,7 +125,7 @@ public class HealthServiceTests : IntegrationTestBase
 
     // ── RunValidationAsync ───────────────────────────────────────────
 
-    [Fact]
+    [DockerFact]
     public async Task Validation_runs_seeded_rules()
     {
         var svc = CreateService();
@@ -135,7 +135,7 @@ public class HealthServiceTests : IntegrationTestBase
         Assert.Contains(results, r => r.RuleName == "servers_no_duplicates");
     }
 
-    [Fact]
+    [DockerFact]
     public async Task Validation_no_duplicate_servers()
     {
         var svc = CreateService();

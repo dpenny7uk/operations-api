@@ -233,8 +233,6 @@ public abstract class IntegrationTestBase : IDisposable
     protected IntegrationTestBase(DatabaseFixture db)
     {
         Db = db;
-        if (!db.IsAvailable)
-            throw new InvalidOperationException(db.SkipReason ?? "Docker not available");
     }
 
     /// <summary>Opens a connection tracked for disposal when the test class is torn down.</summary>
@@ -252,6 +250,44 @@ public abstract class IntegrationTestBase : IDisposable
             conn.Dispose();
         _connections.Clear();
         GC.SuppressFinalize(this);
+    }
+}
+
+/// <summary>
+/// Like [Fact] but automatically skips when Docker is not available.
+/// </summary>
+public class DockerFactAttribute : FactAttribute
+{
+    private static readonly Lazy<string?> _skipReason = new(() =>
+    {
+        try
+        {
+            using var client = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(2) };
+            // Check Docker socket on Windows named pipe via HTTP
+            var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(2));
+            var response = client.GetAsync("http://localhost:2375/version", cts.Token).GetAwaiter().GetResult();
+            return response.IsSuccessStatusCode ? null : "Docker API not reachable";
+        }
+        catch
+        {
+            // Try npipe
+            try
+            {
+                using var pipe = new System.IO.Pipes.NamedPipeClientStream(".", "docker_engine", System.IO.Pipes.PipeDirection.InOut, System.IO.Pipes.PipeOptions.None);
+                pipe.Connect(2000);
+                return null;
+            }
+            catch
+            {
+                return "Docker is not available — install Docker Desktop to run integration tests";
+            }
+        }
+    });
+
+    public DockerFactAttribute()
+    {
+        if (_skipReason.Value is string reason)
+            Skip = reason;
     }
 }
 

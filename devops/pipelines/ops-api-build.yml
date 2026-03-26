@@ -34,7 +34,7 @@ steps:
     workingDirectory: '$(Build.SourcesDirectory)/operations-api'
     displayName: 'Build'
 
-  - powershell: dotnet test OperationsApi.sln --configuration $(buildConfiguration) --no-build --verbosity normal --filter "FullyQualifiedName!~Integration"
+  - powershell: dotnet test OperationsApi.sln --configuration $(buildConfiguration) --no-build --verbosity normal
     workingDirectory: '$(Build.SourcesDirectory)/operations-api'
     displayName: 'Run .NET tests'
 

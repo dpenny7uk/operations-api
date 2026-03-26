@@ -14,7 +14,7 @@ public class CertificateServiceTests : IntegrationTestBase
 
     // ── GetSummaryAsync ──────────────────────────────────────────────
 
-    [Fact]
+    [DockerFact]
     public async Task Summary_counts_active_certs_by_alert_level()
     {
         var svc = CreateService();
@@ -30,7 +30,7 @@ public class CertificateServiceTests : IntegrationTestBase
 
     // ── ListCertificatesAsync ────────────────────────────────────────
 
-    [Fact]
+    [DockerFact]
     public async Task List_returns_only_active()
     {
         var svc = CreateService();
@@ -40,7 +40,7 @@ public class CertificateServiceTests : IntegrationTestBase
         Assert.DoesNotContain(results, c => c.SubjectCn == "inactive.contoso.com");
     }
 
-    [Fact]
+    [DockerFact]
     public async Task List_filter_by_alert_level()
     {
         var svc = CreateService();
@@ -49,7 +49,7 @@ public class CertificateServiceTests : IntegrationTestBase
         Assert.All(results, c => Assert.Equal("WARNING", c.AlertLevel));
     }
 
-    [Fact]
+    [DockerFact]
     public async Task List_filter_by_server_ilike()
     {
         var svc = CreateService();
@@ -59,7 +59,7 @@ public class CertificateServiceTests : IntegrationTestBase
         Assert.Equal(2, results.Count); // AAA111 + DDD444
     }
 
-    [Fact]
+    [DockerFact]
     public async Task List_filter_by_days_until_expiry()
     {
         var svc = CreateService();
@@ -68,7 +68,7 @@ public class CertificateServiceTests : IntegrationTestBase
         Assert.All(results, c => Assert.True(c.DaysUntilExpiry <= 14));
     }
 
-    [Fact]
+    [DockerFact]
     public async Task List_ordered_by_valid_to()
     {
         var svc = CreateService();
@@ -80,7 +80,7 @@ public class CertificateServiceTests : IntegrationTestBase
 
     // ── GetByIdAsync ─────────────────────────────────────────────────
 
-    [Fact]
+    [DockerFact]
     public async Task GetById_returns_full_detail()
     {
         var svc = CreateService();
@@ -92,7 +92,7 @@ public class CertificateServiceTests : IntegrationTestBase
         Assert.Equal("CN=Contoso CA", cert.Issuer);
     }
 
-    [Fact]
+    [DockerFact]
     public async Task GetById_returns_null_for_missing()
     {
         var svc = CreateService();
@@ -101,7 +101,7 @@ public class CertificateServiceTests : IntegrationTestBase
 
     // ── GetByServerAsync ─────────────────────────────────────────────
 
-    [Fact]
+    [DockerFact]
     public async Task GetByServer_returns_matching_certs()
     {
         var svc = CreateService();
@@ -111,7 +111,7 @@ public class CertificateServiceTests : IntegrationTestBase
         Assert.Equal("api.contoso.com", results[0].SubjectCn);
     }
 
-    [Fact]
+    [DockerFact]
     public async Task GetByServer_case_insensitive()
     {
         var svc = CreateService();

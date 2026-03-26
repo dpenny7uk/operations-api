@@ -14,7 +14,7 @@ public class ServerServiceTests : IntegrationTestBase
 
     // ── ListServersAsync ──────────────────────────────────────────────
 
-    [Fact]
+    [DockerFact]
     public async Task ListServers_returns_only_active()
     {
         var svc = CreateService();
@@ -24,7 +24,7 @@ public class ServerServiceTests : IntegrationTestBase
         Assert.DoesNotContain(results, s => s.ServerName == "OLD01");
     }
 
-    [Fact]
+    [DockerFact]
     public async Task ListServers_filter_by_environment()
     {
         var svc = CreateService();
@@ -34,7 +34,7 @@ public class ServerServiceTests : IntegrationTestBase
         Assert.Equal(3, results.Count); // WEB01, WEB02, API01
     }
 
-    [Fact]
+    [DockerFact]
     public async Task ListServers_filter_by_application_ilike()
     {
         var svc = CreateService();
@@ -43,7 +43,7 @@ public class ServerServiceTests : IntegrationTestBase
         Assert.All(results, s => Assert.Equal("Portal", s.ApplicationName));
     }
 
-    [Fact]
+    [DockerFact]
     public async Task ListServers_filter_by_patch_group()
     {
         var svc = CreateService();
@@ -53,7 +53,7 @@ public class ServerServiceTests : IntegrationTestBase
         Assert.Equal(2, results.Count); // WEB01, DEV01
     }
 
-    [Fact]
+    [DockerFact]
     public async Task ListServers_search_by_name()
     {
         var svc = CreateService();
@@ -63,7 +63,7 @@ public class ServerServiceTests : IntegrationTestBase
         Assert.All(results, s => Assert.Contains("WEB", s.ServerName));
     }
 
-    [Fact]
+    [DockerFact]
     public async Task ListServers_search_by_fqdn()
     {
         var svc = CreateService();
@@ -73,7 +73,7 @@ public class ServerServiceTests : IntegrationTestBase
         Assert.Equal("API01", results[0].ServerName);
     }
 
-    [Fact]
+    [DockerFact]
     public async Task ListServers_search_escapes_percent()
     {
         var svc = CreateService();
@@ -83,7 +83,7 @@ public class ServerServiceTests : IntegrationTestBase
         Assert.Empty(results);
     }
 
-    [Fact]
+    [DockerFact]
     public async Task ListServers_pagination()
     {
         var svc = CreateService();
@@ -95,7 +95,7 @@ public class ServerServiceTests : IntegrationTestBase
         Assert.DoesNotContain(page2, s => page1.Any(p => p.ServerId == s.ServerId));
     }
 
-    [Fact]
+    [DockerFact]
     public async Task ListServers_combined_filters()
     {
         var svc = CreateService();
@@ -107,7 +107,7 @@ public class ServerServiceTests : IntegrationTestBase
 
     // ── GetServerByIdAsync ────────────────────────────────────────────
 
-    [Fact]
+    [DockerFact]
     public async Task GetById_returns_detail()
     {
         var svc = CreateService();
@@ -120,7 +120,7 @@ public class ServerServiceTests : IntegrationTestBase
         Assert.Equal("Portal", server.ApplicationName);
     }
 
-    [Fact]
+    [DockerFact]
     public async Task GetById_returns_null_for_missing()
     {
         var svc = CreateService();
@@ -131,7 +131,7 @@ public class ServerServiceTests : IntegrationTestBase
 
     // ── ResolveServerNameAsync ────────────────────────────────────────
 
-    [Fact]
+    [DockerFact]
     public async Task Resolve_exact_match()
     {
         var svc = CreateService();
@@ -142,7 +142,7 @@ public class ServerServiceTests : IntegrationTestBase
         Assert.Equal("exact", match.MatchType);
     }
 
-    [Fact]
+    [DockerFact]
     public async Task Resolve_case_insensitive()
     {
         var svc = CreateService();
@@ -152,7 +152,7 @@ public class ServerServiceTests : IntegrationTestBase
         Assert.Equal("WEB01", match.ServerName);
     }
 
-    [Fact]
+    [DockerFact]
     public async Task Resolve_alias()
     {
         var svc = CreateService();
@@ -163,7 +163,7 @@ public class ServerServiceTests : IntegrationTestBase
         Assert.Equal("alias", match.MatchType);
     }
 
-    [Fact]
+    [DockerFact]
     public async Task Resolve_returns_null_for_unknown()
     {
         var svc = CreateService();
@@ -174,7 +174,7 @@ public class ServerServiceTests : IntegrationTestBase
 
     // ── GetUnmatchedServersAsync ──────────────────────────────────────
 
-    [Fact]
+    [DockerFact]
     public async Task GetUnmatched_returns_only_pending()
     {
         var svc = CreateService();
@@ -183,7 +183,7 @@ public class ServerServiceTests : IntegrationTestBase
         Assert.DoesNotContain(results, u => u.ServerNameRaw == "RESOLVED01");
     }
 
-    [Fact]
+    [DockerFact]
     public async Task GetUnmatched_filter_by_source()
     {
         var svc = CreateService();
@@ -193,7 +193,7 @@ public class ServerServiceTests : IntegrationTestBase
         Assert.Equal("UNKNOWN99", results[0].ServerNameRaw);
     }
 
-    [Fact]
+    [DockerFact]
     public async Task GetUnmatched_ordered_by_occurrence_desc()
     {
         var svc = CreateService();

@@ -14,7 +14,7 @@ public class PatchingServiceTests : IntegrationTestBase
 
     // ── GetNextPatchingSummaryAsync ───────────────────────────────────
 
-    [Fact]
+    [DockerFact]
     public async Task NextSummary_returns_upcoming_active_cycle()
     {
         var svc = CreateService();
@@ -26,7 +26,7 @@ public class PatchingServiceTests : IntegrationTestBase
         Assert.True(summary.DaysUntil > 0);
     }
 
-    [Fact]
+    [DockerFact]
     public async Task NextSummary_includes_servers_by_group()
     {
         var svc = CreateService();
@@ -37,7 +37,7 @@ public class PatchingServiceTests : IntegrationTestBase
         Assert.Contains("8a", summary.ServersByGroup.Keys);
     }
 
-    [Fact]
+    [DockerFact]
     public async Task NextSummary_includes_issue_counts()
     {
         var svc = CreateService();
@@ -50,7 +50,7 @@ public class PatchingServiceTests : IntegrationTestBase
 
     // ── ListPatchCyclesAsync ─────────────────────────────────────────
 
-    [Fact]
+    [DockerFact]
     public async Task ListCycles_upcoming_only()
     {
         var svc = CreateService();
@@ -63,7 +63,7 @@ public class PatchingServiceTests : IntegrationTestBase
         });
     }
 
-    [Fact]
+    [DockerFact]
     public async Task ListCycles_all_includes_completed()
     {
         var svc = CreateService();
@@ -74,7 +74,7 @@ public class PatchingServiceTests : IntegrationTestBase
 
     // ── GetCycleServersAsync ─────────────────────────────────────────
 
-    [Fact]
+    [DockerFact]
     public async Task GetCycleServers_returns_paged_result()
     {
         var svc = CreateService();
@@ -84,7 +84,7 @@ public class PatchingServiceTests : IntegrationTestBase
         Assert.Equal(3, result.Items.Count());
     }
 
-    [Fact]
+    [DockerFact]
     public async Task GetCycleServers_filter_by_patch_group()
     {
         var svc = CreateService();
@@ -94,7 +94,7 @@ public class PatchingServiceTests : IntegrationTestBase
         Assert.Single(result.Items);
     }
 
-    [Fact]
+    [DockerFact]
     public async Task GetCycleServers_filter_has_issues_true()
     {
         var svc = CreateService();
@@ -103,7 +103,7 @@ public class PatchingServiceTests : IntegrationTestBase
         Assert.All(result.Items, s => Assert.True(s.HasKnownIssue));
     }
 
-    [Fact]
+    [DockerFact]
     public async Task GetCycleServers_filter_has_issues_false()
     {
         var svc = CreateService();
@@ -112,7 +112,7 @@ public class PatchingServiceTests : IntegrationTestBase
         Assert.All(result.Items, s => Assert.False(s.HasKnownIssue));
     }
 
-    [Fact]
+    [DockerFact]
     public async Task GetCycleServers_pagination()
     {
         var svc = CreateService();
@@ -126,7 +126,7 @@ public class PatchingServiceTests : IntegrationTestBase
 
     // ── ListKnownIssuesAsync ─────────────────────────────────────────
 
-    [Fact]
+    [DockerFact]
     public async Task ListIssues_active_only()
     {
         var svc = CreateService();
@@ -136,7 +136,7 @@ public class PatchingServiceTests : IntegrationTestBase
         Assert.Equal(2, results.Count);
     }
 
-    [Fact]
+    [DockerFact]
     public async Task ListIssues_filter_by_severity()
     {
         var svc = CreateService();
@@ -145,7 +145,7 @@ public class PatchingServiceTests : IntegrationTestBase
         Assert.All(results, i => Assert.Equal("CRITICAL", i.Severity));
     }
 
-    [Fact]
+    [DockerFact]
     public async Task ListIssues_filter_by_app_ilike()
     {
         var svc = CreateService();
@@ -155,7 +155,7 @@ public class PatchingServiceTests : IntegrationTestBase
         Assert.Equal("Portal", results[0].Application);
     }
 
-    [Fact]
+    [DockerFact]
     public async Task ListIssues_filter_by_patch_type_windows()
     {
         var svc = CreateService();
@@ -164,7 +164,7 @@ public class PatchingServiceTests : IntegrationTestBase
         Assert.All(results, i => Assert.True(i.AppliesToWindows));
     }
 
-    [Fact]
+    [DockerFact]
     public async Task ListIssues_filter_by_patch_type_sql()
     {
         var svc = CreateService();
@@ -173,7 +173,7 @@ public class PatchingServiceTests : IntegrationTestBase
         Assert.All(results, i => Assert.True(i.AppliesToSql));
     }
 
-    [Fact]
+    [DockerFact]
     public async Task ListIssues_ordered_by_severity()
     {
         var svc = CreateService();
@@ -188,7 +188,7 @@ public class PatchingServiceTests : IntegrationTestBase
 
     // ── GetKnownIssueByIdAsync ───────────────────────────────────────
 
-    [Fact]
+    [DockerFact]
     public async Task GetIssueById_returns_full_detail()
     {
         var svc = CreateService();
@@ -201,7 +201,7 @@ public class PatchingServiceTests : IntegrationTestBase
         Assert.True(issue.IsActive);
     }
 
-    [Fact]
+    [DockerFact]
     public async Task GetIssueById_returns_null_for_missing()
     {
         var svc = CreateService();
@@ -210,7 +210,7 @@ public class PatchingServiceTests : IntegrationTestBase
 
     // ── GetPatchWindowsAsync ─────────────────────────────────────────
 
-    [Fact]
+    [DockerFact]
     public async Task GetPatchWindows_returns_seeded_windows()
     {
         var svc = CreateService();

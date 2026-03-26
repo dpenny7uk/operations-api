@@ -14,7 +14,7 @@ public class EolServiceTests : IntegrationTestBase
 
     // ── GetSummaryAsync ──────────────────────────────────────────────
 
-    [Fact]
+    [DockerFact]
     public async Task Summary_counts_by_lifecycle_status()
     {
         var svc = CreateService();
@@ -29,7 +29,7 @@ public class EolServiceTests : IntegrationTestBase
 
     // ── ListEolSoftwareAsync ─────────────────────────────────────────
 
-    [Fact]
+    [DockerFact]
     public async Task List_returns_only_active_grouped()
     {
         var svc = CreateService();
@@ -39,7 +39,7 @@ public class EolServiceTests : IntegrationTestBase
         Assert.DoesNotContain(results, e => e.Product == "Legacy App");
     }
 
-    [Fact]
+    [DockerFact]
     public async Task List_filter_by_product_ilike()
     {
         var svc = CreateService();
@@ -48,7 +48,7 @@ public class EolServiceTests : IntegrationTestBase
         Assert.All(results, e => Assert.Contains("Windows", e.Product, StringComparison.OrdinalIgnoreCase));
     }
 
-    [Fact]
+    [DockerFact]
     public async Task List_filter_eol_alert_level()
     {
         var svc = CreateService();
@@ -58,7 +58,7 @@ public class EolServiceTests : IntegrationTestBase
         Assert.Contains(results, e => e.Product == "Windows Server" && e.Version == "2019");
     }
 
-    [Fact]
+    [DockerFact]
     public async Task List_filter_approaching_alert_level()
     {
         var svc = CreateService();
@@ -67,7 +67,7 @@ public class EolServiceTests : IntegrationTestBase
         Assert.All(results, e => Assert.Equal("approaching", e.AlertLevel));
     }
 
-    [Fact]
+    [DockerFact]
     public async Task List_groups_by_product_version()
     {
         var svc = CreateService();
@@ -81,7 +81,7 @@ public class EolServiceTests : IntegrationTestBase
 
     // ── GetByProductVersionAsync ─────────────────────────────────────
 
-    [Fact]
+    [DockerFact]
     public async Task GetByProductVersion_returns_detail_with_assets()
     {
         var svc = CreateService();
@@ -94,7 +94,7 @@ public class EolServiceTests : IntegrationTestBase
         Assert.Contains("DEV01", detail.Assets);
     }
 
-    [Fact]
+    [DockerFact]
     public async Task GetByProductVersion_returns_null_for_missing()
     {
         var svc = CreateService();
@@ -103,7 +103,7 @@ public class EolServiceTests : IntegrationTestBase
 
     // ── GetByServerAsync ─────────────────────────────────────────────
 
-    [Fact]
+    [DockerFact]
     public async Task GetByServer_returns_software_for_asset()
     {
         var svc = CreateService();
@@ -113,7 +113,7 @@ public class EolServiceTests : IntegrationTestBase
         Assert.Equal("SQL Server", results[0].Product);
     }
 
-    [Fact]
+    [DockerFact]
     public async Task GetByServer_case_insensitive()
     {
         var svc = CreateService();
