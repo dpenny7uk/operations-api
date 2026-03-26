@@ -40,11 +40,11 @@ steps:
     workingDirectory: '$(Build.SourcesDirectory)/operations-api'
     displayName: 'Build'
 
-  - powershell: dotnet test tests/OperationsApi.Tests/OperationsApi.Tests.csproj --configuration $(buildConfiguration) --no-build --verbosity normal
+  - powershell: dotnet test --configuration $(buildConfiguration) --no-build --verbosity normal
     workingDirectory: '$(Build.SourcesDirectory)/operations-api'
     displayName: 'Run .NET tests'
 
-  - powershell: dotnet publish --configuration $(buildConfiguration) --no-build --output $(Build.ArtifactStagingDirectory)/api
+  - powershell: dotnet publish OperationsApi.csproj --configuration $(buildConfiguration) --no-build --output $(Build.ArtifactStagingDirectory)/api
     workingDirectory: '$(Build.SourcesDirectory)/operations-api'
     displayName: 'Publish API'
 
