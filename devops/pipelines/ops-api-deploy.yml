@@ -6,9 +6,9 @@ trigger: none
 
 parameters:
   - name: buildPipelineRunId
-    displayName: 'Build pipeline run ID (leave empty for latest)'
+    displayName: 'Build pipeline run ID (enter "latest" for most recent)'
     type: string
-    default: ''
+    default: 'latest'
 
 pool:
   name: 'Default'
@@ -45,7 +45,7 @@ stages:
                     buildType: 'specific'
                     project: '$(System.TeamProjectId)'
                     pipeline: 'ops-api-build'
-                    ${{ if eq(parameters.buildPipelineRunId, '') }}:
+                    ${{ if eq(parameters.buildPipelineRunId, 'latest') }}:
                       buildVersionToDownload: 'latest'
                     ${{ else }}:
                       buildVersionToDownload: 'specific'
