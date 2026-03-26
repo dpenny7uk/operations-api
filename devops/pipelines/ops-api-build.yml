@@ -26,12 +26,6 @@ variables:
   buildConfiguration: 'Release'
 
 steps:
-  - task: UseDotNet@2
-    inputs:
-      packageType: 'sdk'
-      version: '10.0.x'
-    displayName: 'Install .NET 10 SDK'
-
   - powershell: dotnet restore
     workingDirectory: '$(Build.SourcesDirectory)/operations-api'
     displayName: 'Restore NuGet packages'
