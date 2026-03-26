@@ -38,6 +38,8 @@ variables:
     value: 'OperationsApi'
   - name: deployPath
     value: 'C:\inetpub\operations-api'
+  - name: dbHostLocal
+    value: '127.0.0.1'
 
 stages:
   - stage: Rollback
@@ -121,11 +123,11 @@ stages:
 
                       $pgpassFile = [System.IO.Path]::GetTempFileName()
                       try {
-                          $pgpassEntry = "$(OPS_DB_HOST):$(OPS_DB_PORT):$(OPS_DB_NAME):$(OPS_DB_MIGRATE_USER):" + $env:OPS_DB_MIGRATE_PASSWORD
+                          $pgpassEntry = "$(dbHostLocal):$(OPS_DB_PORT):$(OPS_DB_NAME):$(OPS_DB_MIGRATE_USER):" + $env:OPS_DB_MIGRATE_PASSWORD
                           [System.IO.File]::WriteAllText($pgpassFile, $pgpassEntry, [System.Text.Encoding]::ASCII)
                           $env:PGPASSFILE = $pgpassFile
 
-                          & $pgRestore -h "$(OPS_DB_HOST)" -p "$(OPS_DB_PORT)" -d "$(OPS_DB_NAME)" `
+                          & $pgRestore -h "$(dbHostLocal)" -p "$(OPS_DB_PORT)" -d "$(OPS_DB_NAME)" `
                                        -U "$(OPS_DB_MIGRATE_USER)" -F c -c -v $dumpFile
                           if ($LASTEXITCODE -ne 0) {
                               Write-Error "pg_restore failed (exit $LASTEXITCODE) — rollback aborted"

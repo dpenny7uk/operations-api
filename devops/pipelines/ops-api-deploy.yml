@@ -23,6 +23,8 @@ variables:
     value: 'C:\inetpub\operations-api'
   - name: dbBackupPath
     value: 'E:\OperationsApiBackups\ops-api-db'
+  - name: dbHostLocal
+    value: '127.0.0.1'
   - name: healthCheckUrl
     value: 'http://localhost/healthz'
   - name: backupMinAgeDays
@@ -87,11 +89,11 @@ stages:
 
                       $pgpassFile = [System.IO.Path]::GetTempFileName()
                       try {
-                          $pgpassEntry = "$(OPS_DB_HOST):$(OPS_DB_PORT):$(OPS_DB_NAME):$(OPS_DB_MIGRATE_USER):" + $env:OPS_DB_MIGRATE_PASSWORD
+                          $pgpassEntry = "$(dbHostLocal):$(OPS_DB_PORT):$(OPS_DB_NAME):$(OPS_DB_MIGRATE_USER):" + $env:OPS_DB_MIGRATE_PASSWORD
                           [System.IO.File]::WriteAllText($pgpassFile, $pgpassEntry, [System.Text.Encoding]::ASCII)
                           $env:PGPASSFILE = $pgpassFile
 
-                          & $pgDump -h "$(OPS_DB_HOST)" -p "$(OPS_DB_PORT)" -d "$(OPS_DB_NAME)" `
+                          & $pgDump -h "$(dbHostLocal)" -p "$(OPS_DB_PORT)" -d "$(OPS_DB_NAME)" `
                                     -U "$(OPS_DB_MIGRATE_USER)" -F c -f $dumpFile
                           if ($LASTEXITCODE -ne 0) {
                               Write-Error "pg_dump failed (exit $LASTEXITCODE) — deployment aborted"
@@ -153,7 +155,7 @@ stages:
                       # Format: hostname:port:database:username:password
                       $pgpassFile = [System.IO.Path]::GetTempFileName()
                       try {
-                          $pgpassEntry = "$(OPS_DB_HOST):$(OPS_DB_PORT):$(OPS_DB_NAME):$(OPS_DB_MIGRATE_USER):" + $env:OPS_DB_MIGRATE_PASSWORD
+                          $pgpassEntry = "$(dbHostLocal):$(OPS_DB_PORT):$(OPS_DB_NAME):$(OPS_DB_MIGRATE_USER):" + $env:OPS_DB_MIGRATE_PASSWORD
                           [System.IO.File]::WriteAllText($pgpassFile, $pgpassEntry, [System.Text.Encoding]::ASCII)
                           $env:PGPASSFILE = $pgpassFile
 
@@ -166,14 +168,14 @@ stages:
 
                           # Check if the migration tracking table exists (absent on first deploy).
                           # On first deploy every script runs; on subsequent deploys only pending ones do.
-                          $trackingCheck = & $psql -h "$(OPS_DB_HOST)" -p "$(OPS_DB_PORT)" -d "$(OPS_DB_NAME)" `
+                          $trackingCheck = & $psql -h "$(dbHostLocal)" -p "$(OPS_DB_PORT)" -d "$(OPS_DB_NAME)" `
                               -U "$(OPS_DB_MIGRATE_USER)" -t -c `
                               "SELECT 1 FROM information_schema.tables WHERE table_schema='system' AND table_name='schema_migrations'"
                           $trackingTableExists = ($trackingCheck | Select-String '1') -ne $null
 
                           $appliedScripts = @()
                           if ($trackingTableExists) {
-                              $appliedScripts = (& $psql -h "$(OPS_DB_HOST)" -p "$(OPS_DB_PORT)" -d "$(OPS_DB_NAME)" `
+                              $appliedScripts = (& $psql -h "$(dbHostLocal)" -p "$(OPS_DB_PORT)" -d "$(OPS_DB_NAME)" `
                                   -U "$(OPS_DB_MIGRATE_USER)" -t -c `
                                   "SELECT script_name FROM system.schema_migrations WHERE rolled_back_at IS NULL") |
                                   ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' }
@@ -191,7 +193,7 @@ stages:
                                   continue
                               }
                               Write-Host "Running: $($script.Name)"
-                              & $psql -h "$(OPS_DB_HOST)" -p "$(OPS_DB_PORT)" -d "$(OPS_DB_NAME)" `
+                              & $psql -h "$(dbHostLocal)" -p "$(OPS_DB_PORT)" -d "$(OPS_DB_NAME)" `
                                       -U "$(OPS_DB_MIGRATE_USER)" -f $script.FullName -v ON_ERROR_STOP=1
                               if ($LASTEXITCODE -ne 0) {
                                   Write-Error "Migration failed on $($script.Name) — deployment aborted"
@@ -199,7 +201,7 @@ stages:
                               }
                               # Record the script in the tracking table if it now exists
                               # (007 creates the table, so subsequent scripts in the same run are recorded).
-                              $postCheck = & $psql -h "$(OPS_DB_HOST)" -p "$(OPS_DB_PORT)" -d "$(OPS_DB_NAME)" `
+                              $postCheck = & $psql -h "$(dbHostLocal)" -p "$(OPS_DB_PORT)" -d "$(OPS_DB_NAME)" `
                                   -U "$(OPS_DB_MIGRATE_USER)" -t -c `
                                   "SELECT 1 FROM information_schema.tables WHERE table_schema='system' AND table_name='schema_migrations'"
                               if (($postCheck | Select-String '1') -ne $null) {
@@ -207,7 +209,7 @@ stages:
                                   $checksum = (Get-FileHash $script.FullName -Algorithm SHA256).Hash
                                   $safeName = $script.Name -replace "'", "''"
                                   $safeChecksum = $checksum -replace "'", "''"
-                                  & $psql -h "$(OPS_DB_HOST)" -p "$(OPS_DB_PORT)" -d "$(OPS_DB_NAME)" `
+                                  & $psql -h "$(dbHostLocal)" -p "$(OPS_DB_PORT)" -d "$(OPS_DB_NAME)" `
                                       -U "$(OPS_DB_MIGRATE_USER)" -c `
                                       "INSERT INTO system.schema_migrations (script_name, checksum) VALUES ('$safeName', '$safeChecksum') ON CONFLICT (script_name) DO NOTHING" | Out-Null
                               }
