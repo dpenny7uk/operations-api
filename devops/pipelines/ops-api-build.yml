@@ -26,15 +26,15 @@ variables:
   buildConfiguration: 'Release'
 
 steps:
-  - powershell: dotnet restore OperationsApi.slnx
+  - powershell: dotnet restore
     workingDirectory: '$(Build.SourcesDirectory)/operations-api'
     displayName: 'Restore NuGet packages'
 
-  - powershell: dotnet build OperationsApi.slnx --configuration $(buildConfiguration) --no-restore
+  - powershell: dotnet build --configuration $(buildConfiguration) --no-restore
     workingDirectory: '$(Build.SourcesDirectory)/operations-api'
     displayName: 'Build'
 
-  - powershell: dotnet test OperationsApi.slnx --configuration $(buildConfiguration) --no-build --verbosity normal
+  - powershell: dotnet test --configuration $(buildConfiguration) --no-build --verbosity normal
     workingDirectory: '$(Build.SourcesDirectory)/operations-api'
     displayName: 'Run .NET tests'
 
