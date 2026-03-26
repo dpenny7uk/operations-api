@@ -308,8 +308,8 @@ stages:
                   inputs:
                     targetType: inline
                     script: |
-                      $origins = "$(OPS_CORS_ORIGINS)".Split(",", [System.StringSplitOptions]::RemoveEmptyEntries) |
-                          ForEach-Object { $_.Trim() }
+                      $origins = @("$(OPS_CORS_ORIGINS)".Split(",", [System.StringSplitOptions]::RemoveEmptyEntries) |
+                          ForEach-Object { $_.Trim() })
 
                       foreach ($origin in $origins) {
                           if (-not [System.Uri]::IsWellFormedUriString($origin, [System.UriKind]::Absolute)) {
