@@ -22,7 +22,7 @@ variables:
   - name: deployPath
     value: 'C:\inetpub\operations-api'
   - name: dbBackupPath
-    value: 'C:\backups\ops-api-db'
+    value: 'E:\OperationsApiBackups\ops-api-db'
   - name: healthCheckUrl
     value: 'http://localhost/healthz'
   - name: backupMinAgeDays
@@ -73,7 +73,7 @@ stages:
                       if ($pgDumpCmd) {
                           $pgDump = $pgDumpCmd.Source
                       } else {
-                          $pgDump = (Get-ChildItem "C:\Program Files\PostgreSQL\*\bin\pg_dump.exe" -ErrorAction SilentlyContinue |
+                          $pgDump = (Get-ChildItem "C:\Program Files\PostgreSQL\*\bin\pg_dump.exe","E:\Program Files\PostgreSQL\*\bin\pg_dump.exe" -ErrorAction SilentlyContinue |
                                      Sort-Object FullName | Select-Object -Last 1).FullName
                           if (-not $pgDump) {
                               Write-Error "pg_dump.exe not found. Is PostgreSQL installed?"
@@ -139,7 +139,7 @@ stages:
                       if ($psqlCmd) {
                           $psql = $psqlCmd.Source
                       } else {
-                          $psql = (Get-ChildItem "C:\Program Files\PostgreSQL\*\bin\psql.exe" -ErrorAction SilentlyContinue |
+                          $psql = (Get-ChildItem "C:\Program Files\PostgreSQL\*\bin\psql.exe","E:\Program Files\PostgreSQL\*\bin\psql.exe" -ErrorAction SilentlyContinue |
                                    Sort-Object FullName | Select-Object -Last 1).FullName
                           if (-not $psql) {
                               Write-Error "psql.exe not found. Is PostgreSQL installed?"

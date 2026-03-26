@@ -109,7 +109,7 @@ stages:
                       if ($pgRestoreCmd) {
                           $pgRestore = $pgRestoreCmd.Source
                       } else {
-                          $pgRestore = (Get-ChildItem "C:\Program Files\PostgreSQL\*\bin\pg_restore.exe" -ErrorAction SilentlyContinue |
+                          $pgRestore = (Get-ChildItem "C:\Program Files\PostgreSQL\*\bin\pg_restore.exe","E:\Program Files\PostgreSQL\*\bin\pg_restore.exe" -ErrorAction SilentlyContinue |
                                         Sort-Object FullName | Select-Object -Last 1).FullName
                           if (-not $pgRestore) {
                               Write-Error "pg_restore.exe not found. Is PostgreSQL installed?"
