@@ -392,7 +392,7 @@ stages:
                       for ($i = 1; $i -le $maxRetries; $i++) {
                           Write-Host "Health check attempt $i of ${maxRetries}..."
                           try {
-                              $response = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 15
+                              $response = Invoke-WebRequest -Uri $url -UseBasicParsing -UseDefaultCredentials -TimeoutSec 15
                               if ($response.StatusCode -eq 200) {
                                   $body = $response.Content
                                   Write-Host "Response: $body"
