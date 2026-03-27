@@ -161,11 +161,12 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
 
         if (!string.IsNullOrEmpty(search))
         {
-            where += @" AND (ps.server_name ILIKE @Search ESCAPE '\'
-                OR ps.service ILIKE @Search ESCAPE '\'
-                OR ps.app ILIKE @Search ESCAPE '\'
-                OR ps.patch_group ILIKE @Search ESCAPE '\')";
+            where += " AND (ps.server_name ILIKE @Search ESCAPE @Esc"
+                   + " OR ps.service ILIKE @Search ESCAPE @Esc"
+                   + " OR ps.app ILIKE @Search ESCAPE @Esc"
+                   + " OR ps.patch_group ILIKE @Search ESCAPE @Esc)";
             p.Add("Search", $"%{EscapeLike(search)}%");
+            p.Add("Esc", "\\");
         }
 
         var having = "";
@@ -337,15 +338,15 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
                 ON ki.is_active AND (ps.app = ANY(COALESCE(ki.affected_apps, ARRAY[]::TEXT[])) OR ps.service = ANY(COALESCE(ki.affected_services, ARRAY[]::TEXT[])))
             WHERE ((pc.status = 'active' AND pc.cycle_date >= CURRENT_DATE)
                 OR (pc.status = 'completed' AND pc.cycle_date >= CURRENT_DATE - INTERVAL '7 days'))
-              AND (ps.server_name ILIKE @Search ESCAPE '\'
-                OR ps.service ILIKE @Search ESCAPE '\'
-                OR ps.app ILIKE @Search ESCAPE '\'
-                OR ps.patch_group ILIKE @Search ESCAPE '\')
+              AND (ps.server_name ILIKE @Search ESCAPE @Esc
+                OR ps.service ILIKE @Search ESCAPE @Esc
+                OR ps.app ILIKE @Search ESCAPE @Esc
+                OR ps.patch_group ILIKE @Search ESCAPE @Esc)
             ORDER BY pc.cycle_date, ps.server_name
             LIMIT @Limit";
 
         var searchTerm = $"%{EscapeLike(query)}%";
-        var rows = await Db.QueryAsync<GlobalSearchRow>(sql, new { Search = searchTerm, Limit = limit });
+        var rows = await Db.QueryAsync<GlobalSearchRow>(sql, new { Search = searchTerm, Limit = limit, Esc = "\\" });
 
         var grouped = rows
             .GroupBy(r => new { r.CycleId, r.CycleDate, r.DisplayStatus })
