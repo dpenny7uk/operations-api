@@ -55,6 +55,16 @@ public interface ICertificateService
     Task<IEnumerable<Certificate>> GetByServerAsync(string server, int limit = 500);
 }
 
+public interface IPatchExclusionService
+{
+    Task<PatchExclusionSummary> GetExclusionSummaryAsync();
+    Task<PagedResult<PatchExclusion>> ListExclusionsAsync(string? search, int limit, int offset);
+    Task<PagedResult<PatchServerItem>> SearchPatchServersAsync(string? search, int limit, int offset);
+    Task<int> ExcludeServersAsync(List<int> serverIds, string reason, DateOnly heldUntil, string excludedBy);
+    Task<bool> ExtendExclusionAsync(int exclusionId, DateOnly newHeldUntil, string extendedBy);
+    Task<bool> RemoveExclusionAsync(int exclusionId, string removedBy);
+}
+
 public interface IEolService
 {
     Task<EolSummary> GetSummaryAsync(bool hasServers = false);

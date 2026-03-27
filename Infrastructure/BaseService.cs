@@ -116,7 +116,8 @@ public abstract class BaseService<TService> where TService : class
 
     private static readonly HashSet<string> AllowedOrderByColumns = new(StringComparer.OrdinalIgnoreCase)
     {
-        "s.server_name", "server_name", "valid_to", "cycle_date", "occurrence_count"
+        "s.server_name", "server_name", "valid_to", "cycle_date", "occurrence_count",
+        "excluded_at", "held_until"
     };
 
     /// <summary>
@@ -167,5 +168,7 @@ public static class Sql
         public const string ServerAliases = "system.server_aliases";
         public const string EolSoftware = "eol.end_of_life_software";
         public const string ScanFailures = "system.scan_failures";
+        public const string PatchExclusions = "patching.patch_exclusions";
+        public const string ExclusionAlerts = "patching.exclusion_alerts";
     }
 }

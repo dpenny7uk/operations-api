@@ -21,6 +21,7 @@
       <button class="active" data-page="health">Health</button>
       <button data-page="servers">Servers</button>
       <button data-page="patching">Patching Schedules</button>
+      <button data-page="patchmgmt">Patch Management</button>
       <button data-page="certificates">Certificates</button>
       <button data-page="eol">End of Life</button>
     </nav>
@@ -171,6 +172,74 @@
           <tbody id="issueTable"></tbody>
         </table>
       </div>
+    </div>
+  </div>
+
+  <!-- PATCH MANAGEMENT PAGE -->
+  <div id="patchmgmt" class="page">
+    <h2 class="section-title">Exclude Servers from Patching</h2>
+    <div class="card dash-panel mb-md">
+      <h3 class="dash-panel-title">Search Servers</h3>
+      <div class="filter-bar flex flex-wrap gap-sm">
+        <input type="text" id="patchExclSearch" placeholder="Search servers..." aria-label="Search servers to exclude">
+        <select id="patchExclEnvFilter" aria-label="Filter by environment">
+          <option value="">All Environments</option>
+          <option value="Production">Production</option>
+          <option value="Development">Development</option>
+          <option value="UAT">UAT</option>
+          <option value="Staging">Staging</option>
+          <option value="Systest">Systest</option>
+          <option value="Live Support">Live Support</option>
+          <option value="Shared Services">Shared Services</option>
+          <option value="Training">Training</option>
+          <option value="Proof of Concept">Proof of Concept</option>
+          <option value="Continuous Integration">Continuous Integration</option>
+        </select>
+        <button id="excludeSelectedBtn" class="btn-action btn-red" disabled>Exclude from Patching</button>
+      </div>
+      <div class="scroll-wrap">
+        <table>
+          <thead><tr>
+            <th style="width:40px"><input type="checkbox" id="patchExclSelectAll" aria-label="Select all servers"></th>
+            <th>Server</th><th>Patch Group</th><th>Service</th><th>Function</th><th>Environment</th>
+          </tr></thead>
+          <tbody id="patchExclServerTable"></tbody>
+        </table>
+      </div>
+      <span id="patchExclCountIndicator" class="count-indicator"></span>
+    </div>
+
+    <div id="exclusionForm" class="card dash-panel mb-md" style="display:none">
+      <h3 class="dash-panel-title">Exclusion Details</h3>
+      <div class="flex flex-wrap gap-md" style="align-items:flex-end">
+        <label class="flex-col gap-xs">
+          <span class="text-sm fw-600">Reason for exclusion</span>
+          <textarea id="exclusionReason" rows="2" maxlength="2000" style="width:400px;max-width:100%" placeholder="Why are these servers being excluded from patching?"></textarea>
+        </label>
+        <label class="flex-col gap-xs">
+          <span class="text-sm fw-600">Hold until</span>
+          <input type="date" id="exclusionHeldUntil">
+        </label>
+        <button id="confirmExcludeBtn" class="btn-action btn-red">Confirm Exclusion</button>
+        <button id="cancelExcludeBtn" class="btn-action btn-muted">Cancel</button>
+      </div>
+    </div>
+
+    <div class="flex-between" style="align-items:center">
+      <h2 class="section-title" style="margin-bottom:0">Currently Excluded Servers</h2>
+      <div class="flex gap-sm">
+        <button id="emailExclBtn" class="btn-sm btn-blue" disabled title="Open email to patching team with exclusion list">Email Patching Team</button>
+        <button id="copyExclBtn" class="btn-sm btn-muted" disabled title="Copy exclusion list to clipboard">Copy to Clipboard</button>
+      </div>
+    </div>
+    <div class="card">
+      <table>
+        <thead><tr>
+          <th>Server</th><th>Patch Group</th><th>Service</th><th>Function</th><th>Environment</th><th>Date Excluded</th><th>Held Until</th><th>Notes</th><th>Actions</th>
+        </tr></thead>
+        <tbody id="patchExclTable"></tbody>
+      </table>
+      <span id="patchExclExcludedCount" class="count-indicator"></span>
     </div>
   </div>
 

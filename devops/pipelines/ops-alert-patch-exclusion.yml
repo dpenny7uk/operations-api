@@ -1,0 +1,48 @@
+# Operations API - Patch Exclusion Expiry Alert
+# Checks for patch exclusion holds that have expired and alerts Teams.
+# Schedule: 07:45 UTC (after maintenance 07:30, before health alert 08:00)
+
+trigger: none
+
+schedules:
+  - cron: "45 7 * * *"
+    displayName: "Daily patch exclusion expiry check at 07:45"
+    branches:
+      include:
+        - main
+    always: true
+
+pool:
+  name: 'Default'
+
+variables:
+  - group: operations-api-prod
+
+steps:
+  - powershell: |
+      $repoRoot = "$(Build.SourcesDirectory)\operations-api"
+      $workDir = "$(Build.StagingDirectory)\sync_run"
+      New-Item -ItemType Directory -Force -Path $workDir | Out-Null
+      Copy-Item "$repoRoot\sync\common.py" "$workDir\"
+      Copy-Item "$repoRoot\sync\alerts\alert_patch_exclusion_expiry.py" "$workDir\"
+      pip install -r "$repoRoot\sync\requirements.txt"
+      if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    displayName: 'Prepare sync environment'
+    timeoutInMinutes: 10
+    errorActionPreference: stop
+
+  - powershell: |
+      Set-Location "$(Build.StagingDirectory)\sync_run"
+      python alert_patch_exclusion_expiry.py --verbose
+      if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    displayName: 'Check patch exclusion expiry and alert Teams'
+    timeoutInMinutes: 15
+    errorActionPreference: stop
+    env:
+      OPS_DB_HOST: $(OPS_DB_HOST)
+      OPS_DB_PORT: $(OPS_DB_PORT)
+      OPS_DB_NAME: $(OPS_DB_NAME)
+      OPS_DB_USER: $(OPS_DB_USER)
+      OPS_DB_PASSWORD: $(OPS_DB_PASSWORD)
+      OPS_DB_SSLMODE: $(OPS_DB_SSLMODE)
+      TEAMS_WEBHOOK_URL: $(TEAMS_WEBHOOK_URL)

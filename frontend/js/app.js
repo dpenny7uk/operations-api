@@ -5,6 +5,7 @@ import { renderServers, filterServers } from './renderServers.js';
 import { renderPatching, resetCycleServerCache } from './renderPatching.js';
 import { renderCerts, filterCerts } from './renderCerts.js';
 import { renderEol, filterEol, resetEolDetailCache } from './renderEol.js';
+import { renderPatchMgmt, filterPatchExclServers } from './renderPatchMgmt.js';
 import { debounce, exportCsv } from './utils.js';
 import { allServers, setAllServers, allCerts, allEol } from './api.js';
 
@@ -37,7 +38,7 @@ async function loadAllData() {
 async function _loadAllDataInner() {
   setApiError(null);
   setUsingDemo(false);
-  const [healthData, serverData, serverSummary, unmatched, next, cycles, issues, certSummary, certs, eolSummary, eolItems] =
+  const [healthData, serverData, serverSummary, unmatched, next, cycles, issues, certSummary, certs, eolSummary, eolItems, exclusionSummary] =
     await Promise.all([
       api('/health'),
       api('/servers?limit=50&offset=0'),
@@ -50,6 +51,7 @@ async function _loadAllDataInner() {
       api('/certificates?limit=200'),
       api('/eol/summary?hasServers=true'),
       api('/eol?limit=200&hasServers=true'),
+      api('/patching/exclusions/summary'),
     ]);
 
   if (!healthData) setUsingDemo(true);
@@ -63,13 +65,14 @@ async function _loadAllDataInner() {
   const loader = document.getElementById('pageLoader');
   if (loader) loader.remove();
 
-  renderHealth(healthData || DEMO.health, serverSummary || DEMO.serverSummary, unmatched || DEMO.unmatched, certSummary || DEMO.certSummary, certs || DEMO.certificates, next || DEMO.nextPatch);
+  renderHealth(healthData || DEMO.health, serverSummary || DEMO.serverSummary, unmatched || DEMO.unmatched, certSummary || DEMO.certSummary, certs || DEMO.certificates, next || DEMO.nextPatch, exclusionSummary || DEMO.patchExclusions);
   renderServers(serverSummary || DEMO.serverSummary, servers || DEMO.servers, serverTotalCount || DEMO.servers.length, unmatched || DEMO.unmatched);
   resetCycleServerCache();
   resetEolDetailCache();
   renderPatching(next || DEMO.nextPatch, cycles || DEMO.cycles, issues || DEMO.issues);
   renderCerts(certSummary || DEMO.certSummary, certs || DEMO.certificates);
   renderEol(eolSummary || DEMO.eolSummary, eolItems || DEMO.eolSoftware);
+  renderPatchMgmt();
 
   // Show/hide demo banner
   const demoBanner = document.getElementById('demoBanner');
@@ -106,6 +109,8 @@ document.getElementById('certServerSearch').addEventListener('input', debounce(f
 document.getElementById('eolAlertFilter').addEventListener('change', filterEol);
 document.getElementById('eolProductSearch').addEventListener('input', debounce(filterEol));
 document.getElementById('eolShowAll').addEventListener('change', filterEol);
+document.getElementById('patchExclSearch').addEventListener('input', debounce(filterPatchExclServers));
+document.getElementById('patchExclEnvFilter').addEventListener('change', filterPatchExclServers);
 
 // --- CSV export ---
 document.getElementById('exportServersBtn').addEventListener('click', async () => {

@@ -402,6 +402,10 @@ main {
   background: linear-gradient(135deg, #4a5568 0%, #2d3748 100%);
   border-color: rgba(113, 128, 150, 0.4);
 }
+.critical-card.critical-purple {
+  background: linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%);
+  border-color: rgba(139, 92, 246, 0.4);
+}
 
 /* Clickable critical cards */
 .critical-card.clickable {
@@ -1178,6 +1182,17 @@ th[title] {
 .btn-green { background: var(--green); color: #fff; border-color: var(--green); }
 .btn-blue { background: var(--accent); color: #fff; border-color: var(--accent); }
 .btn-muted { background: var(--surface2); color: var(--text-muted); }
+.btn-red { background: #dc2626; color: #fff; border-color: #dc2626; }
+.btn-red:hover:not(:disabled) { background: #b91c1c; }
+.btn-action {
+  padding: 0.35rem 1rem; font-size: 0.85rem; font-weight: 600; border: none;
+  border-radius: var(--radius-sm); cursor: pointer; color: #fff;
+}
+.btn-action:disabled { opacity: 0.4; cursor: default; }
+.btn-action.btn-red { background: #dc2626; }
+.btn-action.btn-red:hover:not(:disabled) { background: #b91c1c; }
+.btn-action.btn-muted { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+.btn-action.btn-muted:hover:not(:disabled) { background: var(--surface3); }
 .unmatched-actions { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
 .unmatched-manual { display: flex; align-items: center; gap: 0.25rem; }
 .input-sm {
