@@ -43,4 +43,35 @@ public class PatchingControllerTests
 
         _svc.Verify(s => s.GetCycleServersAsync(1, null, null, null, 500, 0));
     }
+
+    [Fact]
+    public async Task GetCycleServers_passes_search_to_service()
+    {
+        _svc.Setup(s => s.GetCycleServersAsync(1, null, null, "test", It.IsAny<int>(), It.IsAny<int>()))
+            .ReturnsAsync(new PagedResult<PatchScheduleItem>());
+
+        await Controller.GetCycleServers(1, null, null, "test", limit: 100, offset: 0);
+
+        _svc.Verify(s => s.GetCycleServersAsync(1, null, null, "test", 100, 0));
+    }
+
+    [Fact]
+    public async Task SearchServers_returns_BadRequest_when_query_too_short()
+    {
+        var result = await Controller.SearchServers("a", limit: 50);
+
+        Assert.IsType<BadRequestObjectResult>(result);
+    }
+
+    [Fact]
+    public async Task SearchServers_passes_query_to_service()
+    {
+        _svc.Setup(s => s.SearchServersGlobalAsync("server1", It.IsAny<int>()))
+            .ReturnsAsync(Array.Empty<GlobalServerSearchResult>());
+
+        var result = await Controller.SearchServers("server1", limit: 50);
+
+        Assert.IsType<OkObjectResult>(result);
+        _svc.Verify(s => s.SearchServersGlobalAsync("server1", 50));
+    }
 }

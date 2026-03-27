@@ -134,6 +134,8 @@ async function loadCycleServersPage(cycleId, offset, search) {
   const data = await api(`/patching/cycles/${cycleId}/servers?limit=${CYCLE_PAGE_SIZE}&offset=${offset}${searchParam}`);
   if (data) {
     cycleServerCache[cycleId] = data;
+  } else if (!usingDemo && currentSearch) {
+    cycleServerCache[cycleId] = { items: [], totalCount: 0, limit: CYCLE_PAGE_SIZE, offset: 0, error: true };
   } else if (usingDemo) {
     const demo = DEMO.cycleServers[cycleId] || { items: [], totalCount: 0, limit: CYCLE_PAGE_SIZE, offset: 0 };
     // Simulate server-side pagination over the full demo item list
@@ -176,20 +178,22 @@ function renderCycleServers(cycleId) {
   const currentSearch = cycleSearchTerms[cycleId] || '';
   container.innerHTML = `
     <div class="cycle-search">
-      <input type="text" placeholder="Search servers, service, app, group" class="cycle-search-input" data-cycle="${parseInt(cycleId)}" value="${esc(currentSearch)}">
+      <input type="text" placeholder="Search servers, service, function, group" class="cycle-search-input" data-cycle="${parseInt(cycleId)}" value="${esc(currentSearch)}">
     </div>
-    ${servers.length === 0
+    ${page.error
+      ? '<div class="empty-state color-red">Search failed \u2014 check API connection</div>'
+      : servers.length === 0
       ? '<div class="empty-state">No servers found</div>'
       : `<div class="cycle-scroll-wrap"><table>
           <thead><tr>
-            <th>Server</th><th>Patch Group</th><th>Scheduled (UTC)</th><th>Application</th><th>Service</th><th>Issues</th>
+            <th>Server</th><th>Patch Group</th><th>Scheduled</th><th>Service</th><th>Function</th><th>Issues</th>
           </tr></thead>
           <tbody>${servers.map(s => `<tr>
             <td><strong>${esc(s.serverName)}</strong></td>
             <td>${s.patchGroup ? badge(s.patchGroup, 'muted') : '\u2014'}</td>
             <td class="color-muted">${esc(s.scheduledTime) || '\u2014'}</td>
-            <td>${esc(s.application) || '\u2014'}</td>
             <td>${esc(s.service) || '\u2014'}</td>
+            <td>${esc(s.application) || '\u2014'}</td>
             <td>${s.hasKnownIssue
               ? `<span class="color-orange">${dot('orange')}${num(s.issueCount)} issue${num(s.issueCount) !== 1 ? 's' : ''}</span>`
               : `<span class="color-green">${dot('green')}None</span>`}</td>
@@ -223,7 +227,11 @@ async function runGlobalSearch(query) {
   tbody.innerHTML = '<tr><td colspan="3"><div class="loading-state flex-center gap-sm"><span class="loading"></span> Searching\u2026</div></td></tr>';
 
   const results = await api(`/patching/servers/search?q=${encodeURIComponent(query)}&limit=100`);
-  if (!results || results.length === 0) {
+  if (results === null) {
+    tbody.innerHTML = '<tr><td colspan="3"><div class="empty-state color-red">Search failed \u2014 check API connection</div></td></tr>';
+    return;
+  }
+  if (results.length === 0) {
     tbody.innerHTML = '<tr><td colspan="3"><div class="empty-state">No results found</div></td></tr>';
     return;
   }
@@ -245,14 +253,14 @@ async function runGlobalSearch(query) {
     detailRow.innerHTML = `<td colspan="3"><div class="cycle-detail-inner">
       <div class="cycle-scroll-wrap"><table>
         <thead><tr>
-          <th>Server</th><th>Patch Group</th><th>Scheduled (UTC)</th><th>Application</th><th>Service</th><th>Issues</th>
+          <th>Server</th><th>Patch Group</th><th>Scheduled</th><th>Service</th><th>Function</th><th>Issues</th>
         </tr></thead>
         <tbody>${group.servers.map(s => `<tr>
           <td><strong>${esc(s.serverName)}</strong></td>
           <td>${s.patchGroup ? badge(s.patchGroup, 'muted') : '\u2014'}</td>
           <td class="color-muted">${esc(s.scheduledTime) || '\u2014'}</td>
-          <td>${esc(s.application) || '\u2014'}</td>
           <td>${esc(s.service) || '\u2014'}</td>
+          <td>${esc(s.application) || '\u2014'}</td>
           <td>${s.hasKnownIssue
             ? `<span class="color-orange">${dot('orange')}${num(s.issueCount)} issue${num(s.issueCount) !== 1 ? 's' : ''}</span>`
             : `<span class="color-green">${dot('green')}None</span>`}</td>
