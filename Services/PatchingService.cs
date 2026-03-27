@@ -328,8 +328,8 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
                 COALESCE(pw.scheduled_time, ps.scheduled_time) AS ScheduledTime,
                 ps.app AS Application,
                 ps.service AS Service,
-                CASE WHEN COUNT(ki.issue_id) OVER (PARTITION BY ps.schedule_id) > 0 THEN TRUE ELSE FALSE END AS HasKnownIssue,
-                COUNT(ki.issue_id) OVER (PARTITION BY ps.schedule_id) AS IssueCount
+                (COUNT(ki.issue_id) OVER (PARTITION BY ps.schedule_id) > 0) AS HasKnownIssue,
+                (COUNT(ki.issue_id) OVER (PARTITION BY ps.schedule_id))::INT AS IssueCount
             FROM {Sql.Tables.PatchSchedule} ps
             JOIN {Sql.Tables.PatchCycles} pc ON pc.cycle_id = ps.cycle_id
             LEFT JOIN {Sql.Tables.PatchWindows} pw
