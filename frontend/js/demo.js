@@ -199,6 +199,7 @@ export const DEMO = (() => {
       '.NET|8.0': { assets: pickN(70) },
     },
     certSummary,
-    certificates: certs
+    certificates: certs,
+    patchExclusions: { totalExcluded: 4, holdExpiredCount: 1 }
   };
 })();

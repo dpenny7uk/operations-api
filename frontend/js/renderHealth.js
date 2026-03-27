@@ -2,7 +2,7 @@ import { esc, num, badge, dot, fmtDate, fmtTime, statusBadge, timeAgo, durationS
 import { api, usingDemo } from './api.js';
 import { DEMO } from './demo.js';
 
-export async function renderHealth(data, serverSummary, unmatched, certSummary, certs, nextPatch) {
+export async function renderHealth(data, serverSummary, unmatched, certSummary, certs, nextPatch, exclusionSummary) {
   const syncs = data.syncStatuses || [];
   const failCount = syncs.filter(s => s.status === 'error' || s.consecutiveFailures > 0).length;
   const status = (data.overallStatus || '').toLowerCase();
@@ -39,6 +39,14 @@ export async function renderHealth(data, serverSummary, unmatched, certSummary, 
       <div class="critical-label">Sync ${failCount === 1 ? 'Failure' : 'Failures'}:</div>
       <div class="critical-num">${failCount}</div>
       <div class="critical-delta">${failCount > 0 ? `${failCount} sync${failCount !== 1 ? 's' : ''} failing` : 'All syncs healthy'}</div>
+    </div>
+    <div class="critical-card critical-purple" data-goto="patchmgmt" style="cursor:pointer" title="View Patch Management">
+      <div class="critical-label">Patch Exclusions:</div>
+      <div class="critical-num">${num((exclusionSummary || {}).totalExcluded)}</div>
+      <div class="critical-delta">${(() => {
+        const exp = num((exclusionSummary || {}).holdExpiredCount);
+        return exp > 0 ? `<span class="color-red">${exp} hold${exp !== 1 ? 's' : ''} expired</span>` : 'All holds active';
+      })()}</div>
     </div>`;
 
   // Recent Alerts
@@ -60,6 +68,17 @@ export async function renderHealth(data, serverSummary, unmatched, certSummary, 
       goto: 'certificates'
     });
   });
+
+  const exclExpired = num((exclusionSummary || {}).holdExpiredCount);
+  if (exclExpired > 0) {
+    alerts.push({
+      icon: 'icon-red', iconChar: '\u25CF',
+      title: `<strong>${exclExpired}</strong> patch exclusion hold${exclExpired !== 1 ? 's' : ''} <span class="alert-status color-red">expired</span>`,
+      sub: `Server${exclExpired !== 1 ? 's' : ''} should return to patching`,
+      time: '',
+      goto: 'patchmgmt'
+    });
+  }
 
   document.getElementById('recentAlerts').innerHTML = alerts.length === 0
     ? '<div class="empty-state">No active alerts</div>'
