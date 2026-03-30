@@ -5,8 +5,8 @@ Card 1 — Services to be patched (deduplicated services with issue counts,
          plus known issues list at the bottom).
 Card 2 — By Environment (services broken down by environment and domain).
 
-Run from the pipeline on Mondays: --days-ahead 5 --weekend to capture
-the full Saturday/Sunday patching window.
+Run from the pipeline on Mondays: --week to capture the full
+Monday-through-Sunday patching window.
 """
 
 import json
@@ -112,7 +112,7 @@ def _format_date_range(rows: list) -> str:
     return f"{dates[0].strftime('%d %B')} \u2013 {dates[-1].strftime('%d %B %Y')}"
 
 
-def build_adaptive_cards(rows: list, days_ahead: int) -> list[dict]:
+def build_adaptive_cards(rows: list, days_ahead: int | None) -> list[dict]:
     """Build two Teams Adaptive Cards for the patch cycle.
 
     Card 1: Services to be patched — deduplicated services with issue counts,
@@ -120,13 +120,19 @@ def build_adaptive_cards(rows: list, days_ahead: int) -> list[dict]:
     Card 2: By Environment — services broken down by environment and domain.
 
     Each card may be split further if it exceeds CARD_SIZE_LIMIT.
+
+    Args:
+        days_ahead: Number of days until cycle, or None for "This week" mode.
     """
     if not rows:
         return []
 
     date_str = _format_date_range(rows)
-    day_word = "day" if days_ahead == 1 else "days"
-    subtitle = f"{days_ahead} {day_word} away"
+    if days_ahead is None:
+        subtitle = "This week"
+    else:
+        day_word = "day" if days_ahead == 1 else "days"
+        subtitle = f"{days_ahead} {day_word} away"
 
     # Collect data (deduplicate from issue joins)
     seen_servers: set[str] = set()
@@ -369,10 +375,14 @@ def main():
         '--weekend', action='store_true',
         help='Capture full weekend (target date + next day) in one alert'
     )
+    parser.add_argument(
+        '--week', action='store_true',
+        help='Find all cycles for the full week (Mon-Sun), overrides --days-ahead/--weekend'
+    )
     args = parser.parse_args()
     configure_verbosity(args.verbose)
 
-    if args.days_ahead < 0:
+    if not args.week and args.days_ahead < 0:
         parser.error("--days-ahead must be >= 0")
 
     validate_env_vars(['TEAMS_PATCHING_WEBHOOK_URL'])
@@ -381,20 +391,28 @@ def main():
 
     conn = get_database_connection(app_name='patch_cycle_alert')
     try:
-        days_end = args.days_ahead + 1 if args.weekend else args.days_ahead
+        if args.week:
+            days_start, days_end = 0, 6
+            days_label = None  # signals "This week" subtitle
+        else:
+            days_start = args.days_ahead
+            days_end = args.days_ahead + 1 if args.weekend else args.days_ahead
+            days_label = args.days_ahead
+
         with conn.cursor() as cur:
-            cur.execute(UPCOMING_QUERY, (args.days_ahead, days_end))
+            cur.execute(UPCOMING_QUERY, (days_start, days_end))
             rows = [dict(row) for row in cur.fetchall()]
 
         if not rows:
-            logger.info(f"No active patch cycle {args.days_ahead} days from now — no alert needed")
+            range_desc = "this week" if args.week else f"{args.days_ahead} days from now"
+            logger.info(f"No active patch cycle {range_desc} — no alert needed")
             return
 
         cycle_date = rows[0]['cycle_date']
         total_unique = len({r['server_name'] for r in rows})
         logger.info(f"Found cycle {cycle_date} with {total_unique} servers")
 
-        cards = build_adaptive_cards(rows, args.days_ahead)
+        cards = build_adaptive_cards(rows, days_label)
 
         if args.dry_run:
             for i, card in enumerate(cards):

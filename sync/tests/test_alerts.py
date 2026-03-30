@@ -344,3 +344,14 @@ class TestPatchCycleCard:
         services_card_json = json.dumps(cards[0]['body'])
         assert 'KB12345 breaks IIS' in services_card_json
         assert 'KNOWN ISSUES' in services_card_json
+
+    def test_week_mode_subtitle(self):
+        cards = build_patch_cards(self._make_rows(), None)
+        body_json = json.dumps(cards[0]['body'])
+        assert 'This week' in body_json
+        assert 'days away' not in body_json
+
+    def test_week_mode_returns_two_cards(self):
+        cards = build_patch_cards(self._make_rows(), None)
+        assert len(cards) == 2
+        assert all(c['type'] == 'AdaptiveCard' for c in cards)

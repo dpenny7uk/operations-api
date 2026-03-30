@@ -1,5 +1,5 @@
 # Operations API - Patch Cycle Teams Notification
-# Sends advance warning (5 days) and day-of reminder for upcoming patch cycles
+# Sends Monday alert for all patch cycles in the upcoming week (Mon-Sun)
 # Posts Adaptive Card with server list, times, and known issues
 
 trigger: none
@@ -32,9 +32,9 @@ steps:
 
   - powershell: |
       Set-Location "$(Build.StagingDirectory)\sync_run"
-      python alert_patch_cycle.py --days-ahead 5 --weekend --verbose
+      python alert_patch_cycle.py --week --verbose
       if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-    displayName: 'Send weekend patching alert'
+    displayName: 'Send weekly patching alert'
     errorActionPreference: stop
     env:
       OPS_DB_HOST: $(OPS_DB_HOST)
