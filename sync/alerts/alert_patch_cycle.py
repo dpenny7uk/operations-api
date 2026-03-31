@@ -86,7 +86,7 @@ UPCOMING_QUERY = """
     FROM upcoming u
     JOIN schedule s ON s.cycle_id = u.cycle_id
     LEFT JOIN issues i ON i.server_name = s.server_name
-    WHERE s.business_unit = 'Group'
+    WHERE LOWER(s.business_unit) = 'group'
     ORDER BY s.service, s.server_name
 """
 
