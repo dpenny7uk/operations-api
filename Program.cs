@@ -120,7 +120,7 @@ builder.Services.AddRateLimiter(options =>
             context.User.Identity?.Name ?? context.Connection.RemoteIpAddress?.ToString() ?? "anonymous",
             _ => new FixedWindowRateLimiterOptions
             {
-                PermitLimit = 60,
+                PermitLimit = 200,
                 Window = TimeSpan.FromMinutes(1)
             }));
     options.RejectionStatusCode = 429;
