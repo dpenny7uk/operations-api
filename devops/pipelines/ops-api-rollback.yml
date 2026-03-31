@@ -221,6 +221,7 @@ stages:
                           }
                           Authentication = @{
                               Mode = "Windows"
+                              AdminRole = "DOMAIN\!Onshore_Group_App_Support"
                           }
                           Cors = @{
                               AllowedOrigins = $origins

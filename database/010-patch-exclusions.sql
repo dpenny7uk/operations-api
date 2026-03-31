@@ -89,6 +89,15 @@ WHERE pe.is_active
 ORDER BY pe.held_until, pe.server_name;
 
 -- ========================================================================
+-- Permissions: ops_api needs read + write for exclusion management
+-- ========================================================================
+
+GRANT SELECT, INSERT, UPDATE ON patching.patch_exclusions TO ops_api;
+GRANT SELECT, INSERT, UPDATE ON patching.exclusion_alerts TO ops_api;
+GRANT USAGE ON SEQUENCE patching.patch_exclusions_exclusion_id_seq TO ops_api;
+GRANT USAGE ON SEQUENCE patching.exclusion_alerts_alert_id_seq TO ops_api;
+
+-- ========================================================================
 -- Migration tracking
 -- ========================================================================
 
