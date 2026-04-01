@@ -290,15 +290,15 @@ function _emailExclusions() {
   if (_currentExclusions.length === 0) return;
   const count = _currentExclusions.length;
   const subject = `Patch Exclusion Update \u2014 ${count} server${count !== 1 ? 's' : ''} excluded from patching`;
+  const serverLines = _currentExclusions.map(e =>
+    `  \u2022 ${e.serverName} (${e.patchGroup || '?'}) \u2014 ${e.service || ''}/${e.application || ''} \u2014 ${e.environment || 'Unknown'} \u2014 Held until ${fmtDate(e.heldUntil)} \u2014 ${e.reason}`
+  );
   const lines = [
     `Hi Patching Team,`,
     ``,
     `The following ${count} server${count !== 1 ? 's are' : ' is'} currently excluded from the patching cycle:`,
     ``,
-    `Server\tPatch Group\tService\tFunction\tEnvironment\tHeld Until\tReason`,
-    ..._currentExclusions.map(e =>
-      `${e.serverName}\t${e.patchGroup || ''}\t${e.service || ''}\t${e.application || ''}\t${e.environment || 'Unknown'}\t${fmtDate(e.heldUntil)}\t${e.reason}`
-    ),
+    ...serverLines,
     ``,
     `Please ensure these servers are not included in upcoming patching runs until further notice.`,
     ``,

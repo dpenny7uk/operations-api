@@ -406,6 +406,15 @@ main {
   background: linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%);
   border-color: rgba(139, 92, 246, 0.4);
 }
+.critical-action {
+  margin-top: auto;
+  padding-top: 0.75rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.75);
+  transition: color var(--transition);
+}
+.critical-card.clickable:hover .critical-action { color: #fff; }
 
 /* Clickable critical cards */
 .critical-card.clickable {
@@ -1201,6 +1210,30 @@ th[title] {
 }
 .row-error { font-size: 0.75rem; }
 
+/* ── Form inputs (exclusion form, etc.) ──────────────────────────────────── */
+.form-input {
+  background: var(--surface);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 0.55rem 0.95rem;
+  border-radius: var(--radius-xs);
+  font-size: 0.82rem;
+  font-family: inherit;
+  transition: border-color var(--transition), box-shadow var(--transition), background var(--transition);
+}
+.form-input:hover { border-color: var(--border-light); }
+.form-input:focus {
+  outline: 2px solid transparent;
+  border-color: rgba(232, 64, 10, 0.4);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+.form-input::placeholder { color: var(--text-muted); opacity: 0.7; }
+.form-input[type="date"] { min-width: 160px; cursor: pointer; }
+.form-input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); cursor: pointer; }
+[data-theme="light"] .form-input[type="date"]::-webkit-calendar-picker-indicator { filter: none; }
+
 /* ── Clickable cards & selection ─────────────────────────────────────────── */
 
 .card.clickable {
@@ -1442,7 +1475,7 @@ nav button:focus-visible,
 }
 
 /* Light mode smooth transition */
-body, header, nav, .card, table th, table td, .filter-bar input, .filter-bar select,
+body, header, nav, .card, table th, table td, .filter-bar input, .filter-bar select, .form-input,
 .server-chip, .pagination button, code, .badge, .cert-timeline {
   transition: background var(--transition), color var(--transition), border-color var(--transition), box-shadow var(--transition);
 }

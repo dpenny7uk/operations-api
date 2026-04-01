@@ -42,34 +42,6 @@ public class HealthController : ControllerBase
         return Ok(await _svc.GetSyncHistoryAsync(syncName, Math.Clamp(limit, 1, 100)));
     }
 
-    /// <summary>Debug: show current user identity and role claims. Remove after troubleshooting.</summary>
-    [HttpGet("whoami")]
-    [ProducesResponseType(200)]
-    public IActionResult WhoAmI()
-    {
-        var identity = User.Identity;
-        var adminRole = HttpContext.RequestServices
-            .GetRequiredService<IConfiguration>()
-            .GetValue<string>("Authentication:AdminRole") ?? "(not set)";
-        var roles = User.Claims
-            .Where(c => c.Type == System.Security.Claims.ClaimTypes.GroupSid
-                     || c.Type == System.Security.Claims.ClaimTypes.Role
-                     || c.Type == "http://schemas.microsoft.com/ws/2008/06/identity/claims/role"
-                     || c.Type == "http://schemas.microsoft.com/ws/2008/06/identity/claims/groupsid")
-            .Select(c => new { c.Type, c.Value })
-            .ToList();
-        var isInRole = !string.IsNullOrWhiteSpace(adminRole) && User.IsInRole(adminRole);
-        return Ok(new
-        {
-            name = identity?.Name,
-            isAuthenticated = identity?.IsAuthenticated,
-            authenticationType = identity?.AuthenticationType,
-            configuredAdminRole = adminRole,
-            isInAdminRole = isInRole,
-            roleClaims = roles
-        });
-    }
-
     /// <summary>Run data validation rules on demand. Requires OpsAdmin role.</summary>
     /// <param name="ruleName">Optional specific rule to run. If omitted, all rules are executed.</param>
     [HttpPost("validation/run")]

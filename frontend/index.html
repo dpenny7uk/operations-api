@@ -214,11 +214,11 @@
       <div class="flex flex-wrap gap-md" style="align-items:flex-end">
         <label class="flex-col gap-xs">
           <span class="text-sm fw-600">Reason for exclusion</span>
-          <textarea id="exclusionReason" rows="2" maxlength="2000" style="width:400px;max-width:100%" placeholder="Why are these servers being excluded from patching?"></textarea>
+          <textarea id="exclusionReason" class="form-input" rows="2" maxlength="2000" style="width:400px;max-width:100%" placeholder="Why are these servers being excluded from patching?"></textarea>
         </label>
         <label class="flex-col gap-xs">
           <span class="text-sm fw-600">Hold until</span>
-          <input type="date" id="exclusionHeldUntil">
+          <input type="date" id="exclusionHeldUntil" class="form-input">
         </label>
         <button id="confirmExcludeBtn" class="btn-action btn-red">Confirm Exclusion</button>
         <button id="cancelExcludeBtn" class="btn-action btn-muted">Cancel</button>

@@ -26,27 +26,31 @@ export async function renderHealth(data, serverSummary, unmatched, certSummary, 
   // Critical Issues cards
   const patchDays = nextPatch && nextPatch.daysUntil != null ? nextPatch.daysUntil : null;
   document.getElementById('criticalCards').innerHTML = `
-    <div class="critical-card critical-blue">
+    <div class="critical-card critical-blue clickable" data-goto="patching" title="View Patching">
       <div class="critical-label">Next Patching Cycle Starts:</div>
       <div class="critical-num">${patchDays != null ? `${patchDays} day${patchDays !== 1 ? 's' : ''}` : '\u2014'}</div>
+      <div class="critical-action">View Details &rsaquo;</div>
     </div>
-    <div class="critical-card critical-orange">
+    <div class="critical-card critical-orange clickable" data-goto="servers" title="View Servers">
       <div class="critical-label">Unmatched Servers:</div>
       <div class="critical-num">${num(data.unmatchedServersCount)}</div>
       <div class="critical-delta">pending review</div>
+      <div class="critical-action">View Servers &rsaquo;</div>
     </div>
-    <div class="critical-card critical-red">
+    <div class="critical-card critical-red clickable" data-scroll="syncTable" title="View Sync Statuses">
       <div class="critical-label">Sync ${failCount === 1 ? 'Failure' : 'Failures'}:</div>
       <div class="critical-num">${failCount}</div>
       <div class="critical-delta">${failCount > 0 ? `${failCount} sync${failCount !== 1 ? 's' : ''} failing` : 'All syncs healthy'}</div>
+      <div class="critical-action">View Sync Status &rsaquo;</div>
     </div>
-    <div class="critical-card critical-purple" data-goto="patchmgmt" style="cursor:pointer" title="View Patch Management">
+    <div class="critical-card critical-purple clickable" data-goto="patchmgmt" title="View Patch Management">
       <div class="critical-label">Patch Exclusions:</div>
       <div class="critical-num">${num((exclusionSummary || {}).totalExcluded)}</div>
       <div class="critical-delta">${(() => {
         const exp = num((exclusionSummary || {}).holdExpiredCount);
         return exp > 0 ? `<span class="color-red">${exp} hold${exp !== 1 ? 's' : ''} expired</span>` : 'All holds active';
       })()}</div>
+      <div class="critical-action">Review Exclusions &rsaquo;</div>
     </div>`;
 
   // Recent Alerts

@@ -91,6 +91,12 @@ async function _loadAllDataInner() {
 
 // --- Wire up event handlers ---
 document.addEventListener('click', (e) => {
+  const scrollBtn = e.target.closest('[data-scroll]');
+  if (scrollBtn) {
+    e.preventDefault();
+    document.getElementById(scrollBtn.dataset.scroll)?.scrollIntoView({ behavior: 'smooth' });
+    return;
+  }
   const btn = e.target.closest('[data-goto]');
   if (!btn) return;
   e.preventDefault();
