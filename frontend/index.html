@@ -86,6 +86,20 @@
       </div>
     </div>
 
+    <!-- Currently Excluded Servers -->
+    <div class="dash-panel-header flex-between" style="margin-top:0.5rem">
+      <h2 class="section-title" style="margin-bottom:0">Currently Excluded Servers</h2>
+      <button class="view-all-link" data-goto="patchmgmt">Manage &rsaquo;</button>
+    </div>
+    <div class="card">
+      <table>
+        <thead><tr>
+          <th>Server</th><th>Patch Group</th><th>Service</th><th>Function</th><th>Environment</th><th>Date Excluded</th><th>Held Until</th><th>Notes</th>
+        </tr></thead>
+        <tbody id="dashExclTable"></tbody>
+      </table>
+    </div>
+
     <!-- Sync Statuses -->
     <h2 class="section-title">Sync Statuses</h2>
     <div class="card">

@@ -181,6 +181,31 @@ export async function renderHealth(data, serverSummary, unmatched, certSummary, 
       ? `<tr><td colspan="3" class="color-muted" style="text-align:center;padding:0.5rem">Showing 5 of ${unmatchedList.length}</td></tr>`
       : '');
 
+  // Currently Excluded Servers table
+  const exclData = usingDemo ? null : await api('/patching/exclusions?limit=500&offset=0');
+  const exclItems = exclData ? exclData.items : DEMO_EXCLUSIONS;
+  const ENV_COLORS = {
+    production:'red', development:'blue', uat:'orange', staging:'yellow',
+    systest:'teal', 'live support':'pink', 'shared services':'lime',
+    training:'purple', 'proof of concept':'cyan', 'continuous integration':'indigo'
+  };
+  document.getElementById('dashExclTable').innerHTML = exclItems.length === 0
+    ? '<tr><td colspan="8" class="text-muted">No servers currently excluded from patching.</td></tr>'
+    : exclItems.map(e => {
+        const expiredBadge = e.holdExpired ? ` ${badge('Hold Expired', 'red')}` : '';
+        const envColor = ENV_COLORS[(e.environment || '').toLowerCase()] || 'muted';
+        return `<tr>
+          <td>${esc(e.serverName)}</td>
+          <td>${esc(e.patchGroup || '')}</td>
+          <td>${esc(e.service || '')}</td>
+          <td>${esc(e.application || '')}</td>
+          <td>${badge(e.environment || 'Unknown', envColor)}</td>
+          <td>${fmtDate(e.excludedAt)}</td>
+          <td>${fmtDate(e.heldUntil)}${expiredBadge}</td>
+          <td class="text-sm">${esc(e.reason)}</td>
+        </tr>`;
+      }).join('');
+
   // Sync table
   document.getElementById('syncTable').innerHTML = syncs.filter(s => s.syncName !== 'ivanti_patching').map(s => `<tr>
     <td><strong>${esc(s.syncName)}</strong></td>
@@ -192,3 +217,10 @@ export async function renderHealth(data, serverSummary, unmatched, certSummary, 
     <td class="color-muted">${esc(s.expectedSchedule) || '\u2014'}</td>
   </tr>`).join('');
 }
+
+const DEMO_EXCLUSIONS = [
+  { exclusionId: 1, serverName: 'SQL-PR-03', patchGroup: '8b', service: 'Database', application: 'Data Warehouse', environment: 'Production', reason: 'Database migration in progress', heldUntil: '2026-03-15', excludedBy: 'DOMAIN\\dpenn', excludedAt: '2026-02-10T09:30:00', holdExpired: true },
+  { exclusionId: 2, serverName: 'APP-PR-18', patchGroup: '8a', service: 'Application Services', application: 'Finance Batch', environment: 'Production', reason: 'Running critical month-end batch processing', heldUntil: '2026-04-05', excludedBy: 'DOMAIN\\jsmith', excludedAt: '2026-03-20T14:15:00', holdExpired: false },
+  { exclusionId: 3, serverName: 'WEB-UT-04', patchGroup: '9a', service: 'Web Services', application: 'Customer Portal', environment: 'UAT', reason: 'UAT regression testing in progress for Release 4.2', heldUntil: '2026-04-12', excludedBy: 'DOMAIN\\dpenn', excludedAt: '2026-03-25T11:00:00', holdExpired: false },
+  { exclusionId: 4, serverName: 'SVC-PR-22', patchGroup: '9b', service: 'Identity & Access', application: 'SSO Platform', environment: 'Production', reason: 'Vendor support case open', heldUntil: '2026-05-01', excludedBy: 'DOMAIN\\mjones', excludedAt: '2026-03-18T16:45:00', holdExpired: false },
+];
