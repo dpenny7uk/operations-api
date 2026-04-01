@@ -62,10 +62,12 @@ export const DEMO = (() => {
     for (let i = 0; i < count; i++) {
       const days = minDays + Math.floor(rand() * (maxDays - minDays + 1));
       const cn = i < cnPrefixes.length ? cnPrefixes[i] : `svc-${pad(certId, 4)}.corp.local`;
+      const srv = pick(servers);
       certs.push({
         certId: certId++,
         subjectCn: cn,
-        serverName: pick(servers).serverName,
+        serverName: srv.serverName,
+        serviceName: srv.applicationName || null,
         validTo: new Date(Date.now() + days * DAY).toISOString(),
         daysUntilExpiry: days,
         alertLevel: level,

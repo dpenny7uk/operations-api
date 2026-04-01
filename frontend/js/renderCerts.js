@@ -98,7 +98,7 @@ function renderCertTable(certs) {
   // Update sortable headers
   const thead = document.getElementById('certTable').closest('table').querySelector('thead');
   thead.innerHTML = `<tr>
-    <th>Certificate Name</th><th>Server</th>
+    <th>Certificate Name</th><th>Server</th><th>Service</th>
     <th class="sortable" data-sort="validTo">Expires${sortIcon('validTo')}</th>
     <th class="sortable" data-sort="daysUntilExpiry" title="Red = 14 days or less, Orange = 30 days or less">Days Left${sortIcon('daysUntilExpiry')}</th>
     <th>Alert Level</th>
@@ -122,6 +122,7 @@ function renderCertTable(certs) {
     return `<tr>
     <td><strong>${esc(c.subjectCn)}</strong></td>
     <td>${esc(c.serverName)}</td>
+    <td>${esc(c.serviceName || '')}</td>
     <td>${fmtDate(c.validTo)}</td>
     <td class="${daysClass}"><strong>${days != null ? days + 'd' : '\u2014'}</strong></td>
     <td>${alertBadge(displayLevel)}</td>

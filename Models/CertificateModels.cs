@@ -18,6 +18,7 @@ public class Certificate
     public int DaysUntilExpiry { get; set; }
     public string AlertLevel { get; set; } = "";
     public bool IsExpired { get; set; }
+    public string? ServiceName { get; set; }
 }
 
 public class CertificateDetail : Certificate
@@ -26,7 +27,6 @@ public class CertificateDetail : Certificate
     public DateTime? ValidFrom { get; set; }
     public string? Thumbprint { get; set; }
     public int? Port { get; set; }
-    public string? ServiceName { get; set; }
     public bool IsActive { get; set; }
     public DateTime? LastScannedAt { get; set; }
 }

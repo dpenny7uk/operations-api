@@ -31,27 +31,30 @@ public class CertificateService : BaseService<CertificateService>, ICertificateS
     {
         var sql = $@"
             SELECT
-                certificate_id AS CertId,
-                subject_cn AS SubjectCn,
-                server_name AS ServerName,
-                valid_to AS ValidTo,
-                days_until_expiry AS DaysUntilExpiry,
-                alert_level AS AlertLevel,
-                is_expired AS IsExpired
-            FROM {Sql.Tables.Certificates}
-            WHERE is_active = TRUE";
+                c.certificate_id AS CertId,
+                c.subject_cn AS SubjectCn,
+                c.server_name AS ServerName,
+                c.valid_to AS ValidTo,
+                c.days_until_expiry AS DaysUntilExpiry,
+                c.alert_level AS AlertLevel,
+                c.is_expired AS IsExpired,
+                a.application_name AS ServiceName
+            FROM {Sql.Tables.Certificates} c
+            LEFT JOIN {Sql.Tables.Servers} s ON UPPER(s.server_name) = UPPER(c.server_name) AND s.is_active
+            LEFT JOIN {Sql.Tables.Applications} a ON a.application_id = s.primary_application_id
+            WHERE c.is_active = TRUE";
 
         var p = new DynamicParameters();
 
         if (daysUntil.HasValue)
         {
-            sql += " AND days_until_expiry <= @Days";
+            sql += " AND c.days_until_expiry <= @Days";
             p.Add("Days", daysUntil.Value);
         }
 
         if (!string.IsNullOrEmpty(server))
         {
-            sql += " AND server_name ILIKE @Server ESCAPE '\\'";
+            sql += " AND c.server_name ILIKE @Server ESCAPE '\\'";
             p.Add("Server", $"%{EscapeLike(server)}%");
         }
 
@@ -59,16 +62,16 @@ public class CertificateService : BaseService<CertificateService>, ICertificateS
         {
             if (alertLevel.Equals("EXPIRED", StringComparison.OrdinalIgnoreCase))
             {
-                sql += " AND is_expired = TRUE";
+                sql += " AND c.is_expired = TRUE";
             }
             else
             {
-                sql += " AND alert_level = @AlertLevel AND NOT is_expired";
+                sql += " AND c.alert_level = @AlertLevel AND NOT c.is_expired";
                 p.Add("AlertLevel", alertLevel.ToUpper());
             }
         }
 
-        sql += " ORDER BY valid_to LIMIT @Limit";
+        sql += " ORDER BY c.valid_to LIMIT @Limit";
         p.Add("Limit", limit);
 
         return await Db.QueryAsync<Certificate>(sql, p);
@@ -98,15 +101,18 @@ public class CertificateService : BaseService<CertificateService>, ICertificateS
     public Task<IEnumerable<Certificate>> GetByServerAsync(string server, int limit = 500) => RunDbAsync(() =>
         Db.QueryAsync<Certificate>($@"
             SELECT
-                certificate_id AS CertId,
-                subject_cn AS SubjectCn,
-                server_name AS ServerName,
-                valid_to AS ValidTo,
-                days_until_expiry AS DaysUntilExpiry,
-                alert_level AS AlertLevel
-            FROM {Sql.Tables.Certificates}
-            WHERE is_active = TRUE AND UPPER(server_name) = UPPER(@Server)
-            ORDER BY valid_to
+                c.certificate_id AS CertId,
+                c.subject_cn AS SubjectCn,
+                c.server_name AS ServerName,
+                c.valid_to AS ValidTo,
+                c.days_until_expiry AS DaysUntilExpiry,
+                c.alert_level AS AlertLevel,
+                a.application_name AS ServiceName
+            FROM {Sql.Tables.Certificates} c
+            LEFT JOIN {Sql.Tables.Servers} s ON UPPER(s.server_name) = UPPER(c.server_name) AND s.is_active
+            LEFT JOIN {Sql.Tables.Applications} a ON a.application_id = s.primary_application_id
+            WHERE c.is_active = TRUE AND UPPER(c.server_name) = UPPER(@Server)
+            ORDER BY c.valid_to
             LIMIT @Limit
         ", new { Server = server, Limit = limit })
     );
