@@ -155,7 +155,7 @@ export function filterCerts() {
   const filtered = allCerts.filter(c => {
     if (level === 'expired') { if (!c.isExpired) return false; }
     else if (level) { if ((c.alertLevel || '').toLowerCase() !== level || c.isExpired) return false; }
-    if (server && !(c.serverName||'').toLowerCase().includes(server)) return false;
+    if (server && !(c.serverName||'').toLowerCase().includes(server) && !(c.serviceName||'').toLowerCase().includes(server)) return false;
     return true;
   });
   renderCertTable(filtered);
