@@ -1,5 +1,5 @@
 import { DEMO } from './demo.js';
-import { api, usingDemo, apiError, setUsingDemo, setApiError } from './api.js';
+import { api, usingDemo, apiErrors, setUsingDemo, clearApiErrors } from './api.js';
 import { renderHealth } from './renderHealth.js';
 import { renderServers, filterServers } from './renderServers.js';
 import { renderPatching, resetCycleServerCache } from './renderPatching.js';
@@ -36,7 +36,7 @@ async function loadAllData() {
   }
 }
 async function _loadAllDataInner() {
-  setApiError(null);
+  clearApiErrors();
   setUsingDemo(false);
   const [healthData, serverData, serverSummary, unmatched, next, cycles, issues, certSummary, certs, eolSummary, eolItems, exclusionSummary] =
     await Promise.all([
@@ -78,14 +78,23 @@ async function _loadAllDataInner() {
   const demoBanner = document.getElementById('demoBanner');
   if (demoBanner) demoBanner.style.display = usingDemo ? '' : 'none';
 
-  if (apiError) {
-    lastUpdatedEl.textContent = apiError;
+  if (apiErrors.length) {
+    const MAX_INLINE = 3;
+    if (apiErrors.length === 1) {
+      lastUpdatedEl.textContent = apiErrors[0];
+    } else if (apiErrors.length <= MAX_INLINE) {
+      lastUpdatedEl.textContent = apiErrors.join(' | ');
+    } else {
+      lastUpdatedEl.textContent = `${apiErrors.slice(0, MAX_INLINE).join(' | ')} +${apiErrors.length - MAX_INLINE} more`;
+    }
+    lastUpdatedEl.title = apiErrors.join('\n');
     lastUpdatedEl.classList.add('color-red');
   } else if (usingDemo) {
     lastUpdatedEl.textContent = 'Demo Mode \u2014 API not connected';
     lastUpdatedEl.classList.add('color-red');
   } else {
     lastUpdatedEl.classList.remove('color-red');
+    lastUpdatedEl.title = '';
   }
 }
 
