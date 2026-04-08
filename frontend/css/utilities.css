@@ -1,0 +1,65 @@
+/* ── Utility classes ─────────────────────────────────────────────────────── */
+
+/* Layout */
+.flex          { display: flex; }
+.flex-center   { display: flex; align-items: center; }
+.flex-between  { display: flex; align-items: center; justify-content: space-between; }
+.flex-col      { display: flex; flex-direction: column; }
+.flex-wrap     { flex-wrap: wrap; }
+.items-stretch { align-items: stretch; }
+.items-start   { align-items: flex-start; }
+.justify-end   { justify-content: flex-end; }
+
+.gap-0    { gap: 0; }
+.gap-xs   { gap: 0.25rem; }
+.gap-sm   { gap: 0.5rem; }
+.gap-md   { gap: 1rem; }
+.gap-lg   { gap: 1.5rem; }
+.gap-xl   { gap: 2rem; }
+
+/* Spacing */
+.mb-0     { margin-bottom: 0; }
+.mb-xs    { margin-bottom: 0.25rem; }
+.mb-sm    { margin-bottom: 0.5rem; }
+.mb-md    { margin-bottom: 0.75rem; }
+.mb-lg    { margin-bottom: 1rem; }
+
+.p-sm     { padding: 0.75rem; }
+.p-md     { padding: 1rem; }
+.p-lg     { padding: 1.25rem; }
+.p-xl     { padding: 1.5rem; }
+
+/* Typography */
+.text-xs      { font-size: var(--text-xs); }
+.text-sm      { font-size: var(--text-sm); }
+.text-label   { font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-muted); }
+.text-heading { font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-muted); }
+.uppercase    { text-transform: uppercase; }
+.fw-500       { font-weight: 500; }
+.fw-600       { font-weight: 600; }
+.fw-700       { font-weight: 700; }
+
+/* Border radius */
+.rounded      { border-radius: var(--radius); }
+.rounded-sm   { border-radius: var(--radius-sm); }
+.rounded-xs   { border-radius: var(--radius-xs); }
+.rounded-full { border-radius: 100px; }
+
+/* Misc */
+.overflow-hidden { overflow: hidden; }
+.relative        { position: relative; }
+.truncate        { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.min-w-0         { min-width: 0; }
+.w-full          { width: 100%; }
+.text-center     { text-align: center; }
+.cursor-pointer  { cursor: pointer; }
+.transition-all  { transition: all var(--transition); }
+
+/* ── Utility text colors ────────────────────────────────────────────────── */
+
+.color-red    { color: var(--red); }
+.color-orange { color: var(--orange); }
+.color-yellow { color: var(--yellow); }
+.color-green  { color: var(--green); }
+.color-blue   { color: var(--blue); }
+.color-muted  { color: var(--text-muted); }

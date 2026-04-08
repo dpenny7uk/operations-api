@@ -10,7 +10,7 @@ export let allEol = [];
 export let usingDemo = false;
 export let activeCertFilter = null;
 export let activeEolFilter = null;
-export let apiError = null;
+export let apiErrors = [];
 
 export function setAllServers(v) { allServers = v; }
 export function setAllCerts(v) { allCerts = v; }
@@ -18,7 +18,8 @@ export function setAllEol(v) { allEol = v; }
 export function setUsingDemo(v) { usingDemo = v; }
 export function setActiveCertFilter(v) { activeCertFilter = v; }
 export function setActiveEolFilter(v) { activeEolFilter = v; }
-export function setApiError(v) { apiError = v; }
+export function addApiError(v) { apiErrors.push(v); }
+export function clearApiErrors() { apiErrors = []; }
 
 const API_TIMEOUT_MS = 15000;
 
@@ -29,20 +30,26 @@ export async function api(path) {
   try {
     const res = await fetch(API_BASE + path, { credentials: 'include', signal: controller.signal });
     if (!res.ok) {
-      if (res.status === 401 || res.status === 403) setApiError('Authentication failed \u2014 check your credentials');
-      else if (res.status === 429) setApiError('Rate limited \u2014 too many requests');
-      else if (res.status >= 500) setApiError('Server error \u2014 data may be stale');
-      else setApiError(`API error (${res.status})`);
+      if (res.status === 401 || res.status === 403) {
+        if (!apiErrors.some(e => e.startsWith('Authentication'))) addApiError('Authentication failed \u2014 check your credentials');
+      } else if (res.status === 429) {
+        if (!apiErrors.some(e => e.startsWith('Rate'))) addApiError('Rate limited \u2014 too many requests');
+      } else if (res.status >= 500) {
+        if (!apiErrors.some(e => e.startsWith('Server'))) addApiError('Server error \u2014 data may be stale');
+      } else {
+        const clean = path.split('?')[0].replace(/^\//, '');
+        addApiError(`${clean} (${res.status})`);
+      }
       return null;
     }
     return await res.json();
   } catch (e) {
     if (e.name === 'AbortError') {
       console.warn('API fetch timed out:', path);
-      if (!apiError) setApiError('Request timed out \u2014 server may be slow');
+      if (!apiErrors.some(e => e.startsWith('Request'))) addApiError('Request timed out \u2014 server may be slow');
     } else {
       console.warn('API fetch failed:', path, e.message || e);
-      if (!apiError) setApiError('Network error \u2014 API not reachable');
+      if (!apiErrors.some(e => e.startsWith('Network'))) addApiError('Network error \u2014 API not reachable');
     }
     return null;
   } finally {
