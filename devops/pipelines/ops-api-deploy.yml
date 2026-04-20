@@ -367,6 +367,18 @@ stages:
                           exit 1
                       }
 
+                      # Cache-busting: stamp __BUILD_HASH__ tokens in index.html with the commit SHA.
+                      $hash = $env:BUILD_SOURCEVERSION
+                      if (-not $hash) { $hash = (Get-Date -Format yyyyMMddHHmm) }
+                      $hash = $hash.Substring(0, [Math]::Min(8, $hash.Length))
+                      $indexPath = Join-Path $wwwroot 'index.html'
+                      if (Test-Path $indexPath) {
+                          (Get-Content $indexPath -Raw) -replace '__BUILD_HASH__', $hash | Set-Content $indexPath -NoNewline
+                          Write-Host "Stamped frontend assets with v=$hash"
+                      } else {
+                          Write-Warning "index.html not found at $indexPath — cache-bust step skipped"
+                      }
+
                 # ── Start IIS app pool ───────────────────────────────────
                 - task: PowerShell@2
                   displayName: 'Start IIS app pool'

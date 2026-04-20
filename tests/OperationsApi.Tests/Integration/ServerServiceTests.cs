@@ -74,6 +74,16 @@ public class ServerServiceTests : IntegrationTestBase
     }
 
     [DockerFact]
+    public async Task ListServers_returns_ip_address()
+    {
+        var svc = CreateService();
+        var results = (await svc.ListServersAsync(null, null, null, "WEB01", 100, 0)).ToList();
+
+        Assert.Single(results);
+        Assert.Equal("10.0.0.1", results[0].IpAddress);
+    }
+
+    [DockerFact]
     public async Task ListServers_search_escapes_percent()
     {
         var svc = CreateService();

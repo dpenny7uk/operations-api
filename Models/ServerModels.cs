@@ -5,6 +5,7 @@ public class Server
     public int ServerId { get; set; }
     public string ServerName { get; set; } = "";
     public string? Fqdn { get; set; }
+    public string? IpAddress { get; set; }
     public string? Environment { get; set; }
     public string? ApplicationName { get; set; }
     public string? PatchGroup { get; set; }
@@ -14,7 +15,6 @@ public class Server
 public class ServerDetail : Server
 {
     public string? OperatingSystem { get; set; }
-    public string? IpAddress { get; set; }
     public string? Location { get; set; }
     public string? PrimaryContact { get; set; }
 }

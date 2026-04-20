@@ -23,6 +23,7 @@ public class ServerService : BaseService<ServerService>, IServerService
                 s.server_id AS ServerId,
                 s.server_name AS ServerName,
                 s.fqdn AS Fqdn,
+                s.ip_address AS IpAddress,
                 s.environment AS Environment,
                 a.application_name AS ApplicationName,
                 s.patch_group AS PatchGroup,

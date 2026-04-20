@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Service Operations Dashboard</title>
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/utilities.css">
+<link rel="stylesheet" href="css/layout.css">
+<link rel="stylesheet" href="css/components.css">
+<link rel="stylesheet" href="css/states.css">
+<link rel="stylesheet" href="css/theme-light.css">
+</head>
+<body>
+
+<div id="demoBanner" class="demo-banner" style="display:none" role="status" aria-live="polite" aria-atomic="true">
+  DEMO MODE — API not reachable. Data shown is example only.
+</div>
+
+<header class="flex-between">
+  <div class="header-left flex-center gap-md">
+    <h1>Service Operations Dashboard</h1>
+    <span id="overallStatus"></span>
+    <nav>
+      <button class="active" data-page="health">Health</button>
+      <button data-page="servers">Servers</button>
+      <button data-page="patching">Patching Schedules</button>
+      <button data-page="patchmgmt">Patch Management</button>
+      <button data-page="certificates">Certificates</button>
+      <button data-page="eol">End of Life</button>
+    </nav>
+  </div>
+  <div class="header-right flex-center gap-md">
+    <span id="lastUpdated" class="last-updated"></span>
+    <button id="themeToggle" class="theme-toggle" title="Toggle light/dark theme" aria-label="Toggle light/dark theme">&#9790;</button>
+    <button id="refreshBtn" class="refresh-btn" aria-label="Refresh dashboard data">Refresh</button>
+  </div>
+</header>
+
+<main>
+
+  <div id="pageLoader" class="page-loader">
+    <span class="loading"></span> Loading dashboard&hellip;
+  </div>
+
+  <!-- HEALTH PAGE -->
+  <div id="health" class="page active">
+    <!-- Top: System Status + Critical Issues -->
+    <div class="dashboard-grid">
+      <div class="card dash-status-card overflow-hidden" id="systemStatusCard"></div>
+      <div class="dash-critical-wrap min-w-0">
+        <h3 class="dash-section-label text-heading">Critical Issues</h3>
+        <div class="dash-critical-grid" id="criticalCards"></div>
+      </div>
+    </div>
+
+    <!-- Mid: Recent Alerts + Key Metrics -->
+    <div class="dashboard-grid equal">
+      <div class="card dash-panel dash-panel-alerts">
+        <h3 class="dash-panel-title">Recent Alerts</h3>
+        <div id="recentAlerts" class="alert-feed flex-col"></div>
+      </div>
+      <div class="card dash-panel dash-panel-metrics">
+        <h3 class="dash-panel-title">Key Metrics</h3>
+        <div id="keyMetrics" class="metrics-grid"></div>
+      </div>
+    </div>
+
+    <!-- Bottom: Unreachable + Unmatched summary tables -->
+    <div class="dashboard-grid equal">
+      <div class="card dash-panel">
+        <div class="dash-panel-header flex-between">
+          <h3 class="dash-panel-title">Unreachable Servers</h3>
+          <button class="view-all-link" data-goto="servers">View All &rsaquo;</button>
+        </div>
+        <table aria-label="Unreachable servers">
+          <thead><tr><th>Name</th><th>Environment</th><th>Last Seen</th><th>Duration</th></tr></thead>
+          <tbody id="unreachableTable"></tbody>
+        </table>
+      </div>
+      <div class="card dash-panel">
+        <div class="dash-panel-header flex-between">
+          <h3 class="dash-panel-title">Unmatched Servers</h3>
+          <button class="view-all-link" data-goto="servers">View All &rsaquo;</button>
+        </div>
+        <table aria-label="Unmatched servers">
+          <thead><tr><th>Raw Name</th><th>Source</th><th>First Seen</th></tr></thead>
+          <tbody id="dashUnmatchedTable"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Currently Excluded Servers -->
+    <div class="dash-panel-header flex-between" style="margin-top:0.5rem">
+      <h2 class="section-title" style="margin-bottom:0">Currently Excluded Servers</h2>
+      <button class="view-all-link" data-goto="patchmgmt">Manage &rsaquo;</button>
+    </div>
+    <div class="card">
+      <table>
+        <thead><tr>
+          <th>Server</th><th>Patch Group</th><th>Service</th><th>Function</th><th>Environment</th><th>Date Excluded</th><th>Held Until</th><th>Notes</th>
+        </tr></thead>
+        <tbody id="dashExclTable"></tbody>
+      </table>
+    </div>
+
+    <!-- Sync Statuses -->
+    <h2 class="section-title">Sync Statuses</h2>
+    <div class="card">
+      <table>
+        <thead><tr>
+          <th>Sync</th><th title="Healthy = ran successfully within expected schedule. Stale = overdue for a run. Error = last run failed.">Status</th><th>Last Success</th><th>Records</th><th>Failures</th><th>Last Error</th><th>Schedule</th>
+        </tr></thead>
+        <tbody id="syncTable"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- SERVERS PAGE -->
+  <div id="servers" class="page">
+    <!-- Summary row -->
+    <div class="server-summary-grid">
+      <div class="card dash-status-card overflow-hidden" id="serverSummaryCard"></div>
+      <div class="card env-breakdown-card">
+        <h3 class="dash-section-label text-heading">Servers by Environment</h3>
+        <div class="env-bar-list" id="serverEnvBars"></div>
+      </div>
+    </div>
+
+    <div class="filter-bar flex flex-wrap gap-sm">
+      <input type="text" id="serverSearch" placeholder="Search servers..." aria-label="Search servers">
+      <select id="envFilter" aria-label="Filter by environment">
+        <option value="">All Environments</option>
+        <option value="Production">Production</option>
+        <option value="Development">Development</option>
+        <option value="UAT">UAT</option>
+        <option value="Staging">Staging</option>
+        <option value="Systest">Systest</option>
+        <option value="Live Support">Live Support</option>
+        <option value="Shared Services">Shared Services</option>
+        <option value="Training">Training</option>
+        <option value="Proof of Concept">Proof of Concept</option>
+        <option value="Continuous Integration">Continuous Integration</option>
+      </select>
+      <span id="serverCountIndicator" class="count-indicator"></span>
+      <button id="exportServersBtn" class="export-btn" title="Export to CSV">Export CSV</button>
+    </div>
+    <div class="card">
+      <table>
+        <thead><tr>
+          <th>Name</th><th>FQDN</th><th>Environment</th><th>Application</th><th>Patch Group</th><th title="Whether the server is current in the source inventory">Active</th>
+        </tr></thead>
+        <tbody id="serverTable"></tbody>
+      </table>
+    </div>
+
+    <h2 class="section-title">Unmatched Servers</h2>
+    <div class="card">
+      <table>
+        <thead><tr>
+          <th>Raw Name</th><th>Source</th><th title="How many times this name appeared across syncs">Times Seen</th><th>First Seen</th><th title="Best fuzzy match from server inventory — must be confirmed by an admin">Closest Match</th><th>Actions</th>
+        </tr></thead>
+        <tbody id="unmatchedTable"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- PATCHING PAGE -->
+  <div id="patching" class="page">
+    <div id="nextPatchBanner" class="mb-md"></div>
+    <div class="card dash-panel mb-md">
+      <div class="flex-between mb-sm">
+        <h3 class="dash-panel-title" style="margin-bottom:0">Patch Cycles</h3>
+        <input type="text" id="patchingGlobalSearch" placeholder="Search all cycles" class="global-search-input">
+      </div>
+      <table>
+        <thead><tr>
+          <th>Cycle Date</th><th>Servers</th><th>Status</th>
+        </tr></thead>
+        <tbody id="cycleTable"></tbody>
+      </table>
+    </div>
+    <div class="card dash-panel">
+      <h3 class="dash-panel-title">Known Issues</h3>
+      <div class="scroll-wrap">
+        <table>
+          <thead><tr>
+            <th>Title</th><th>Severity</th><th>Service</th><th>Windows</th><th>SQL</th><th>Fix</th>
+          </tr></thead>
+          <tbody id="issueTable"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- PATCH MANAGEMENT PAGE -->
+  <div id="patchmgmt" class="page">
+    <h2 class="section-title">Exclude Servers from Patching</h2>
+    <div class="card dash-panel mb-md">
+      <h3 class="dash-panel-title">Search Servers</h3>
+      <div class="filter-bar flex flex-wrap gap-sm">
+        <input type="text" id="patchExclSearch" placeholder="Search servers..." aria-label="Search servers to exclude">
+        <select id="patchExclEnvFilter" aria-label="Filter by environment">
+          <option value="">All Environments</option>
+          <option value="Production">Production</option>
+          <option value="Development">Development</option>
+          <option value="UAT">UAT</option>
+          <option value="Staging">Staging</option>
+          <option value="Systest">Systest</option>
+          <option value="Live Support">Live Support</option>
+          <option value="Shared Services">Shared Services</option>
+          <option value="Training">Training</option>
+          <option value="Proof of Concept">Proof of Concept</option>
+          <option value="Continuous Integration">Continuous Integration</option>
+        </select>
+        <button id="excludeSelectedBtn" class="btn-action btn-red" disabled>Exclude from Patching</button>
+      </div>
+      <div class="scroll-wrap">
+        <table>
+          <thead><tr>
+            <th style="width:40px"><input type="checkbox" id="patchExclSelectAll" aria-label="Select all servers"></th>
+            <th>Server</th><th>Patch Group</th><th>Service</th><th>Function</th><th>Environment</th>
+          </tr></thead>
+          <tbody id="patchExclServerTable"></tbody>
+        </table>
+      </div>
+      <span id="patchExclCountIndicator" class="count-indicator"></span>
+    </div>
+
+    <div id="exclusionForm" class="card dash-panel mb-md" style="display:none">
+      <h3 class="dash-panel-title">Exclusion Details</h3>
+      <div class="flex flex-wrap gap-md" style="align-items:flex-end">
+        <label class="flex-col gap-xs">
+          <span class="text-sm fw-600">Reason for exclusion</span>
+          <textarea id="exclusionReason" class="form-input" rows="2" maxlength="2000" style="width:400px;max-width:100%" placeholder="Why are these servers being excluded from patching?"></textarea>
+        </label>
+        <label class="flex-col gap-xs">
+          <span class="text-sm fw-600">Hold until</span>
+          <input type="date" id="exclusionHeldUntil" class="form-input">
+        </label>
+        <button id="confirmExcludeBtn" class="btn-action btn-red">Confirm Exclusion</button>
+        <button id="cancelExcludeBtn" class="btn-action btn-muted">Cancel</button>
+      </div>
+    </div>
+
+    <div class="flex-between" style="align-items:center">
+      <h2 class="section-title" style="margin-bottom:0">Currently Excluded Servers</h2>
+      <div class="flex gap-sm">
+        <button id="emailExclBtn" class="btn-sm btn-blue" disabled title="Open email to patching team with exclusion list">Email Patching Team</button>
+        <button id="copyExclBtn" class="btn-sm btn-blue" disabled title="Copy exclusion list to clipboard">Copy to Clipboard</button>
+      </div>
+    </div>
+    <div class="card">
+      <table>
+        <thead><tr>
+          <th>Server</th><th>Patch Group</th><th>Service</th><th>Function</th><th>Environment</th><th>Date Excluded</th><th>Held Until</th><th>Notes</th><th>Actions</th>
+        </tr></thead>
+        <tbody id="patchExclTable"></tbody>
+      </table>
+      <span id="patchExclExcludedCount" class="count-indicator"></span>
+    </div>
+  </div>
+
+  <!-- CERTIFICATES PAGE -->
+  <div id="certificates" class="page">
+    <div class="dashboard-grid">
+      <div class="card dash-status-card overflow-hidden" id="certStatusCard"></div>
+      <div class="dash-critical-wrap min-w-0">
+        <h3 class="dash-section-label text-heading">Certificate Status</h3>
+        <div class="dash-critical-grid" id="certCards"></div>
+      </div>
+    </div>
+    <div class="cert-timeline" id="certTimeline"></div>
+    <div class="timeline-legend" id="certTimelineLegend"></div>
+    <div class="filter-bar flex flex-wrap gap-sm">
+      <select id="alertFilter" aria-label="Filter by alert level">
+        <option value="">All Levels</option>
+        <option value="critical">Critical</option>
+        <option value="warning">Warning</option>
+        <option value="ok">OK</option>
+        <option value="expired">Expired</option>
+      </select>
+      <input type="text" id="certServerSearch" placeholder="Filter by server or service..." aria-label="Filter certificates by server or service">
+      <span id="certCountIndicator" class="count-indicator"></span>
+      <button id="exportCertsBtn" class="export-btn" title="Export to CSV">Export CSV</button>
+    </div>
+    <div class="card">
+      <table>
+        <thead><tr>
+          <th>Certificate Name</th><th>Server</th><th>Expires</th><th title="Red = 14 days or less, Orange = 30 days or less">Days Left</th><th>Alert Level</th>
+        </tr></thead>
+        <tbody id="certTable"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- END OF LIFE PAGE -->
+  <div id="eol" class="page">
+    <div class="dashboard-grid">
+      <div class="card dash-status-card overflow-hidden" id="eolStatusCard"></div>
+      <div class="dash-critical-wrap min-w-0">
+        <h3 class="dash-section-label text-heading">EOL Status</h3>
+        <div class="dash-critical-grid" id="eolCards"></div>
+      </div>
+    </div>
+    <div class="filter-bar flex flex-wrap gap-sm">
+      <select id="eolAlertFilter" aria-label="Filter by EOL status">
+        <option value="">All Statuses</option>
+        <option value="eol">End of Life</option>
+        <option value="extended">Extended Support</option>
+        <option value="approaching">Approaching EOL</option>
+        <option value="supported">Supported</option>
+      </select>
+      <input type="text" id="eolProductSearch" placeholder="Filter by product..." aria-label="Filter by product">
+      <label class="toggle-label" style="margin-left:auto;display:flex;align-items:center;gap:0.4rem;font-size:0.85rem;cursor:pointer;">
+        <input type="checkbox" id="eolShowAll"> Show all products
+      </label>
+      <span id="eolCountIndicator" class="count-indicator"></span>
+      <button id="exportEolBtn" class="export-btn" title="Export to CSV">Export CSV</button>
+    </div>
+    <div class="card">
+      <table>
+        <thead><tr>
+          <th>Product</th><th>Version</th><th title="Date when standard support ends">End of Life</th><th title="Date when extended/paid support ends (if available)">Extended Support</th><th>Status</th><th title="Number of servers running this software version">Servers</th>
+        </tr></thead>
+        <tbody id="eolTable"></tbody>
+      </table>
+    </div>
+  </div>
+
+</main>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

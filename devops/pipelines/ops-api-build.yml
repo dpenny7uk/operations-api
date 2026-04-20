@@ -47,8 +47,10 @@ steps:
       sourceFolder: '$(Build.SourcesDirectory)/operations-api/frontend'
       contents: |
         index.html
+        index-legacy.html
         css/**
         js/**
+        fonts/**
       targetFolder: '$(Build.ArtifactStagingDirectory)/frontend'
     displayName: 'Copy frontend'
 
