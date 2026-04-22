@@ -24,7 +24,12 @@ function mapServers(items) {
     ip: s.ipAddress || null,
     env: s.environment || 'Unknown',
     app: s.applicationName || '',
-    service: s.service || '',
+    // Service: prefer the new shared.servers.service column (migration 012),
+    // but fall back to application_name — which is what the legacy UI
+    // displayed under the "Service" header. Databricks sync populates
+    // application_name from combined_service today; service/func will
+    // populate once the notebook is extended to project those fields.
+    service: s.service || s.applicationName || '',
     func: s.func || '',
     pg: s.patchGroup || 'NO PATCH GROUP FOUND',
     active: !!s.isActive,
