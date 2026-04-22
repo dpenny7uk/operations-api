@@ -18,13 +18,16 @@ public class AlertsService : BaseService<AlertsService>, IAlertsService
         // UNION ALL over the four sources, ordered by timestamp, capped.
         var sql = $@"
             WITH alerts AS (
-                -- Unreachable servers: each unresolved scan failure is one crit alert.
+                -- Unreachable servers: each unresolved scan failure is one
+                -- warning-level alert. Unreachable alone isn't critical — most
+                -- estate servers don't expose 443/8443, so a failed scan is
+                -- noise until paired with other signals.
                 SELECT
                     'server:' || sf.server_name AS Id,
                     sf.last_failure_at          AS ""When"",
                     (sf.server_name || ' unreachable') AS Sub,
                     COALESCE(sf.scan_type, 'Scan') || ' failure — ' || sf.failure_count::text || ' attempts' AS Detail,
-                    'crit' AS Tone
+                    'warn' AS Tone
                 FROM {Sql.Tables.ScanFailures} sf
                 WHERE NOT sf.is_resolved
 

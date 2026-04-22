@@ -698,6 +698,14 @@
     page.appendChild(h('div.section-label', null, h('span',null,'Critical issues'), h('span.count',null,String(openSignals))));
     page.appendChild(CritStrip(sc));
 
+    // Key metrics — Servers env split + Patching groups + Certs
+    page.appendChild(h('div.section-label', null, h('span',null,'Key metrics')));
+    const metricsGrid = h('div.metrics-grid');
+    metricsGrid.appendChild(ServerEnvSplit(stale));
+    metricsGrid.appendChild(PatchingCard(stale));
+    metricsGrid.appendChild(CertCard());
+    page.appendChild(metricsGrid);
+
     // Active Alerts (from /api/alerts/recent — the real list)
     if (sc.alerts.length) {
       page.appendChild(h('div.section-label', null, h('span',null,'Active alerts'), h('span.count',null,String(sc.alerts.length)),
@@ -706,14 +714,6 @@
       sc.alerts.slice(0, 10).forEach(a => stack.appendChild(Alert(a)));
       page.appendChild(stack);
     }
-
-    // Key metrics — Servers env split + Patching groups + Certs
-    page.appendChild(h('div.section-label', null, h('span',null,'Key metrics')));
-    const metricsGrid = h('div.metrics-grid');
-    metricsGrid.appendChild(ServerEnvSplit(stale));
-    metricsGrid.appendChild(PatchingCard(stale));
-    metricsGrid.appendChild(CertCard());
-    page.appendChild(metricsGrid);
 
     // Recent alerts (feed, compact)
     const recentCount = Math.min(5, (window.RECENT_ALERTS_BASE || []).length);
