@@ -755,16 +755,30 @@
     const apiState = consoleState().apiState;
     document.body.setAttribute('data-api', apiState === 'off' ? 'offline' : apiState === 'warn' ? 'degraded' : '');
     const root = document.getElementById('root');
-    root.innerHTML = '';
+    // Build the new shell in a detached node first. Only swap it in once the
+    // page renders successfully, so a crash in a page module doesn't leave
+    // the user staring at a blank document.
     const shell = h('div.shell');
     shell.appendChild(Rail());
     const stage = h('main.stage');
     stage.appendChild(Statusline());
-    // Page mount — router-driven
     const pageMount = h('div.page-mount');
     stage.appendChild(pageMount);
-    renderCurrentPage(pageMount);
+    try {
+      renderCurrentPage(pageMount);
+    } catch (err) {
+      console.error('Page render failed:', err);
+      pageMount.innerHTML = '';
+      pageMount.appendChild(h('div.page', null,
+        h('div.page-head', null, h('span.title', null, 'Something went wrong')),
+        h('div.loud-banner.crit', null,
+          h('div.lead', null, 'Render error'),
+          h('div.msg', { html:'<b>This page failed to render.</b> The shell is still usable — switch to another surface in the rail.<small>' + String(err && err.message || err).replace(/[<>&]/g,'') + '</small>' }),
+        ),
+      ));
+    }
     shell.appendChild(stage);
+    root.innerHTML = '';
     root.appendChild(shell);
 
     if (window.__opAppReady) return;

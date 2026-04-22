@@ -269,7 +269,7 @@
     }
     const allGroups = getPatchGroups();
     const rows = q
-      ? allGroups.filter(g => g.id.toLowerCase().includes(q) || g.window.toLowerCase().includes(q) || groupIdsMatchedByServers.has(g.id))
+      ? allGroups.filter(g => (g.id||'').toLowerCase().includes(q) || (g.window||'').toLowerCase().includes(q) || groupIdsMatchedByServers.has(g.id))
       : allGroups;
 
     const search = h('input', {'data-fk':'patch-groups-search', type:'text', placeholder:'Search group, server, service, function…', value: patchState.groupQ,
@@ -306,7 +306,7 @@
         h('td.host', null, mark(g.id, q)),
         h('td.num', null, g.servers.toLocaleString()),
         h('td.muted', null, mark(g.window, q)),
-        h('td.muted', null, g.last.date),
+        h('td.muted', null, (g.last && g.last.date) || '—'),
         h('td', {style:{textAlign:'right'}}, h('button.btn', {
           on:{click:(e)=>{ e.stopPropagation(); toggleRow(); }}
         }, isOpen ? 'Hide servers' : 'View servers')),
