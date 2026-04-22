@@ -1,4 +1,5 @@
-/* Operations Console — Health prototype (vanilla) */
+/* Service Ops Console — shell (rail, statusline, health page). All data is
+   fetched by op-boot.js into window.* globals; this file only renders. */
 (function () {
   'use strict';
 
@@ -30,198 +31,106 @@
   // ================================================================
   // STATE
   // ================================================================
-  const defaults = { alertStyle:'v2', scenario:'degraded', theme:'light', tweaksOpen:false };
-  // bump this key when the stored shape changes so old sessions don't pin a stale layout
-  const STORAGE_KEY = 'op-proto-v5';
-  try { ['op-proto-v1','op-proto-v2','op-proto-v3','op-proto-v4'].forEach(k => localStorage.removeItem(k)); } catch(_) {}
+  const defaults = { alertStyle:'v2', theme:'light' };
+  const STORAGE_KEY = 'op-console-v1';
+  try { ['op-proto-v1','op-proto-v2','op-proto-v3','op-proto-v4','op-proto-v5'].forEach(k => localStorage.removeItem(k)); } catch(_) {}
   const state = Object.assign({}, defaults, JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'));
   function save() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
   function setState(p) { Object.assign(state, p); save(); render(); }
 
   // ================================================================
-  // REAL DASHBOARD DATA (modelled on the legacy screenshots)
+  // REAL DASHBOARD DATA — all sourced from window.* globals populated by
+  // op-boot.js after parallel /api fetches. These locals are pre-boot
+  // fallbacks only; once boot resolves, windows are replaced and renders
+  // pick up real values via the getters below.
   // ================================================================
-  const SERVERS = {
-    total: 2149,
-    env: [
-      {name:'Production',       count:1130},
-      {name:'Development',       count: 657},
-      {name:'UAT',               count: 134},
-      {name:'Staging',           count:  98},
-      {name:'Shared Services',   count:  57},
-      {name:'System',            count:  35},
-      {name:'Unmapped',          count:  18},
-      {name:'Proof of Concept',  count:  12},
-      {name:'Continuous Integration', count: 8},
-    ],
-  };
 
-  // Demo defaults. op-boot.js overwrites window.PATCH_GROUPS / SYNCS /
-  // RECENT_ALERTS_BASE with real API data and re-renders. All in-function
-  // reads reference window.* so they pick up the latest value each render.
-  window.PATCH_GROUPS = window.PATCH_GROUPS || [
-    {name:'PROD-A',  servers:412, date:new Date(2026,3,23), window:'02:00–05:00 UTC', services:'core-api, payments'},
-    {name:'PROD-B',  servers:388, date:new Date(2026,3,23), window:'05:00–08:00 UTC', services:'databases, cache'},
-    {name:'PROD-C',  servers:271, date:new Date(2026,3,24), window:'02:00–05:00 UTC', services:'web, edge'},
-    {name:'PROD-D',  servers: 59, date:new Date(2026,3,24), window:'05:00–06:30 UTC', services:'search, ingest'},
-    {name:'DEV-A',   servers:234, date:new Date(2026,3,25), window:'anytime',         services:'dev environments'},
-    {name:'DEV-B',   servers:198, date:new Date(2026,3,25), window:'anytime',         services:'ephemeral, ci'},
-    {name:'UAT',     servers:134, date:new Date(2026,3,26), window:'01:00–04:00 UTC', services:'pre-prod'},
-    {name:'STAGING', servers: 98, date:new Date(2026,3,26), window:'04:00–05:30 UTC', services:'staging'},
-  ];
-  // No local alias — all render-time reads go through window.PATCH_GROUPS so op-boot
-  // replacements take effect on re-render.
+  // Server total + env breakdown (fallback only — real from window.SERVERS_DATA)
+  function getServers() {
+    const sd = window.SERVERS_DATA || {};
+    return {
+      total: sd.SRV_TOTAL || 0,
+      env: sd.SRV_ENV || [],
+    };
+  }
 
-  window.SYNCS = window.SYNCS || [
-    {name:'confluence_issues',     status:'healthy', last:new Date(2026,3,20,5,0),  records:    4, failures:0, err:'—', schedule:'Daily 4:00 AM'},
-    {name:'databricks_servers',    status:'healthy', last:new Date(2026,3,20,6,0),  records: 2149, failures:0, err:'—', schedule:'Daily 5:00 AM'},
-    {name:'databricks_eol_dates',  status:'healthy', last:new Date(2026,3,20,6,30), records: 7913, failures:0, err:'—', schedule:'Daily 5:30 AM'},
-    {name:'databricks_eol_software',status:'healthy',last:new Date(2026,3,20,6,35), records: 1353, failures:0, err:'—', schedule:'Daily 5:35 AM'},
-    {name:'certificate_scan',      status:'healthy', last:new Date(2026,3,20,7,7),  records:  298, failures:0, err:'—', schedule:'Daily 6:00 AM'},
-    {name:'patching_schedule_html',status:'healthy', last:new Date(2026,3,20,7,30), records: 1159, failures:0, err:'—', schedule:'Daily 6:30 AM'},
-  ];
+  // Pre-boot fallbacks. Empty = honest: nothing shows until op-boot.js fetches
+  // from the API and repopulates. If the API is unreachable these stay empty
+  // and the "API unreachable" banner surfaces via consoleState().
+  window.PATCH_GROUPS       = window.PATCH_GROUPS       || [];
+  window.SYNCS              = window.SYNCS              || [];
+  window.RECENT_ALERTS_BASE = window.RECENT_ALERTS_BASE || [];
 
-  window.RECENT_ALERTS_BASE = window.RECENT_ALERTS_BASE || [
-    {id:'PRD004-26092-00', when:'Apr 12 2026', sub:'Certificate expiring soon', detail:'cert expires in -7 days', tone:'crit'},
-    {id:'KNR-Prod',        when:'Apr 12 2026', sub:'Certificate expiring soon', detail:'cert expires in -7 days', tone:'crit'},
-    {id:'PRD004-26083-00', when:'Apr 14 2026', sub:'Patch compliance below SLA', detail:'compliance at 91.6% (SLA 95%)', tone:'warn'},
-    {id:'DVX032-14011-00', when:'Apr 14 2026', sub:'Server unreachable > 30m',    detail:'no check-in since 12:04Z',      tone:'warn'},
-    {id:'INFRA-DBX',       when:'Apr 15 2026', sub:'Databricks sync lagging',     detail:'last success 18m ago (SLA 10m)', tone:'info'},
-  ];
-
-  const UNREACHABLE = [
-    {name:'DVX032EUGSE-00', env:'Development',  lastSeen:'2h ago', duration:'2h 12m'},
-    {name:'DVX032EUCDN-00', env:'Development',  lastSeen:'2h ago', duration:'2h 12m'},
-    {name:'DVX032I42J2A-00',env:'Staging',      lastSeen:'2h ago', duration:'2h 12m'},
-    {name:'DVX032GLWSD-00', env:'Development',  lastSeen:'2h ago', duration:'2h 12m'},
-    {name:'DVX032FHQCKV-01',env:'Development',  lastSeen:'2h ago', duration:'2h 12m'},
-  ];
-
-  const UNMATCHED = [
-    {raw:'ielcompa01', source:'PATCHING_HTML', firstSeen:'Mar 14, 2026'},
-    {raw:'iclcsem1',   source:'PATCHING_HTML', firstSeen:'Mar 14, 2026'},
-    {raw:'hxb20200',   source:'UNMATCHED_HTML',firstSeen:'Mar 24, 2026'},
-    {raw:'hxa23200',   source:'UNMATCHED_HTML',firstSeen:'Mar 24, 2026'},
-    {raw:'hxx22590',   source:'UNMATCHED_HTML',firstSeen:'Mar 24, 2026'},
-  ];
+  function getUnreachable() { return (window.SERVERS_DATA && window.SERVERS_DATA.unreachable) || []; }
+  function getUnmatched()   { return (window.SERVERS_DATA && window.SERVERS_DATA.unmatched)   || []; }
 
   // EXCLUSIONS: exposed via window.EXCLUSIONS so op-boot.js can replace after fetch.
   window.EXCLUSIONS = window.EXCLUSIONS || [];
 
   // ================================================================
-  // SCENARIOS — overlay alerts / row severity / banner on top of
-  // the base dashboard data above.
+  // CONSOLE STATE — derived live from window globals + apiErrors.
+  // Returns the same shape the page renderers previously consumed from
+  // the SCENARIOS overlay: { label, banner, apiState, summary, alerts }.
+  // Call once per render; pass the result down.
   // ================================================================
-  const SCENARIOS = {
-    healthy: {
-      label:'All healthy', banner:null, apiState:'ok',
-      summary:{crit:0,warn:0,info:2,tagline:'All systems operational. <b>2 informational</b> advisories.'},
-      alerts:[
-        {sev:'info',title:'Quarterly patch rehearsal window <em>2026-05-04</em>',detail:'Dry-run patch cycle scheduled for 24 non-prod hosts. No impact expected.',meta:{when:60,owner:'platform-ops',runbook:'RB-204'}},
-        {sev:'info',title:'TLS 1.3 enforcement rollout — phase 2',detail:'Policy will be applied to internal API gateways over the next 7 days.',meta:{when:180,owner:'sec-platform',runbook:'RB-117'}},
-      ],
-      rowIssues:[],
-    },
-    offline: {
-      label:'API offline',
-      banner:{tone:'crit',lead:'API unreachable',msg:'<b>Operator Console cannot reach the Operations API.</b> Data shown is the last cached snapshot from <b>4m ago</b>.',sub:'3 retries failed · ECONNREFUSED at ops-api.corp.local:8443'},
-      apiState:'off',
-      summary:{crit:7,warn:3,info:0,tagline:'<b>API unreachable</b> — all figures below are <b>stale</b>.'},
-      alerts:[
-        {sev:'crit',title:'API <em>unreachable</em> — all endpoints failing',detail:'All 7 monitored endpoints returned connection errors. Cached data being served. Retries 3/3 exhausted at 14:22:06Z.',meta:{when:4,owner:'platform-ops',runbook:'RB-001',dur:240,tries:3,blast:'all consoles'}},
-        {sev:'crit',title:'Health telemetry <em>stale</em> — last update 4m ago',detail:'Cannot verify current operational posture. Indicators show the last known state, not live values.',meta:{when:4,owner:'platform-ops',runbook:'RB-002',dur:240,blast:'dashboard'}},
-        {sev:'warn',title:'Patch scheduler <em>unknown state</em>',detail:'Unable to confirm next cycle readiness. PROD-A scheduled in 2 days — verify manually before kickoff.',meta:{when:4,owner:'patch-ops',runbook:'RB-077',blast:'PROD-A'}},
-      ],
-      rowIssues:[
-        {host:'db-prod-07',env:'Production',age:42,err:'cached · last seen 42m',sev:'crit'},
-        {host:'web-prod-15',env:'Production',age:38,err:'cached · last seen 38m',sev:'crit'},
-        {host:'api-prod-02',env:'Production',age:12,err:'cached · last seen 12m',sev:'warn'},
-      ],
-    },
-    degraded: {
-      label:'API degraded',
-      banner:{tone:'warn',lead:'API degraded',msg:'<b>3 of 7 endpoints returning errors.</b> Dashboard is partially stale; affected sections are flagged.',sub:'/health/validation (500) · /certs/expiring (timeout) · /patch/cycles (503)'},
-      apiState:'warn',
-      summary:{crit:2,warn:5,info:1,tagline:'<b>Degraded</b> — certs and patching affected.'},
-      alerts:[
-        {sev:'crit',title:'Certificate sync <em>timed out</em> — 3 attempts',detail:'/certs/expiring exceeded 30s timeout. Expiry data is 18m stale. 4 certs are inside the warning window and may have changed state.',meta:{when:18,owner:'sec-platform',runbook:'RB-061',dur:1080,tries:3,blast:'cert dashboard'}},
-        {sev:'crit',title:'Server inventory sync <em>HTTP 500</em>',detail:'databricks_servers last run returned 500. Server total shown below is from the previous successful run.',meta:{when:14,owner:'platform-ops',runbook:'RB-045',dur:840,tries:6,blast:'server KPIs',host:'ops-api-02'}},
-        {sev:'warn',title:'Patch schedule endpoint <em>503</em> — upstream saturated',detail:'/patch/cycles returned 503 twice in the last 10m. Upcoming cycle dates visible from cache.',meta:{when:6,owner:'patch-ops',runbook:'RB-077',tries:2,blast:'patch page'}},
-        {sev:'warn',title:'EOL tracker stale — <em>sync behind 2h</em>',detail:'Software end-of-life feed last synced at 12:07Z. Manual refresh may resolve.',meta:{when:120,owner:'sec-platform',runbook:'RB-088',blast:'eol page'}},
-      ],
-      rowIssues:[
-        {host:'ops-api-02',env:'Production',age:14,err:'HTTP 500 · /servers',sev:'crit'},
-        {host:'cert-worker-01',env:'Production',age:18,err:'timeout 30s · /certs',sev:'crit'},
-        {host:'patch-scheduler',env:'Production',age:6,err:'HTTP 503 · retry queued',sev:'warn'},
-      ],
-    },
-    stale: {
-      label:'Stale data',
-      banner:{tone:'warn',lead:'Data is stale',msg:'<b>SCCM sync has not completed in 3h 18m.</b> Patch compliance figures are out of date.',sub:'Expected every 30m · last success 11:42Z · 2 consecutive failures'},
-      apiState:'ok',
-      summary:{crit:1,warn:4,info:0,tagline:'<b>Data freshness degraded</b> — 2 syncs stale.'},
-      alerts:[
-        {sev:'crit',title:'patching_schedule_html <em>failing</em> — 2 consecutive runs',detail:'Python sync job exited with code 1: pyodbc.OperationalError — connection to sccm-db timed out. Patch compliance is 3h 18m stale.',meta:{when:198,owner:'patch-ops',runbook:'RB-033',dur:11880,tries:2,blast:'compliance KPIs'}},
-        {sev:'warn',title:'databricks_servers sync <em>behind schedule</em>',detail:'Last completed 72m ago (expected every 30m). New servers may not yet appear in the inventory.',meta:{when:72,owner:'platform-ops',runbook:'RB-019',dur:4320,blast:'inventory'}},
-        {sev:'warn',title:'certificate_scan <em>queue backlog</em>',detail:'98 pending rotations in queue. Worker throughput dropped from 40/min to 4/min at 13:55Z.',meta:{when:60,owner:'sec-platform',runbook:'RB-062',dur:3600,blast:'98 rotations'}},
-      ],
-      rowIssues:[
-        {host:'patching_schedule_html',env:'Prod',age:198,err:'pyodbc timeout',sev:'crit'},
-        {host:'databricks_servers',env:'Prod',age:72,err:'overdue · expected 30m',sev:'warn'},
-      ],
-    },
-    certs: {
-      label:'Certs expiring',
-      banner:{tone:'crit',lead:'Certificates expired',msg:'<b>2 production certificates have expired.</b> 5 more expire within 14 days. Auto-rotate is currently disabled.',sub:'ops-api.corp.local expired 4h ago · identity.corp.local expired 11h ago'},
-      apiState:'ok',
-      summary:{crit:2,warn:5,info:0,tagline:'<b>2 expired</b>, <b>5 critical</b> — auto-rotate off.'},
-      alerts:[
-        {sev:'crit',title:'Cert <em>ops-api.corp.local</em> expired 4h ago',detail:'TLS handshake failing on public endpoint. Browser warnings active for all operator sessions. Renewal blocked by DNS-01 challenge failure.',meta:{when:240,owner:'sec-platform',runbook:'RB-103',dur:14400,blast:'all API traffic'}},
-        {sev:'crit',title:'Cert <em>identity.corp.local</em> expired 11h ago',detail:'SAML metadata signing broken — new operator logins failing at IdP. Existing sessions unaffected until token refresh.',meta:{when:660,owner:'iam',runbook:'RB-104',dur:39600,blast:'new logins'}},
-        {sev:'warn',title:'<em>5 certs</em> expiring in ≤ 14 days',detail:'db-prod.corp.local (3d), internal-api.corp.local (7d), metrics.corp.local (9d), cache.corp.local (11d), ldap.corp.local (13d).',meta:{when:30,owner:'sec-platform',runbook:'RB-105',blast:'5 services'}},
-        {sev:'warn',title:'Auto-rotate <em>disabled</em> — manual intervention required',detail:'cert-manager configured with autoRotate=false since 2026-03-12. Each expiring cert must be rotated by hand.',meta:{when:5760,owner:'sec-platform',runbook:'RB-106'}},
-      ],
-      rowIssues:[
-        {host:'ops-api.corp.local',env:'Prod',age:240,err:'EXPIRED · 4h past',sev:'crit'},
-        {host:'identity.corp.local',env:'Prod',age:660,err:'EXPIRED · 11h past',sev:'crit'},
-        {host:'db-prod.corp.local',env:'Prod',age:0,err:'expires in 3d',sev:'warn'},
-        {host:'internal-api.corp.local',env:'Prod',age:0,err:'expires in 7d',sev:'warn'},
-      ],
-    },
-    patching: {
-      label:'Patch failure',
-      banner:{tone:'crit',lead:'Patch cycle degraded',msg:'<b>PROD-A — 7 hosts failed to apply patches.</b> 4 require manual remediation before the next maintenance window.',sub:'Started 13:00Z · 53/60 succeeded · rollback blocked on 3 hosts'},
-      apiState:'ok',
-      summary:{crit:3,warn:4,info:1,tagline:'<b>PROD-A</b> — 7 failures, 3 blocked on rollback.'},
-      alerts:[
-        {sev:'crit',title:'3 hosts <em>blocked on rollback</em> — manual intervention required',detail:'db-prod-12, db-prod-13, db-prod-14 failed during pg_upgrade validation. Rollback is failing because WAL is ahead of replica. On-call must choose recovery path.',meta:{when:42,owner:'db-ops',runbook:'RB-200',dur:2520,tries:2,blast:'prod-db cluster'}},
-        {sev:'crit',title:'Host <em>web-prod-22</em> offline after patch',detail:'Host stopped responding to health checks 6m after reboot. SSH not responding. Out-of-band console shows kernel panic during boot.',meta:{when:28,owner:'platform-ops',runbook:'RB-201',dur:1680,blast:'web pool capacity −8%'}},
-        {sev:'crit',title:'<em>KB5034122</em> rejected by 4 Windows hosts',detail:'Installation failed with 0x800f0922 — staged files corrupted. Retry queued for next cycle.',meta:{when:85,owner:'patch-ops',runbook:'RB-202',dur:5100,tries:1,blast:'4 hosts'}},
-        {sev:'warn',title:'Compliance dropped to <em>91.6%</em> (SLA 95%)',detail:'7 hosts failed to apply this cycle + 6 exclusions = 13/156 hosts non-compliant.',meta:{when:12,owner:'patch-ops',runbook:'RB-203',blast:'SLA breach'}},
-      ],
-      rowIssues:[
-        {host:'db-prod-12',env:'Production',age:42,err:'pg_upgrade failed · rollback blocked',sev:'crit'},
-        {host:'db-prod-13',env:'Production',age:42,err:'pg_upgrade failed · rollback blocked',sev:'crit'},
-        {host:'web-prod-22',env:'Production',age:28,err:'offline post-reboot · kernel panic',sev:'crit'},
-        {host:'fs-prod-03',env:'Production',age:85,err:'KB5034122 · 0x800f0922',sev:'warn'},
-      ],
-    },
-    security: {
-      label:'Auth disabled',
-      banner:{tone:'crit',lead:'Authentication disabled',msg:'<b>Authentication:Mode = "none"</b> in production. Every endpoint is exposed without credentials — intended for local dev only.',sub:'Detected on ops-api-01 · ops-api-02 · 3h 04m ago'},
-      apiState:'ok',
-      summary:{crit:2,warn:1,info:0,tagline:'<b>Critical security advisory</b> — auth disabled, CORS wildcard in use.'},
-      alerts:[
-        {sev:'crit',title:'Auth <em>disabled</em> on production API',detail:'appsettings.json has Authentication:Mode = "none". Any caller on the corp network can read/write every endpoint. Config was pushed at 11:04Z by deploy-bot.',meta:{when:184,owner:'platform-ops',runbook:'RB-401',dur:11040,blast:'entire API surface',host:'ops-api-01,02'}},
-        {sev:'crit',title:'CORS policy accepts <em>*</em> with credentials',detail:'Cors:AllowedOrigins is empty → effective wildcard. Combined with disabled auth this permits arbitrary cross-origin reads.',meta:{when:184,owner:'sec-platform',runbook:'RB-402',dur:11040,blast:'browser clients'}},
-        {sev:'warn',title:'Write access to <em>validation_rules</em> granted to readonly role',detail:'GRANT INSERT on system.validation_rules to app_readonly. Equivalent to arbitrary SQL execution via POST /health/validation/run.',meta:{when:720,owner:'dba',runbook:'RB-403',dur:43200,blast:'sql execution'}},
-      ],
-      rowIssues:[
-        {host:'ops-api-01',env:'Production',age:184,err:'auth:none · cors:*',sev:'crit'},
-        {host:'ops-api-02',env:'Production',age:184,err:'auth:none · cors:*',sev:'crit'},
-      ],
-    },
-  };
+  function consoleState() {
+    const errs = Array.isArray(window.API_ERRORS) ? window.API_ERRORS : [];
+    const errCount = errs.length;
+    // apiState: off if nothing reachable (network/auth blanket errors present
+    // and no real data ever arrived), degraded if some endpoints failed, ok
+    // otherwise. Blanket errors start with 'Authentication' / 'Network' /
+    // 'Request' / 'Rate' / 'Server'; per-endpoint errors are path-shaped.
+    const hasBlanket = errs.some(e => /^(Authentication|Network|Request)/.test(e));
+    const apiState = errCount === 0 ? 'ok' : hasBlanket ? 'off' : 'warn';
+
+    // Alerts come from /api/alerts/recent (populated into RECENT_ALERTS_BASE
+    // by op-boot.js). Tones there are already crit/warn/info.
+    const recent = Array.isArray(window.RECENT_ALERTS_BASE) ? window.RECENT_ALERTS_BASE : [];
+    const alerts = recent.map(a => ({
+      sev: a.tone || 'info',
+      title: a.sub || a.id || 'Alert',
+      detail: a.detail || '',
+      meta: { blast: a.id || '' },
+    }));
+    const crit = recent.filter(a => a.tone === 'crit').length;
+    const warn = recent.filter(a => a.tone === 'warn').length;
+    const info = recent.filter(a => a.tone === 'info').length;
+
+    // Banner: surface API degradation. When data is fully healthy this is null.
+    let banner = null;
+    if (apiState === 'off') {
+      banner = {
+        tone: 'crit',
+        lead: 'API unreachable',
+        msg: '<b>Operator Console cannot reach the Operations API.</b> Figures below may be missing or stale.',
+        sub: errs.slice(0, 4).join(' · '),
+      };
+    } else if (apiState === 'warn') {
+      const pathErrs = errs.filter(e => !/^(Authentication|Network|Request|Rate|Server)/.test(e));
+      banner = {
+        tone: 'warn',
+        lead: 'API degraded',
+        msg: '<b>' + errCount + ' endpoint' + (errCount === 1 ? '' : 's') + ' returning errors.</b> Affected sections may be stale.',
+        sub: pathErrs.slice(0, 4).join(' · '),
+      };
+    }
+
+    // Label + tagline
+    let label, tagline;
+    if (apiState === 'off')      { label = 'API unreachable'; tagline = '<b>API unreachable</b> — figures below may be stale.'; }
+    else if (apiState === 'warn'){ label = 'API degraded';    tagline = '<b>Degraded</b> — some endpoints failing.'; }
+    else if (crit > 0)           { label = 'Needs attention'; tagline = '<b>' + crit + ' critical</b> alert' + (crit === 1 ? '' : 's') + ' open.'; }
+    else if (warn > 0)           { label = 'With caveats';    tagline = '<b>' + warn + ' warning</b>' + (warn === 1 ? '' : 's') + ' — review when possible.'; }
+    else                         { label = 'All healthy';     tagline = 'All systems operational.' + (info ? ' <b>' + info + ' informational</b> advisor' + (info === 1 ? 'y' : 'ies') + '.' : ''); }
+
+    return {
+      label,
+      banner,
+      apiState,
+      summary: { crit, warn, info, tagline },
+      alerts,
+    };
+  }
 
   // ================================================================
   // RAIL + STATUSLINE
@@ -247,7 +156,7 @@
         h('span.label', null, label));
       nav.appendChild(li);
     }
-    const api = SCENARIOS[state.scenario].apiState;
+    const api = consoleState().apiState;
     return h('aside.rail', null,
       h('div.brand', null,
         h('div.mark', null, 'Service Ops'),
@@ -258,13 +167,16 @@
       h('div.rail-footer', null,
         h('span.rail-api'+(api==='off'?'.off':api==='warn'?'.warn':''), null,
           h('span.d'), 'API '+(api==='off'?'offline':api==='warn'?'degraded':'online')),
-        h('div.clock', null, '14:22:06 UTC · 2026-04-21'),
-        h('div', null, 'build 3d4948d · prototype')),
+        h('div.clock', null, (() => {
+          const d = new Date();
+          const p = n => String(n).padStart(2,'0');
+          return p(d.getUTCHours())+':'+p(d.getUTCMinutes())+':'+p(d.getUTCSeconds())+' UTC · '+d.getUTCFullYear()+'-'+p(d.getUTCMonth()+1)+'-'+p(d.getUTCDate());
+        })())),
     );
   }
 
   function Statusline() {
-    const sc = SCENARIOS[state.scenario];
+    const sc = consoleState();
     const s = sc.summary;
     const route = (window.ROUTER && window.ROUTER.currentRoute()) || 'health';
     // Per-surface hero: status word + telegram pieces tailored to the page
@@ -276,7 +188,7 @@
         h('div.telegram', null, ...heroCopy.pieces),
       ),
       h('div.right', null,
-        h('div.timestamp', null, 'Last refresh · 14:22:06'),
+        h('div.timestamp', null, 'Last refresh · ' + (() => { const d = new Date(); const p = n => String(n).padStart(2,'0'); return p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds()); })()),
         h('button.theme-toggle', {title:'Toggle theme', on:{click:()=>setState({theme: state.theme==='light'?'dark':'light'})}},
           state.theme === 'light' ? '☾' : '☀'),
         h('button.refresh', null, h('span.dot'), 'Refresh')),
@@ -333,40 +245,60 @@
         };
       }
       case 'patching': {
-        // Data owned by pages-v3; count blockers via a conservative probe
-        // (pages-v3 is loaded after app.js, so data may not be reachable from
-        // here — keep a stable summary that matches the page hero)
+        const pg = Array.isArray(window.PATCH_GROUPS) ? window.PATCH_GROUPS : [];
+        const next = pg[0] || null;
+        const totalQueued = pg.reduce((n, g) => n + (g.servers || 0), 0);
+        let word = 'no cycle queued', cycleStr = '—';
+        if (next && next.date instanceof Date) {
+          const days = Math.max(0, Math.ceil((next.date.getTime() - Date.now()) / 86400000));
+          word = 'Next cycle · ' + next.date.toLocaleDateString('en-GB',{day:'2-digit',month:'short'});
+          cycleStr = 'in ' + days + (days === 1 ? ' day' : ' days');
+        }
         return {
           tag: '— PATCHING SCHEDULES · '+sc.label.toUpperCase(),
-          word: 'Next Cycle · Apr 23',
+          word,
           pieces: [
-            h('span.piece', null, h('b', null, 'April 2026'), ' cycle in 3d'),
-            h('span.piece.ok', null, h('b', null, '1,020'), ' servers queued'),
-            h('span.piece.warn', null, h('b', null, '1'), ' open blocker'),
+            h('span.piece', null, h('b', null, cycleStr)),
+            h('span.piece.ok', null, h('b', null, totalQueued.toLocaleString()), ' servers queued'),
+            h('span.piece', null, h('b', null, String(pg.length)), ' groups'),
           ],
         };
       }
-      case 'patchmgmt':
+      case 'patchmgmt': {
+        const ex = Array.isArray(window.EXCLUSIONS) ? window.EXCLUSIONS : [];
+        const overdue  = ex.filter(x => x.state === 'overdue').length;
+        const expiring = ex.filter(x => x.state === 'expiring').length;
+        const active   = ex.filter(x => x.state === 'active').length;
+        const word = overdue>0 ? 'exclusions · '+overdue+' overdue' : expiring>0 ? 'exclusions · '+expiring+' expiring' : 'exclusions · all active';
         return {
           tag: '— PATCH MANAGEMENT · '+sc.label.toUpperCase(),
-          word: 'exclusions · 3 overdue',
+          word,
           pieces: [
-            h('span.piece.crit', null, h('b', null, '3'), ' past hold date'),
-            h('span.piece.warn', null, h('b', null, '3'), ' expiring soon'),
-            h('span.piece.ok', null, h('b', null, '5'), ' active'),
-            h('span.piece', null, h('b', null, '1,020'), ' eligible'),
+            h('span.piece'+(overdue?'.crit':''), null, h('b', null, String(overdue)), ' past hold date'),
+            h('span.piece'+(expiring?'.warn':''), null, h('b', null, String(expiring)), ' expiring soon'),
+            h('span.piece.ok', null, h('b', null, String(active)), ' active'),
+            h('span.piece', null, h('b', null, String(ex.length)), ' total'),
           ],
         };
+      }
       default: {
-        // health — preserve original behaviour
+        // Next patch cycle piece — from real window.PATCH_GROUPS[0] if available
+        const next = (window.PATCH_GROUPS && window.PATCH_GROUPS[0]) || null;
+        let nextPiece;
+        if (next && next.date instanceof Date) {
+          const days = Math.max(0, Math.ceil((next.date.getTime() - Date.now()) / 86400000));
+          nextPiece = h('span.piece', null, h('b', null, next.name || '—'), ' in ' + days + 'd');
+        } else {
+          nextPiece = h('span.piece', null, h('b', null, '—'), ' no cycle queued');
+        }
         return {
           tag: '— OPERATOR BULLETIN · '+sc.label.toUpperCase(),
           word: s.crit>0 ? 'needs attention' : s.warn>0 ? 'with caveats' : 'Operational',
           pieces: [
             h('span.piece'+(s.crit?'.crit':''), null, h('b', null, String(s.crit)), ' critical'),
             h('span.piece'+(s.warn?'.warn':''), null, h('b', null, String(s.warn)), ' warning'),
-            h('span.piece.ok', null, h('b', null, SERVERS.total.toLocaleString()), ' hosts tracked'),
-            h('span.piece', null, h('b', null, 'PROD-A'), ' in 2d'),
+            h('span.piece.ok', null, h('b', null, getServers().total.toLocaleString()), ' hosts tracked'),
+            nextPiece,
           ],
         };
       }
@@ -448,30 +380,52 @@
   function CritStrip(sc) {
     const stale = sc.apiState !== 'ok';
     const strip = h('div.crit-strip');
+
+    // System status
     const c1tone = sc.summary.crit ? 'crit' : sc.summary.warn ? 'warn' : 'ok';
     strip.appendChild(h('div.cs-cell.status-cell.'+c1tone, null,
       h('div.cs-label', null, 'System status'),
       h('div.cs-value', null, stale ? 'Unknown' : (sc.summary.crit?'Degraded':sc.summary.warn?'Attention':'Healthy')),
-      h('div.cs-sub', null, (sc.summary.crit+sc.summary.warn)+' open signals'+(stale?' · cached':''))));
-    strip.appendChild(h('div.cs-cell.'+(state.scenario==='patching'?'crit':'info'), null,
-      h('div.cs-label', null, 'Next patch cycle'),
-      h('div.cs-value', null, '2', h('span.cs-unit', null, 'days')),
-      h('div.cs-sub', null, 'PROD-A · 412 servers · 23 Apr'),
-      h('div.cs-link', null, 'View schedule')));
+      h('div.cs-sub', null, (sc.summary.crit+sc.summary.warn)+' open signals'+(stale?' · stale':''))));
+
+    // Next patch cycle — from window.PATCH_GROUPS[0]
+    const next = (window.PATCH_GROUPS && window.PATCH_GROUPS[0]) || null;
+    let nextDays = null, nextSub = '—';
+    if (next && next.date instanceof Date) {
+      const ms = next.date.getTime() - Date.now();
+      nextDays = Math.max(0, Math.ceil(ms / 86400000));
+      const pieces = [next.name, (next.servers || 0).toLocaleString() + ' servers', fmtDate(next.date)].filter(Boolean);
+      nextSub = pieces.join(' · ');
+    }
     strip.appendChild(h('div.cs-cell.info', null,
+      h('div.cs-label', null, 'Next patch cycle'),
+      h('div.cs-value', null, nextDays == null ? '—' : String(nextDays), nextDays != null ? h('span.cs-unit', null, nextDays === 1 ? 'day' : 'days') : null),
+      h('div.cs-sub', null, nextSub),
+      h('div.cs-link', null, 'View schedule')));
+
+    // Unmatched servers — real count from window.SERVERS_DATA.unmatched
+    const unmatchedCount = getUnmatched().length;
+    strip.appendChild(h('div.cs-cell.'+(unmatchedCount ? 'warn' : 'info'), null,
       h('div.cs-label', null, 'Unmatched servers'),
-      h('div.cs-value', null, String(UNMATCHED.length * 2)),
-      h('div.cs-sub', null, 'pending review'),
+      h('div.cs-value', null, String(unmatchedCount)),
+      h('div.cs-sub', null, unmatchedCount ? 'pending review' : 'none pending'),
       h('div.cs-link', null, 'Review queue')));
-    strip.appendChild(h('div.cs-cell.'+(state.scenario==='stale'?'crit':'ok'), null,
+
+    // Sync failures — count non-healthy from window.SYNCS
+    const syncs = Array.isArray(window.SYNCS) ? window.SYNCS : [];
+    const failing = syncs.filter(s => s.status && s.status !== 'healthy').length;
+    strip.appendChild(h('div.cs-cell.'+(failing ? 'crit' : 'ok'), null,
       h('div.cs-label', null, 'Sync failures'),
-      h('div.cs-value', null, state.scenario==='stale'?'2':'0'),
-      h('div.cs-sub', null, state.scenario==='stale'?'2 syncs failing':'all syncs healthy'),
+      h('div.cs-value', null, String(failing)),
+      h('div.cs-sub', null, failing ? (failing === 1 ? '1 sync failing' : failing + ' syncs failing') : 'all syncs healthy'),
       h('div.cs-link', null, 'View sync status')));
+
+    // Patch exclusions — already real via window.EXCLUSIONS
+    const exCount = (window.EXCLUSIONS || []).length;
     strip.appendChild(h('div.cs-cell.info', null,
       h('div.cs-label', null, 'Patch exclusions'),
-      h('div.cs-value', null, String(window.EXCLUSIONS.length)),
-      h('div.cs-sub', null, window.EXCLUSIONS.length?'held / expired':'all holds active'),
+      h('div.cs-value', null, String(exCount)),
+      h('div.cs-sub', null, exCount ? 'held / expired' : 'none active'),
       h('div.cs-link', null, 'Review exclusions')));
     return strip;
   }
@@ -480,21 +434,26 @@
   // KEY METRICS — Servers (env split) + Patching (group breakdown) + Certs
   // ================================================================
   function ServerEnvSplit(stale) {
-    const max = Math.max(...SERVERS.env.map(e=>e.count));
+    const srv = getServers();
+    const max = srv.env.length ? Math.max(...srv.env.map(e => e.count)) : 1;
     const card = h('div.metric-card');
     card.appendChild(h('div.mc-head', null,
       h('span.mc-title', null, 'Servers'),
-      h('span.mc-total', null, SERVERS.total.toLocaleString(), h('small', null, 'total')),
-      stale ? h('span.stale-chip', null, 'cached') : null,
+      h('span.mc-total', null, srv.total.toLocaleString(), h('small', null, 'total')),
+      stale ? h('span.stale-chip', null, 'stale') : null,
     ));
     const list = h('div.env-bars');
-    for (const e of SERVERS.env) {
-      const pct = (e.count / max) * 100;
-      list.appendChild(h('div.env-row', null,
-        h('div.name', null, e.name),
-        h('div.bar', null, h('div.fill', { style:{ width: pct+'%' } })),
-        h('div.count', null, e.count.toLocaleString()),
-      ));
+    if (!srv.env.length) {
+      list.appendChild(h('div.env-row.muted', null, h('div.name', null, '—'), h('div.bar'), h('div.count', null, '—')));
+    } else {
+      for (const e of srv.env) {
+        const pct = (e.count / max) * 100;
+        list.appendChild(h('div.env-row', null,
+          h('div.name', null, e.name),
+          h('div.bar', null, h('div.fill', { style:{ width: pct+'%' } })),
+          h('div.count', null, e.count.toLocaleString()),
+        ));
+      }
     }
     card.appendChild(list);
     return card;
@@ -539,17 +498,23 @@
 
   function CertCard() {
     const card = h('div.metric-card');
-    const expiring = state.scenario==='certs' ? 7 : 4;
-    const expired  = state.scenario==='certs' ? 2 : 0;
+    // Real counts from /api/certificates/summary via op-boot.js
+    const counts = (window.CERTS_DATA && window.CERTS_DATA.CERT_COUNTS) || { expired:0, within7d:0, within30d:0, healthy:0 };
+    const expired = counts.expired || 0;
+    // CERT_COUNTS maps backend: expired/crit(≤7d)/warn(≤30d)/ok. Treat "expiring"
+    // as crit+warn (≤30d window) since we no longer distinguish 14d in backend.
+    const expiringSoon = (counts.within7d || 0) + (counts.within30d || 0);
+    const healthy = counts.healthy || 0;
+    const tracked = expired + expiringSoon + healthy;
     card.appendChild(h('div.mc-head', null,
       h('span.mc-title', null, 'Certificates'),
-      h('span.mc-total', null, '287', h('small', null, 'tracked')),
-      h('span.mc-sub', null, expiring+' expiring ≤ 14d'),
+      h('span.mc-total', null, tracked.toLocaleString(), h('small', null, 'tracked')),
+      h('span.mc-sub', null, expiringSoon + ' expiring ≤ 30d'),
     ));
     const grid = h('div.cert-stat');
     grid.appendChild(h('div.cs-row.crit', null, h('div.n', null, String(expired)), h('div.l', null, 'Expired')));
-    grid.appendChild(h('div.cs-row.warn', null, h('div.n', null, String(expiring-expired)), h('div.l', null, 'Expiring ≤ 14d')));
-    grid.appendChild(h('div.cs-row.ok',   null, h('div.n', null, String(287-expiring)), h('div.l', null, 'Valid > 14d')));
+    grid.appendChild(h('div.cs-row.warn', null, h('div.n', null, String(expiringSoon)), h('div.l', null, 'Expiring ≤ 30d')));
+    grid.appendChild(h('div.cs-row.ok',   null, h('div.n', null, String(healthy)), h('div.l', null, 'Valid > 30d')));
     card.appendChild(grid);
     // Mini timeline
     const tl = h('div.cert-mini-axis');
@@ -583,23 +548,19 @@
       h('th', null, 'Schedule'),
     )));
     const tb = h('tbody');
-    // Override status for "stale" scenario
-    const syncs = window.SYNCS.map(s => {
-      if (state.scenario==='stale' && s.name==='patching_schedule_html') return {...s, status:'fail', err:'pyodbc timeout', failures:2};
-      if (state.scenario==='stale' && s.name==='databricks_servers')     return {...s, status:'warn', err:'overdue 42m', failures:0};
-      return s;
-    });
+    const syncs = Array.isArray(window.SYNCS) ? window.SYNCS : [];
     for (const s of syncs) {
       const badgeCls = s.status==='healthy'?'ok':s.status==='warn'?'warn':'crit';
-      const sevRow   = s.status==='fail'?'sev-crit':s.status==='warn'?'sev-warn':'';
+      const sevRow   = s.status==='crit'?'sev-crit':s.status==='warn'?'sev-warn':'';
+      const lastStr = s.last ? s.last.toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '—';
       tb.appendChild(h('tr'+(sevRow?'.'+sevRow:''), null,
         h('td.host', null, s.name),
-        h('td', null, h('span.badge.'+badgeCls, null, h('span.dot'), s.status.toUpperCase())),
-        h('td.mono.muted', null, s.last.toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})),
-        h('td.num', null, s.records.toLocaleString()),
-        h('td.num', { style:{color: s.failures? 'var(--crit)':'var(--ink-3)'} }, String(s.failures)),
-        h('td.mono', { style:{color: s.status==='fail'?'var(--crit)':'var(--ink-3)'} }, s.err),
-        h('td.mono.muted', null, s.schedule),
+        h('td', null, h('span.badge.'+badgeCls, null, h('span.dot'), String(s.status||'').toUpperCase() || '—')),
+        h('td.mono.muted', null, lastStr),
+        h('td.num', null, (s.records||0).toLocaleString()),
+        h('td.num', { style:{color: s.failures? 'var(--crit)':'var(--ink-3)'} }, String(s.failures||0)),
+        h('td.mono', { style:{color: s.status==='crit'?'var(--crit)':'var(--ink-3)'} }, s.err || '—'),
+        h('td.mono.muted', null, s.schedule || ''),
       ));
     }
     tbl.appendChild(tb);
@@ -631,14 +592,7 @@
   }
 
   function UnreachableTable() {
-    const rows = [...UNREACHABLE];
-    // overlay scenario-specific
-    const sc = SCENARIOS[state.scenario];
-    for (const r of sc.rowIssues || []) {
-      if (r.sev==='crit' || r.sev==='warn') {
-        rows.unshift({name:r.host, env:r.env, lastSeen:fmtRel(r.age), duration:r.err, _sev:r.sev});
-      }
-    }
+    const rows = getUnreachable();
     const wrap = h('div.table-wrap');
     const tbl = h('table.op');
     tbl.appendChild(h('thead', null, h('tr', null,
@@ -648,14 +602,17 @@
       h('th', null, 'Duration'),
     )));
     const tb = h('tbody');
-    for (const r of rows.slice(0,6)) {
-      const sevClass = r._sev ? 'sev-'+r._sev : '';
-      tb.appendChild(h('tr'+(sevClass?'.'+sevClass:''), null,
-        h('td.host', null, r.name),
-        h('td', null, h('span.env-tag', null, r.env)),
-        h('td.mono.muted', null, r.lastSeen),
-        h('td.mono', { style:{color: r._sev==='crit'?'var(--crit)':r._sev==='warn'?'var(--warn)':'var(--ink-3)'} }, r.duration),
-      ));
+    if (!rows.length) {
+      tb.appendChild(h('tr', null, h('td', { colspan:4, style:{padding:'20px',textAlign:'center',color:'var(--ink-3)',fontFamily:'var(--mono)',fontSize:'11.5px',letterSpacing:'.1em',textTransform:'uppercase'} }, 'No unreachable servers.')));
+    } else {
+      for (const r of rows.slice(0, 6)) {
+        tb.appendChild(h('tr', null,
+          h('td.host', null, r.name),
+          h('td', null, h('span.env-tag', null, r.env)),
+          h('td.mono.muted', null, r.lastSeen),
+          h('td.mono', null, r.duration || '—'),
+        ));
+      }
     }
     tbl.appendChild(tb); wrap.appendChild(tbl);
     return wrap;
@@ -670,29 +627,34 @@
       h('th', null, 'First seen'),
     )));
     const tb = h('tbody');
-    for (const r of UNMATCHED) {
-      tb.appendChild(h('tr', null,
-        h('td.host', null, r.raw),
-        h('td', null, h('span.badge.neutral', null, r.source)),
-        h('td.mono.muted', null, r.firstSeen),
-      ));
+    const rows = getUnmatched();
+    if (!rows.length) {
+      tb.appendChild(h('tr', null, h('td', { colspan:3, style:{padding:'20px',textAlign:'center',color:'var(--ink-3)',fontFamily:'var(--mono)',fontSize:'11.5px',letterSpacing:'.1em',textTransform:'uppercase'} }, 'No unmatched servers.')));
+    } else {
+      for (const r of rows) {
+        tb.appendChild(h('tr', null,
+          h('td.host', null, r.raw),
+          h('td', null, h('span.badge.neutral', null, r.source)),
+          h('td.mono.muted', null, r.firstSeen),
+        ));
+      }
     }
     tbl.appendChild(tb); wrap.appendChild(tbl);
     return wrap;
   }
 
-  function RecentAlerts(sc) {
+  function RecentAlerts() {
     const feed = h('div.feed');
-    // Synthesize from scenario.alerts (top 3) + base
-    const items = (sc.alerts || []).slice(0,3).map(a => ({
-      id: (a.title.match(/<em>([^<]+)<\/em>/)||[,'OPS-'+Math.floor(Math.random()*1000)])[1],
-      when: fmtRel((a.meta||{}).when || 0),
-      sub:  a.title.replace(/<[^>]+>/g,''),
-      detail: a.detail.split('.')[0],
-      tone: a.sev,
-    })).concat(window.RECENT_ALERTS_BASE.slice(0,2));
-
-    for (const a of items.slice(0,5)) {
+    const base = Array.isArray(window.RECENT_ALERTS_BASE) ? window.RECENT_ALERTS_BASE : [];
+    if (!base.length) {
+      feed.appendChild(h('div.feed-item.info', null,
+        h('div.when', null, '—'),
+        h('div.what', null, h('b', { style:{color:'var(--ink)'} }, 'No recent alerts'), h('small', null, 'Nothing surfaced by /api/alerts/recent.')),
+        h('span.badge.info', null, 'Info'),
+      ));
+      return feed;
+    }
+    for (const a of base.slice(0, 5)) {
       feed.appendChild(h('div.feed-item.'+a.tone, null,
         h('div.when', null, a.when),
         h('div.what', null, h('b', { style:{color:'var(--ink)'} }, a.id), ' · ', a.sub, h('small', null, a.detail)),
@@ -706,7 +668,7 @@
   // PAGE
   // ================================================================
   function HealthPage() {
-    const sc = SCENARIOS[state.scenario];
+    const sc = consoleState();
     const stale = sc.apiState !== 'ok';
     const page = h('div.page');
 
@@ -720,15 +682,16 @@
     page.appendChild(SevSummary(sc));
 
     // Critical Issues strip
-    page.appendChild(h('div.section-label', null, h('span',null,'Critical issues'), h('span.count',null,'5')));
+    const openSignals = sc.summary.crit + sc.summary.warn + sc.summary.info;
+    page.appendChild(h('div.section-label', null, h('span',null,'Critical issues'), h('span.count',null,String(openSignals))));
     page.appendChild(CritStrip(sc));
 
-    // Active Alerts
+    // Active Alerts (from /api/alerts/recent — the real list)
     if (sc.alerts.length) {
       page.appendChild(h('div.section-label', null, h('span',null,'Active alerts'), h('span.count',null,String(sc.alerts.length)),
         h('span', { style:{marginLeft:'auto',fontSize:'10px',color:'var(--ink-4)',letterSpacing:'.1em',textTransform:'uppercase',fontFamily:'var(--mono)'} }, 'from cert expiry, sync + patch pipelines')));
       const stack = h('div.alerts-stack');
-      sc.alerts.forEach(a => stack.appendChild(Alert(a)));
+      sc.alerts.slice(0, 10).forEach(a => stack.appendChild(Alert(a)));
       page.appendChild(stack);
     }
 
@@ -741,18 +704,21 @@
     page.appendChild(metricsGrid);
 
     // Recent alerts (feed, compact)
-    page.appendChild(h('div.section-label', null, h('span',null,'Recent alerts'), h('span.count',null,'5')));
-    page.appendChild(RecentAlerts(sc));
+    const recentCount = Math.min(5, (window.RECENT_ALERTS_BASE || []).length);
+    page.appendChild(h('div.section-label', null, h('span',null,'Recent alerts'), h('span.count',null,String(recentCount))));
+    page.appendChild(RecentAlerts());
 
     // Unreachable + Unmatched split
+    const unreachable = getUnreachable();
+    const unmatched = getUnmatched();
     const split = h('div.split.even');
     const ucol = h('div');
-    ucol.appendChild(h('div.section-label', null, h('span',null,'Unreachable servers'), h('span.count',null,String(UNREACHABLE.length))));
+    ucol.appendChild(h('div.section-label', null, h('span',null,'Unreachable servers'), h('span.count',null,String(unreachable.length))));
     ucol.appendChild(UnreachableTable());
     split.appendChild(ucol);
 
     const mcol = h('div');
-    mcol.appendChild(h('div.section-label', null, h('span',null,'Unmatched servers'), h('span.count',null,String(UNMATCHED.length))));
+    mcol.appendChild(h('div.section-label', null, h('span',null,'Unmatched servers'), h('span.count',null,String(unmatched.length))));
     mcol.appendChild(UnmatchedTable());
     split.appendChild(mcol);
     page.appendChild(split);
@@ -769,42 +735,13 @@
   }
 
   // ================================================================
-  // Tweaks panel
-  // ================================================================
-  function Tweaks() {
-    if (!state.tweaksOpen) return h('button.tp-fab', { on:{click:()=>setState({tweaksOpen:true})} }, h('span.d'), 'Tweaks');
-    const scenarioOpts = Object.entries(SCENARIOS).map(([k,v]) => [k, v.label]);
-    const themeOpts = [['light','Light'],['dark','Dark']];
-    const opt = (groupLbl, wide, opts, cur, onPick) => {
-      const og = h('div.tp-group'+(wide?'.wide':''));
-      og.appendChild(h('div.label', null, groupLbl));
-      const o = h('div.opts');
-      opts.forEach(([k,l]) => o.appendChild(h('button'+(cur===k?'.on':''), { on:{click:()=>onPick(k)} }, l)));
-      og.appendChild(o);
-      return og;
-    };
-    const panel = h('div.tp');
-    panel.appendChild(h('div.tp-head', null,
-      h('span.t', null, 'Tweaks'),
-      h('button.x', { on:{click:()=>setState({tweaksOpen:false})} }, 'close ×')));
-    const body = h('div.tp-body');
-    body.appendChild(opt('Failure scenario', true, scenarioOpts, state.scenario, v=>setState({scenario:v})));
-    body.appendChild(opt('Theme', false, themeOpts, state.theme, v=>setState({theme:v})));
-    body.appendChild(h('div.tp-group', null,
-      h('div.label', null, 'About'),
-      h('div.hint', null, 'Stamped alert style. Cycle through scenarios to see how alerts, banner, sync and patching surfaces react together.'),
-    ));
-    panel.appendChild(body);
-    return panel;
-  }
-
-  // ================================================================
   // Render
   // ================================================================
   function render() {
     document.body.setAttribute('data-alert-style', 'v2');
     document.body.setAttribute('data-theme', state.theme);
-    document.body.setAttribute('data-api', SCENARIOS[state.scenario].apiState === 'off' ? 'offline' : SCENARIOS[state.scenario].apiState === 'warn' ? 'degraded' : '');
+    const apiState = consoleState().apiState;
+    document.body.setAttribute('data-api', apiState === 'off' ? 'offline' : apiState === 'warn' ? 'degraded' : '');
     const root = document.getElementById('root');
     root.innerHTML = '';
     const shell = h('div.shell');
@@ -817,17 +754,10 @@
     renderCurrentPage(pageMount);
     shell.appendChild(stage);
     root.appendChild(shell);
-    root.appendChild(Tweaks());
 
-    if (window.__tweaksHostReady) return;
-    window.addEventListener('message', (e) => {
-      if (!e.data) return;
-      if (e.data.type === '__activate_edit_mode') setState({tweaksOpen:true});
-      else if (e.data.type === '__deactivate_edit_mode') setState({tweaksOpen:false});
-    });
+    if (window.__opAppReady) return;
     window.addEventListener('hashchange', () => render());
-    try { window.parent.postMessage({type:'__edit_mode_available'}, '*'); } catch {}
-    window.__tweaksHostReady = true;
+    window.__opAppReady = true;
   }
 
   function renderCurrentPage(mount) {
@@ -860,6 +790,10 @@
     if (!mount) mount = document.querySelector('.page-mount');
     if (mount) renderCurrentPage(mount);
   };
+  // Full re-render of the shell (rail + statusline + page) when API state or
+  // derived-count globals change. Less surgical than RERENDER_PAGE but needed
+  // when elements outside .page-mount need to reflect live data.
+  window.RERENDER_SHELL = function () { render(); };
   function mountHealth(mount) { mount.innerHTML = ''; mount.appendChild(HealthPage()); }
 
   document.addEventListener('DOMContentLoaded', render);

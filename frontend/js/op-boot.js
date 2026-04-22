@@ -201,8 +201,13 @@ async function boot() {
   // Seed globals exist from the design bundle by the time this runs (deferred
   // module script). Overwrite as fetches resolve and re-render.
   const rerender = () => {
+    // Publish current apiErrors snapshot for op-app.js consoleState() to read.
+    window.API_ERRORS = apiErrors.slice();
     const m = mount();
     if (window.RERENDER_PAGE && m) window.RERENDER_PAGE(m);
+    // Also trigger a full shell re-render (rail footer, statusline, banner)
+    // when the page re-renders, since apiState lives outside .page-mount.
+    if (window.RERENDER_SHELL) window.RERENDER_SHELL();
   };
 
   // Health probe gates demo fallback. If null, leave demo data in place.
