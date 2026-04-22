@@ -275,8 +275,11 @@ async function boot() {
       rerender();
     }),
     api('/health/syncs').then(r => {
-      if (!r || !Array.isArray(r.syncStatuses)) return;
-      window.SYNCS = mapSyncs(r.syncStatuses);
+      // /api/health/syncs returns a bare SyncStatus[]; only the /api/health
+      // root endpoint wraps it in {syncStatuses}. Accept both shapes.
+      const arr = Array.isArray(r) ? r : (r && Array.isArray(r.syncStatuses) ? r.syncStatuses : null);
+      if (!arr) return;
+      window.SYNCS = mapSyncs(arr);
       rerender();
     }),
     api('/alerts/recent?limit=20').then(v => {

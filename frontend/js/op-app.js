@@ -351,25 +351,37 @@
     if (meta.owner)        metaBlock.appendChild(h('span.m', null, h('span.lbl',null,'owner'), h('b',null, meta.owner)));
     if (meta.runbook)      metaBlock.appendChild(h('span.m', null, h('span.lbl',null,'runbook'), h('b',null, meta.runbook)));
 
+    // Alerts are derived server-side from /api/alerts/recent (unreachable
+    // scans, cert expiries, sync lag, overdue exclusions). There is no
+    // "retry" or "runbook" action — the underlying data changes when the
+    // next sync runs. Keep Copy (useful) and Snooze (client-side dismiss).
     const actions = h('div.a-actions');
-    if (a.sev === 'crit') {
-      actions.appendChild(h('button.primary', null, 'Retry'));
-      actions.appendChild(h('button', null, 'Runbook'));
-      actions.appendChild(h('button', null, 'Copy'));
-      actions.appendChild(h('button.ghost', null, 'Snooze'));
-    } else if (a.sev === 'warn') {
-      actions.appendChild(h('button.primary', null, 'Acknowledge'));
-      actions.appendChild(h('button', null, 'Runbook'));
-      actions.appendChild(h('button.ghost', null, 'Snooze'));
-    } else {
-      actions.appendChild(h('button', null, 'Dismiss'));
-      actions.appendChild(h('button.ghost', null, 'Details'));
-    }
+    const idForCopy = (a.meta && a.meta.blast) || a.title;
+    const copyBtn = h('button', { on:{click:() => {
+      try {
+        navigator.clipboard.writeText(idForCopy);
+        copyBtn.textContent = 'Copied';
+        setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1200);
+      } catch {
+        copyBtn.textContent = 'Copy failed';
+      }
+    }}}, 'Copy');
+    actions.appendChild(copyBtn);
 
     const title = h('div.a-title'); title.innerHTML = a.title;
     const el = h('div.alert.'+a.sev);
     el.appendChild(h('span.a-sev', null, h('span.a-dot'+(a.sev==='crit'||a.sev==='warn'?'.pulsing':'')), sevLabel));
     el.appendChild(h('div.a-body', null, title, h('div.a-detail', null, a.detail), metaBlock));
+
+    // Snooze = client-side dismiss. Not persistent — fades the alert on this
+    // session only. (There is no snooze/ack endpoint yet.)
+    const snoozeBtn = h('button.ghost', { on:{click:() => {
+      el.style.transition = 'opacity .2s ease';
+      el.style.opacity = '0';
+      setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); }, 220);
+    }}}, 'Snooze');
+    actions.appendChild(snoozeBtn);
+
     el.appendChild(actions);
     return el;
   }

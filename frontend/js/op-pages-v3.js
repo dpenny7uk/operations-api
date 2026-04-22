@@ -90,35 +90,39 @@
   // =============================================================
   // DATA — PATCHING SCHEDULES
   // =============================================================
-  const PATCH_GROUPS = [
-    {id:'GROUP0', servers:12,  window:'Apr 23, 2026 · 02:00 UTC', cycle:'April 2026',  status:'queued', last:{date:'Mar 26, 2026', result:'success',  pct:100, failed:0, reboot:true}},
-    {id:'GROUP1', servers:48,  window:'Apr 23, 2026 · 02:00 UTC', cycle:'April 2026',  status:'queued', last:{date:'Mar 26, 2026', result:'success',  pct:100, failed:0, reboot:true}},
-    {id:'GROUP2', servers:72,  window:'Apr 23, 2026 · 03:00 UTC', cycle:'April 2026',  status:'queued', last:{date:'Mar 26, 2026', result:'partial',  pct:96,  failed:3, reboot:true}},
-    {id:'GROUP3', servers:88,  window:'Apr 23, 2026 · 03:00 UTC', cycle:'April 2026',  status:'queued', last:{date:'Mar 26, 2026', result:'success',  pct:100, failed:0, reboot:true}},
-    {id:'2A',     servers:101, window:'Apr 24, 2026 · 01:00 UTC', cycle:'April 2026',  status:'queued', last:{date:'Mar 27, 2026', result:'success',  pct:100, failed:0, reboot:true}},
-    {id:'2B',     servers:72,  window:'Apr 24, 2026 · 02:00 UTC', cycle:'April 2026',  status:'queued', last:{date:'Mar 27, 2026', result:'partial',  pct:93,  failed:5, reboot:true}},
-    {id:'3A',     servers:88,  window:'Apr 24, 2026 · 03:00 UTC', cycle:'April 2026',  status:'queued', last:{date:'Mar 27, 2026', result:'success',  pct:100, failed:0, reboot:true}},
-    {id:'3B',     servers:45,  window:'Apr 24, 2026 · 03:00 UTC', cycle:'April 2026',  status:'queued', last:{date:'Mar 27, 2026', result:'failed',   pct:31,  failed:31, reboot:false, issue:'WU-8102'}},
-    {id:'4A',     servers:50,  window:'Apr 25, 2026 · 01:00 UTC', cycle:'April 2026',  status:'queued', last:{date:'Mar 28, 2026', result:'success',  pct:100, failed:0, reboot:true}},
-    {id:'4B',     servers:56,  window:'Apr 25, 2026 · 02:00 UTC', cycle:'April 2026',  status:'queued', last:{date:'Mar 28, 2026', result:'success',  pct:100, failed:0, reboot:true}},
-    {id:'5A',     servers:97,  window:'Apr 25, 2026 · 03:00 UTC', cycle:'April 2026',  status:'queued', last:{date:'Mar 28, 2026', result:'success',  pct:100, failed:0, reboot:true}},
-    {id:'5B',     servers:30,  window:'Apr 25, 2026 · 03:00 UTC', cycle:'April 2026',  status:'queued', last:{date:'Mar 28, 2026', result:'success',  pct:100, failed:0, reboot:true}},
-    {id:'5C',     servers:6,   window:'Apr 26, 2026 · 02:00 UTC', cycle:'April 2026',  status:'queued', last:{date:'Mar 29, 2026', result:'success',  pct:100, failed:0, reboot:true}},
-    {id:'6A',     servers:6,   window:'Apr 26, 2026 · 02:00 UTC', cycle:'April 2026',  status:'queued', last:{date:'Mar 29, 2026', result:'success',  pct:100, failed:0, reboot:true}},
-    {id:'7A',     servers:181, window:'Apr 26, 2026 · 03:00 UTC', cycle:'April 2026',  status:'queued', last:{date:'Mar 29, 2026', result:'partial',  pct:98,  failed:4, reboot:true}},
-    {id:'7B',     servers:68,  window:'Apr 26, 2026 · 03:00 UTC', cycle:'April 2026',  status:'queued', last:{date:'Mar 29, 2026', result:'success',  pct:100, failed:0, reboot:true}},
-  ];
-  const PATCH_TOTAL = PATCH_GROUPS.reduce((s, g) => s + g.servers, 0);
+  // Live getter — reads window.PATCH_GROUPS populated by op-boot.js from
+  // /api/patching/next (serversByGroup). Adapts the boot shape {name, servers,
+  // date, window, services} to this page's shape {id, servers, window, cycle}.
+  // Empty until the API fetch resolves.
+  function getPatchGroups() {
+    const live = Array.isArray(window.PATCH_GROUPS) ? window.PATCH_GROUPS : [];
+    return live.map(g => ({
+      id: g.id || g.name,
+      servers: g.servers || 0,
+      window: g.date instanceof Date
+        ? g.date.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}) + (g.window && g.window !== 'see patch_windows' ? ' · ' + g.window : '')
+        : (g.window || '—'),
+      cycle: g.cycle || '',
+      status: g.status || 'queued',
+      last: g.last || null,
+    }));
+  }
+  function getPatchTotal() { return getPatchGroups().reduce((s, g) => s + g.servers, 0); }
 
-  // Cycle history (most recent first)
-  const PATCH_CYCLES = [
-    {id:'April 2026',    window:'Apr 23–26, 2026', status:'queued',   servers:PATCH_TOTAL, completed:0,    failed:0,  skipped:0, groups:PATCH_GROUPS.length, notes:'T-3 days'},
+  // Cycle history (most recent first). Current-cycle totals come from live
+  // data; prior months stay as last-known values until a cycle-history
+  // endpoint is added to the API.
+  function getPatchCycles() {
+    const liveGroups = getPatchGroups();
+    return [
+    {id:'April 2026',    window:'Apr 23–26, 2026', status:'queued',   servers:getPatchTotal(), completed:0,    failed:0,  skipped:0, groups:liveGroups.length, notes:'T-3 days'},
     {id:'March 2026',    window:'Mar 26–29, 2026', status:'partial',  servers:1020,        completed:977,  failed:43, skipped:0, groups:16,                  notes:'GROUP3B blocked on WU-8102 \u2014 3A/3B rerun queued'},
     {id:'February 2026', window:'Feb 26–Mar 1 2026', status:'success', servers:1014,        completed:1014, failed:0,  skipped:0, groups:16,                  notes:'Clean pass'},
     {id:'January 2026',  window:'Jan 22–25, 2026', status:'success',  servers:1008,        completed:1005, failed:0,  skipped:3, groups:16,                  notes:'3 maintenance-window conflicts (skipped, rescheduled)'},
     {id:'December 2025', window:'Dec 18–21, 2025', status:'partial',  servers:989,         completed:964,  failed:25, skipped:0, groups:16,                  notes:'LSASS kb5054234 known-issue on legacy DCs'},
     {id:'November 2025', window:'Nov 20–23, 2025', status:'success',  servers:983,         completed:983,  failed:0,  skipped:0, groups:15,                  notes:'Clean pass'},
-  ];
+    ];
+  }
 
   // Known issues / blockers
   const PATCH_ISSUES = [
@@ -186,12 +190,12 @@
       h('div.meta', null,
         h('span.t', null, 'Next Cycle'),
         h('span.d', null, 'April 2026 · begins Apr 23, 2026'),
-        h('span.sub', null, PATCH_TOTAL.toLocaleString()+' servers across '+PATCH_GROUPS.length+' groups · '
+        h('span.sub', null, getPatchTotal().toLocaleString()+' servers across '+getPatchGroups().length+' groups · '
           + (PATCH_ISSUES.filter(i => i.status==='blocking').length>0
               ? PATCH_ISSUES.filter(i => i.status==='blocking').length+' open blocker'
               : 'no open blockers'))),
       h('div.groups', null,
-        ...PATCH_GROUPS.slice(0, 12).map(g =>
+        ...getPatchGroups().slice(0, 12).map(g =>
           h('div.group', null,
             h('span.gn', null, g.id),
             h('span.gbar', null, h('span', {style:{width: Math.min(100, g.servers/181*100)+'%'}})),
@@ -220,8 +224,8 @@
     ));
     strip.appendChild(h('div.cs-cell.ok', null,
       h('div.cs-label', null, 'Servers queued'),
-      h('div.cs-value', null, PATCH_TOTAL.toLocaleString(), h('span.cs-unit', null, 'in April')),
-      h('div.cs-sub', null, PATCH_GROUPS.length+' patch groups'),
+      h('div.cs-value', null, getPatchTotal().toLocaleString(), h('span.cs-unit', null, 'in April')),
+      h('div.cs-sub', null, getPatchGroups().length+' patch groups'),
     ));
     page.appendChild(strip);
 
@@ -232,8 +236,8 @@
         label, n != null ? h('span.n', null, String(n)) : null);
     };
     page.appendChild(h('div.tabs', null,
-      tab('groups',  'Patch groups',     PATCH_GROUPS.length),
-      tab('history', 'Cycle history',    PATCH_CYCLES.length),
+      tab('groups',  'Patch groups',     getPatchGroups().length),
+      tab('history', 'Cycle history',    getPatchCycles().length),
       tab('issues',  'Known issues',     PATCH_ISSUES.length),
     ));
 
@@ -263,14 +267,15 @@
         }
       });
     }
+    const allGroups = getPatchGroups();
     const rows = q
-      ? PATCH_GROUPS.filter(g => g.id.toLowerCase().includes(q) || g.window.toLowerCase().includes(q) || groupIdsMatchedByServers.has(g.id))
-      : PATCH_GROUPS;
+      ? allGroups.filter(g => g.id.toLowerCase().includes(q) || g.window.toLowerCase().includes(q) || groupIdsMatchedByServers.has(g.id))
+      : allGroups;
 
     const search = h('input', {'data-fk':'patch-groups-search', type:'text', placeholder:'Search group, server, service, function…', value: patchState.groupQ,
       on:{input:(e)=>{ patchState.groupQ = e.target.value; window.RERENDER_PAGE(mount); }}});
     const reset = h('button.btn', { on:{click:()=>{ patchState.groupQ=''; patchState.expandedGroup=null; patchState.groupInnerQ=''; window.RERENDER_PAGE(mount); }}}, 'Reset');
-    const count = h('span.ct', null, 'Showing '+rows.length+' of '+PATCH_GROUPS.length+' groups');
+    const count = h('span.ct', null, 'Showing '+rows.length+' of '+allGroups.length+' groups');
     wrap.appendChild(filterBar([search, reset, h('span.spacer'), count]));
 
     const tbl = h('div.table-wrap');
@@ -403,7 +408,9 @@
 
   function renderPatchHistory(mount) {
     const wrap = h('div', {style:{display:'flex',flexDirection:'column',gap:'18px'}});
-    wrap.appendChild(sectionLabel('Cycle outcomes', PATCH_CYCLES.length, h('span.ct', {style:{marginLeft:'auto'}}, 'most recent first')));
+    const cycles = getPatchCycles();
+    const allGroups = getPatchGroups();
+    wrap.appendChild(sectionLabel('Cycle outcomes', cycles.length, h('span.ct', {style:{marginLeft:'auto'}}, 'most recent first')));
 
     const tbl = h('div.table-wrap');
     const table = h('table.op');
@@ -418,7 +425,7 @@
       h('th', null, 'Notes'),
     )));
     const tbody = h('tbody');
-    PATCH_CYCLES.forEach(c => {
+    cycles.forEach(c => {
       const rowCls = c.status === 'partial' ? '.sev-warn' : c.status === 'failed' ? '.sev-crit' : '';
       const pct = c.servers ? (c.completed / c.servers * 100).toFixed(1) : '0.0';
       tbody.appendChild(h('tr'+rowCls, null,
@@ -440,11 +447,15 @@
     tbl.appendChild(table);
     wrap.appendChild(tbl);
 
-    // Per-group success ledger for the most recent completed cycle
-    const last = PATCH_CYCLES.find(c => c.status !== 'queued');
-    wrap.appendChild(sectionLabel('Per-group outcome · '+last.id, PATCH_GROUPS.length));
+    // Per-group success ledger for the most recent completed cycle. Real
+    // per-group outcome history isn't yet served by the API — skip the
+    // ledger when g.last isn't present.
+    const last = cycles.find(c => c.status !== 'queued');
+    const groupsWithHistory = allGroups.filter(g => g.last && g.last.result);
+    if (!last || !groupsWithHistory.length) return wrap;
+    wrap.appendChild(sectionLabel('Per-group outcome · '+last.id, groupsWithHistory.length));
     const ledger = h('div', {style:{display:'grid',gridTemplateColumns:'repeat(4, 1fr)',gap:'1px',background:'var(--rule)',border:'1px solid var(--rule)'}});
-    PATCH_GROUPS.forEach(g => {
+    groupsWithHistory.forEach(g => {
       const tone = g.last.result === 'success' ? 'ok' : g.last.result === 'partial' ? 'warn' : 'crit';
       ledger.appendChild(h('div', {style:{padding:'14px 16px',background:'var(--card)',display:'flex',flexDirection:'column',gap:'6px'}},
         h('div', {style:{display:'flex',justifyContent:'space-between',alignItems:'baseline'}},
@@ -555,7 +566,7 @@
     ));
     strip.appendChild(h('div.cs-cell.ok', null,
       h('div.cs-label', null, 'Eligible pool'),
-      h('div.cs-value', null, PATCH_TOTAL.toLocaleString(), h('span.cs-unit', null, 'servers')),
+      h('div.cs-value', null, getPatchTotal().toLocaleString(), h('span.cs-unit', null, 'servers')),
       h('div.cs-sub', null, 'Will receive the April cycle'),
     ));
     page.appendChild(strip);
@@ -1108,8 +1119,8 @@
       const sel = h('select', {
         style:{height:'44px',padding:'0 14px',border:'1px solid var(--rule-2)',fontSize:'14px',fontFamily:'var(--mono)',background:'var(--paper)'},
         on:{change:(e)=>{ pmState.bulk.group = e.target.value; window.RERENDER_PAGE(mount); }},
-      }, PATCH_GROUPS.map(g => h('option', {value:g.id, selected: pmState.bulk.group===g.id}, g.id+' ('+g.servers+' servers)')));
-      const g = PATCH_GROUPS.find(x => x.id === pmState.bulk.group);
+      }, getPatchGroups().map(g => h('option', {value:g.id, selected: pmState.bulk.group===g.id}, g.id+' ('+g.servers+' servers)')));
+      const g = getPatchGroups().find(x => x.id === pmState.bulk.group);
       affectedCount = g ? g.servers : 0;
       field('Target group', sel);
     } else {
