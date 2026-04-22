@@ -42,9 +42,14 @@ ALTER TABLE patching.patch_exclusions
 -- ========================================================================
 -- Refresh the active-exclusions view to include the new columns so
 -- downstream callers (alerts, frontend) can project them.
+-- DROP + CREATE (not CREATE OR REPLACE): Postgres rejects replacing a view
+-- when the new column list reorders or renames existing positions — it can
+-- only append. The new columns (reason_slug, notes, ticket) sit mid-list.
 -- ========================================================================
 
-CREATE OR REPLACE VIEW patching.v_active_exclusions AS
+DROP VIEW IF EXISTS patching.v_active_exclusions;
+
+CREATE VIEW patching.v_active_exclusions AS
 SELECT
     pe.exclusion_id,
     pe.server_id,
