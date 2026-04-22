@@ -18,6 +18,10 @@ public class ServerService : BaseService<ServerService>, IServerService
         int limit,
         int offset) => RunDbAsync(async () =>
     {
+        // Service/Func: prefer the shared.servers columns (migration 012,
+        // populated by Databricks once sync is extended), but fall back to
+        // patching.patch_schedule.service / .app from the latest cycle
+        // (Ivanti CSV). That's where the legacy UI sourced them from.
         var sql = $@"
             SELECT
                 s.server_id AS ServerId,
@@ -26,13 +30,20 @@ public class ServerService : BaseService<ServerService>, IServerService
                 s.ip_address AS IpAddress,
                 s.environment AS Environment,
                 a.application_name AS ApplicationName,
-                s.service AS Service,
-                s.func AS Func,
+                COALESCE(s.service, latest_ps.service) AS Service,
+                COALESCE(s.func, latest_ps.app) AS Func,
                 s.patch_group AS PatchGroup,
                 s.is_active AS IsActive,
                 COALESCE(s.last_seen_at, s.synced_at) AS LastSeen
             FROM {Sql.Tables.Servers} s
             LEFT JOIN {Sql.Tables.Applications} a ON s.primary_application_id = a.application_id
+            LEFT JOIN LATERAL (
+                SELECT ps.service, ps.app
+                FROM {Sql.Tables.PatchSchedule} ps
+                WHERE ps.server_id = s.server_id
+                ORDER BY ps.cycle_id DESC
+                LIMIT 1
+            ) latest_ps ON TRUE
             WHERE s.is_active = TRUE";
 
         var p = new DynamicParameters();
@@ -116,8 +127,8 @@ public class ServerService : BaseService<ServerService>, IServerService
                 s.fqdn AS Fqdn,
                 s.environment AS Environment,
                 a.application_name AS ApplicationName,
-                s.service AS Service,
-                s.func AS Func,
+                COALESCE(s.service, latest_ps.service) AS Service,
+                COALESCE(s.func, latest_ps.app) AS Func,
                 s.patch_group AS PatchGroup,
                 s.is_active AS IsActive,
                 COALESCE(s.last_seen_at, s.synced_at) AS LastSeen,
@@ -127,6 +138,13 @@ public class ServerService : BaseService<ServerService>, IServerService
                 s.primary_contact AS PrimaryContact
             FROM {Sql.Tables.Servers} s
             LEFT JOIN {Sql.Tables.Applications} a ON s.primary_application_id = a.application_id
+            LEFT JOIN LATERAL (
+                SELECT ps.service, ps.app
+                FROM {Sql.Tables.PatchSchedule} ps
+                WHERE ps.server_id = s.server_id
+                ORDER BY ps.cycle_id DESC
+                LIMIT 1
+            ) latest_ps ON TRUE
             WHERE s.server_id = @Id
         ", new { Id = id })
     );
