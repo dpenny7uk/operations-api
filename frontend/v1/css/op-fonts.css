@@ -1,0 +1,73 @@
+/* =========================================================
+   OPERATOR CONSOLE — self-hosted fonts (latin subset).
+   Sourced from google-webfonts-helper (gwfh.mranftl.com).
+   ========================================================= */
+
+/* Inter Tight — UI sans */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('../../fonts/inter-tight-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('../../fonts/inter-tight-500.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('../../fonts/inter-tight-600.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('../../fonts/inter-tight-700.woff2') format('woff2');
+}
+
+/* JetBrains Mono — data / hostnames / times */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('../../fonts/jetbrains-mono-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('../../fonts/jetbrains-mono-500.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('../../fonts/jetbrains-mono-600.woff2') format('woff2');
+}
+
+/* Fraunces — display serif (numerals + editorial titles) */
+@font-face {
+  font-family: 'Fraunces';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('../../fonts/fraunces-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Fraunces';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('../../fonts/fraunces-500.woff2') format('woff2');
+}

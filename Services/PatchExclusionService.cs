@@ -49,10 +49,18 @@ public class PatchExclusionService : BaseService<PatchExclusionService>, IPatchE
                 ps.app AS Application,
                 s.environment AS Environment,
                 pe.reason AS Reason,
+                pe.reason_slug AS ReasonSlug,
+                pe.notes AS Notes,
+                pe.ticket AS Ticket,
                 pe.held_until AS HeldUntil,
                 pe.excluded_by AS ExcludedBy,
                 pe.excluded_at AS ExcludedAt,
-                (pe.held_until <= CURRENT_DATE) AS HoldExpired
+                (pe.held_until <= CURRENT_DATE) AS HoldExpired,
+                CASE
+                    WHEN pe.held_until < CURRENT_DATE THEN 'overdue'
+                    WHEN pe.held_until < CURRENT_DATE + INTERVAL '7 days' THEN 'expiring'
+                    ELSE 'active'
+                END AS Status
             FROM patching.patch_exclusions pe
             LEFT JOIN shared.servers s ON pe.server_id = s.server_id
             LEFT JOIN LATERAL (
@@ -136,16 +144,20 @@ public class PatchExclusionService : BaseService<PatchExclusionService>, IPatchE
         };
     });
 
-    public Task<int> ExcludeServersAsync(List<int> serverIds, string reason, DateOnly heldUntil, string excludedBy) =>
+    public Task<int> ExcludeServersAsync(List<int> serverIds, string reason, DateOnly heldUntil, string excludedBy,
+        string? ticket = null, string? reasonSlug = null, string? notes = null) =>
         RunDbAsync(async () =>
     {
         const string sql = @"
             INSERT INTO patching.patch_exclusions
-                (server_id, server_name, reason, held_until, excluded_by)
+                (server_id, server_name, reason, reason_slug, notes, ticket, held_until, excluded_by)
             SELECT
                 s.server_id,
                 s.server_name,
                 @Reason,
+                @ReasonSlug,
+                @Notes,
+                @Ticket,
                 @HeldUntil,
                 @ExcludedBy
             FROM shared.servers s
@@ -154,6 +166,9 @@ public class PatchExclusionService : BaseService<PatchExclusionService>, IPatchE
             ON CONFLICT (server_id) WHERE is_active
             DO UPDATE SET
                 reason = EXCLUDED.reason,
+                reason_slug = EXCLUDED.reason_slug,
+                notes = EXCLUDED.notes,
+                ticket = EXCLUDED.ticket,
                 held_until = EXCLUDED.held_until,
                 excluded_by = EXCLUDED.excluded_by,
                 excluded_at = CURRENT_TIMESTAMP,
@@ -162,6 +177,57 @@ public class PatchExclusionService : BaseService<PatchExclusionService>, IPatchE
         var p = new DynamicParameters();
         p.Add("ServerIds", serverIds.ToArray());
         p.Add("Reason", reason);
+        p.Add("ReasonSlug", reasonSlug);
+        p.Add("Notes", notes);
+        p.Add("Ticket", ticket);
+        p.Add("HeldUntil", heldUntil);
+        p.Add("ExcludedBy", excludedBy);
+
+        return await Db.ExecuteAsync(sql, p);
+    });
+
+    // Bulk exclude: select servers by patch_group or environment, then insert one exclusion per row.
+    // Single round-trip, no individual server-id list. 'kind' is validated at call time.
+    public Task<int> BulkExcludeAsync(string kind, string target, string reason, DateOnly heldUntil, string excludedBy,
+        string? ticket = null, string? reasonSlug = null, string? notes = null) =>
+        RunDbAsync(async () =>
+    {
+        if (kind != "group" && kind != "env")
+            throw new ArgumentException("kind must be 'group' or 'env'", nameof(kind));
+
+        var filter = kind == "group" ? "s.patch_group = @Target" : "s.environment = @Target";
+        var sql = $@"
+            INSERT INTO patching.patch_exclusions
+                (server_id, server_name, reason, reason_slug, notes, ticket, held_until, excluded_by)
+            SELECT
+                s.server_id,
+                s.server_name,
+                @Reason,
+                @ReasonSlug,
+                @Notes,
+                @Ticket,
+                @HeldUntil,
+                @ExcludedBy
+            FROM shared.servers s
+            WHERE {filter}
+              AND s.is_active
+            ON CONFLICT (server_id) WHERE is_active
+            DO UPDATE SET
+                reason = EXCLUDED.reason,
+                reason_slug = EXCLUDED.reason_slug,
+                notes = EXCLUDED.notes,
+                ticket = EXCLUDED.ticket,
+                held_until = EXCLUDED.held_until,
+                excluded_by = EXCLUDED.excluded_by,
+                excluded_at = CURRENT_TIMESTAMP,
+                updated_at = CURRENT_TIMESTAMP";
+
+        var p = new DynamicParameters();
+        p.Add("Target", target);
+        p.Add("Reason", reason);
+        p.Add("ReasonSlug", reasonSlug);
+        p.Add("Notes", notes);
+        p.Add("Ticket", ticket);
         p.Add("HeldUntil", heldUntil);
         p.Add("ExcludedBy", excludedBy);
 
@@ -183,6 +249,30 @@ public class PatchExclusionService : BaseService<PatchExclusionService>, IPatchE
         p.Add("ExclusionId", exclusionId);
         p.Add("NewHeldUntil", newHeldUntil);
         p.Add("ExtendedBy", extendedBy);
+
+        return await Db.ExecuteAsync(sql, p) > 0;
+    });
+
+    // Generalised PATCH: updates any non-null subset of held_until / notes.
+    public Task<bool> UpdateExclusionAsync(int exclusionId, DateOnly? newHeldUntil, string? notes, string actingUser) =>
+        RunDbAsync(async () =>
+    {
+        if (newHeldUntil == null && notes == null) return false;
+
+        var sets = new List<string>();
+        var p = new DynamicParameters();
+        p.Add("ExclusionId", exclusionId);
+        p.Add("ActingUser", actingUser);
+        if (newHeldUntil != null) { sets.Add("held_until = @HeldUntil"); p.Add("HeldUntil", newHeldUntil.Value); }
+        if (notes != null)        { sets.Add("notes = @Notes");           p.Add("Notes", notes); }
+        sets.Add("excluded_by = @ActingUser");
+        sets.Add("updated_at = CURRENT_TIMESTAMP");
+
+        var sql = $@"
+            UPDATE patching.patch_exclusions
+            SET {string.Join(", ", sets)}
+            WHERE exclusion_id = @ExclusionId
+              AND is_active";
 
         return await Db.ExecuteAsync(sql, p) > 0;
     });

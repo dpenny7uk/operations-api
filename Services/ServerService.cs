@@ -26,8 +26,11 @@ public class ServerService : BaseService<ServerService>, IServerService
                 s.ip_address AS IpAddress,
                 s.environment AS Environment,
                 a.application_name AS ApplicationName,
+                s.service AS Service,
+                s.func AS Func,
                 s.patch_group AS PatchGroup,
-                s.is_active AS IsActive
+                s.is_active AS IsActive,
+                COALESCE(s.last_seen_at, s.synced_at) AS LastSeen
             FROM {Sql.Tables.Servers} s
             LEFT JOIN {Sql.Tables.Applications} a ON s.primary_application_id = a.application_id
             WHERE s.is_active = TRUE";
@@ -113,8 +116,11 @@ public class ServerService : BaseService<ServerService>, IServerService
                 s.fqdn AS Fqdn,
                 s.environment AS Environment,
                 a.application_name AS ApplicationName,
+                s.service AS Service,
+                s.func AS Func,
                 s.patch_group AS PatchGroup,
                 s.is_active AS IsActive,
+                COALESCE(s.last_seen_at, s.synced_at) AS LastSeen,
                 s.operating_system AS OperatingSystem,
                 s.ip_address AS IpAddress,
                 s.location AS Location,

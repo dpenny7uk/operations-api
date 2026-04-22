@@ -116,7 +116,11 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
             SELECT
                 pc.cycle_id AS CycleId,
                 pc.cycle_date AS CycleDate,
-                COALESCE((SELECT COUNT(*)::INT FROM {Sql.Tables.PatchSchedule} ps WHERE ps.cycle_id = pc.cycle_id), 0) AS ServerCount,
+                COALESCE(agg.total, 0)     AS ServerCount,
+                COALESCE(agg.completed, 0) AS CompletedCount,
+                COALESCE(agg.failed, 0)    AS FailedCount,
+                agg.started_at             AS StartedAt,
+                agg.completed_at           AS CompletedAt,
                 pc.status AS Status,
                 CASE
                     WHEN pc.status = 'completed' THEN 'Completed'
@@ -125,7 +129,18 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
                     WHEN pc.cycle_date > CURRENT_DATE THEN 'Upcoming'
                     ELSE 'Past'
                 END AS DisplayStatus
-            FROM {Sql.Tables.PatchCycles} pc";
+            FROM {Sql.Tables.PatchCycles} pc
+            LEFT JOIN (
+                SELECT
+                    ps.cycle_id,
+                    COUNT(*)::INT AS total,
+                    COUNT(*) FILTER (WHERE ps.patch_status = 'completed')::INT AS completed,
+                    COUNT(*) FILTER (WHERE ps.patch_status = 'failed')::INT    AS failed,
+                    MIN(ps.status_updated_at) FILTER (WHERE ps.patch_status IN ('in_progress','completed','failed')) AS started_at,
+                    MAX(ps.status_updated_at) FILTER (WHERE ps.patch_status IN ('completed','failed')) AS completed_at
+                FROM {Sql.Tables.PatchSchedule} ps
+                GROUP BY ps.cycle_id
+            ) agg ON agg.cycle_id = pc.cycle_id";
 
         if (upcomingOnly)
         {
@@ -235,6 +250,16 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
                 issue_id AS IssueId,
                 title AS Title,
                 severity AS Severity,
+                -- Use stored status when present; otherwise derive from severity
+                -- so the design's three-way bucketing (blocking/workaround/resolved) always has a value.
+                COALESCE(
+                    LOWER(status),
+                    CASE
+                        WHEN severity = 'HIGH'   THEN 'blocking'
+                        WHEN severity = 'MEDIUM' THEN 'workaround'
+                        ELSE 'resolved'
+                    END
+                ) AS Status,
                 application AS Application,
                 fix AS Fix,
                 applies_to_windows AS AppliesToWindows,

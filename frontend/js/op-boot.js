@@ -1,154 +1,183 @@
-/* Operations Console — boot / API wiring.
-   Seeds from DEMO (op-core.js), fires parallel fetches, re-renders as each resolves.
-   If /health probe fails, stays in demo mode. */
+/* Service Ops Console — v2 boot / API wiring.
+   Replaces the design bundle's synthetic window.*_DATA globals with real
+   API responses, and exposes window.OC_ACTIONS for wizard submits.
+
+   The design bundle (op-app.js / op-pages-v2.js / op-pages-v3.js) is IIFE-based
+   with all renders reading from window.PATCH_GROUPS / SYNCS / EXCLUSIONS / RECENT_ALERTS_BASE
+   / SERVERS_DATA / CERTS_DATA / EOL_DATA. We populate those globals after
+   parallel fetches and call window.RERENDER_PAGE(mount) to redraw. */
 
 import { api, apiPost, apiErrors, clearApiErrors } from './api.js';
 
-const OC = window.OC;
-if (!OC) {
-  // op-core.js didn't load or errored. Nothing we can do.
-  // Fall through — render() calls below will be no-ops on undefined.
-  console.error('op-boot: window.OC not initialised');
-}
+// RERENDER_PAGE expects the inner .page-mount div (NOT the outer #root).
+// Passing #root would wipe the shell (rail + statusline). Passing null lets
+// op-app.js default to .page-mount, which is what we want.
+function mount() { return document.querySelector('.page-mount'); }
 
-// ── Normalizers: map API response → demo-shape slots ─────
+// ── Normalisers: backend response → design global shape ──────────────
 
 function mapServers(items) {
   return (items || []).map(s => ({
-    serverId: s.serverId,
-    serverName: s.serverName,
+    id: s.serverId,
+    name: s.serverName,
     fqdn: s.fqdn || null,
-    ipAddress: s.ipAddress || null,
-    environment: s.environment || null,
-    applicationName: s.applicationName || null,
-    patchGroup: s.patchGroup || null,
-    isActive: !!s.isActive,
+    ip: s.ipAddress || null,
+    env: s.environment || 'Unknown',
+    app: s.applicationName || '',
+    service: s.service || '',
+    func: s.func || '',
+    pg: s.patchGroup || 'NO PATCH GROUP FOUND',
+    active: !!s.isActive,
+    lastSeen: s.lastSeen || null,
   }));
 }
 
-function mapSummary(summary) {
-  const envCounts = {};
-  if (summary && summary.environmentCounts) {
-    for (const [env, v] of Object.entries(summary.environmentCounts)) {
-      envCounts[env] = (v && v.active != null) ? v.active : (v && v.total) || 0;
-    }
-  }
+function mapEnvBreakdown(summary) {
+  if (!summary || !summary.environmentCounts) return [];
+  return Object.entries(summary.environmentCounts).map(([name, v]) => ({
+    name,
+    count: (v && v.active != null) ? v.active : (v && v.total) || 0,
+  })).sort((a, b) => b.count - a.count);
+}
+
+function mapUnreachable(items) {
+  return (items || []).map(u => ({
+    name: u.serverName || '—',
+    env: u.environment || 'Unknown',
+    lastSeen: u.lastSeen ? new Date(u.lastSeen).toLocaleString('en-GB') : '—',
+    duration: '', // not in current API
+  }));
+}
+
+function mapUnmatched(items) {
+  return (items || []).map(u => ({
+    raw: u.serverNameRaw || '—',
+    source: u.sourceSystem || '—',
+    firstSeen: u.firstSeenAt ? new Date(u.firstSeenAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—',
+  }));
+}
+
+function mapCerts(items) {
+  return (items || []).map(c => ({
+    service: c.serviceName || '',
+    host: c.serverName || '',
+    issuer: c.issuer || '',
+    expiresAt: c.validTo,
+    daysRemaining: c.daysUntilExpiry,
+    level: (c.alertLevel || 'ok').toLowerCase(),
+  }));
+}
+
+function mapCertCounts(summary) {
+  if (!summary) return { expired: 0, within7d: 0, within30d: 0, within90d: 0, healthy: 0 };
   return {
-    serverTotal: summary?.totalCount ?? 0,
-    serverActive: summary?.activeCount ?? 0,
-    envCounts,
+    expired: summary.expiredCount || 0,
+    within7d: summary.criticalCount || 0,
+    within30d: summary.warningCount || 0,
+    within90d: 0,
+    healthy: summary.okCount || 0,
   };
 }
 
-function mapCycles(items) {
-  return (items || []).map(c => ({
-    id: c.cycleId,
-    date: c.cycleDate,
-    count: c.serverCount,
-    status: c.displayStatus || c.status,
+function mapEolProducts(items) {
+  return (items || []).map(e => ({
+    product: e.product,
+    version: e.version,
+    status: (e.alertLevel || 'supported').toLowerCase(),
+    eolDate: e.endOfLife,
+    servers: e.affectedAssets || 0,
+    hosts: [], // detail endpoint provides .assets; list endpoint does not
   }));
 }
 
-function mapIssues(items) {
-  return (items || []).map(i => ({
-    id: i.issueId,
-    title: i.title,
-    severity: i.severity,
-    win: !!i.appliesToWindows,
-    sql: !!i.appliesToSql,
-    fix: i.fix || '',
+function mapEolTotals(summary) {
+  if (!summary) return { eol: 0, extended: 0, divergent: 0, current: 0 };
+  return {
+    eol: summary.eolCount || 0,
+    extended: summary.extendedCount || 0,
+    divergent: summary.approachingCount || 0,
+    current: summary.supportedCount || 0,
+  };
+}
+
+// Convert a PatchCycle from /api/patching/cycles into the design's PATCH_GROUPS
+// shape. Real data doesn't have per-group breakdown at this level — we use
+// cycle aggregate and attach patch group breakdown from /api/patching/next
+// where available.
+function mapPatchGroups(cycles, nextSummary) {
+  const groups = [];
+  const sbg = nextSummary && nextSummary.serversByGroup ? nextSummary.serversByGroup : null;
+  if (sbg) {
+    const nextCycleDate = nextSummary.cycle && nextSummary.cycle.cycleDate;
+    for (const [name, count] of Object.entries(sbg)) {
+      groups.push({
+        name,
+        servers: count,
+        date: nextCycleDate ? new Date(nextCycleDate) : null,
+        window: 'see patch_windows',
+        services: '',
+      });
+    }
+  } else if (Array.isArray(cycles)) {
+    for (const c of cycles.slice(0, 8)) {
+      groups.push({
+        name: 'Cycle #' + c.cycleId,
+        servers: c.serverCount || 0,
+        date: c.cycleDate ? new Date(c.cycleDate) : null,
+        window: c.displayStatus || c.status,
+        services: '',
+      });
+    }
+  }
+  return groups;
+}
+
+function mapSyncs(items) {
+  return (items || []).map(s => ({
+    name: s.syncName,
+    status: (s.status === 'error' || s.freshnessStatus === 'error') ? 'crit'
+         : (s.status === 'warning' || s.freshnessStatus === 'stale' || s.consecutiveFailures > 0) ? 'warn'
+         : 'healthy',
+    last: s.lastSuccessAt ? new Date(s.lastSuccessAt) : null,
+    records: s.recordsProcessed || 0,
+    failures: s.consecutiveFailures || 0,
+    err: s.lastErrorMessage || '—',
+    schedule: s.expectedSchedule || '',
+  }));
+}
+
+function mapAlerts(items) {
+  return (items || []).map(a => ({
+    id: a.id,
+    when: a.when ? new Date(a.when).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—',
+    sub: a.sub,
+    detail: a.detail,
+    tone: a.tone || 'info',
   }));
 }
 
 function mapExclusions(items) {
-  return (items || []).map(x => ({
-    id: x.exclusionId,
-    serverId: x.serverId,
+  const list = (items && items.items) ? items.items : (Array.isArray(items) ? items : []);
+  return list.map(x => ({
+    id: x.exclusionId != null ? ('EX-' + x.exclusionId) : (x.id || ''),
+    exclusionId: x.exclusionId,
     server: x.serverName,
-    group: x.patchGroup,
-    service: x.service,
-    fn: x.application || x.reason || '',
-    env: x.environment,
-    dateOut: x.excludedAt,
-    heldUntil: x.heldUntil,
-    notes: x.reason,
-    holdExpired: !!x.holdExpired,
+    fqdn: x.serverName, // /api/servers gives fqdn; this endpoint only has server_name
+    group: x.patchGroup || '',
+    reason: x.reason || '',
+    ticket: x.ticket || '',
+    notes: x.notes || '',
+    until: x.heldUntil ? new Date(x.heldUntil).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—',
+    requester: x.excludedBy || '',
+    requested: x.excludedAt ? new Date(x.excludedAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—',
+    state: x.status || 'active', // server-derived: overdue|expiring|active
   }));
 }
 
-function mapEol(items) {
-  return (items || []).map(e => ({
-    product: e.product,
-    version: e.version,
-    eol: e.endOfLife,
-    ext: e.endOfExtendedSupport,
-    status: (e.alertLevel || 'supported').toLowerCase(),
-    assets: e.affectedAssets ?? 0,
-  }));
-}
-
-function mapSyncs(syncStatuses) {
-  return (syncStatuses || []).map(s => ({
-    name: s.syncName,
-    status: s.status || (s.freshnessStatus === 'ok' ? 'success' : 'warning'),
-    lastSuccess: s.lastSuccessAt ? new Date(s.lastSuccessAt).getTime() : null,
-    hours: s.hoursSinceSuccess ?? 0,
-    records: s.recordsProcessed ?? 0,
-    fails: s.consecutiveFailures ?? 0,
-    schedule: s.expectedSchedule || '',
-    error: s.lastErrorMessage || null,
-  }));
-}
-
-function mapNextPatch(n) {
-  if (!n) return null;
-  return {
-    days: n.daysUntil ?? 0,
-    date: n.cycle?.cycleDate || null,
-    servers: n.cycle?.serverCount ?? 0,
-    issues: n.issuesBySeverity || {},
-    groups: n.serversByGroup || {},
-  };
-}
-
-// Synthesize alerts from unreachable, syncs, and cert summary — no dedicated API endpoint.
-function synthAlerts(data) {
-  const out = [];
-  const now = Date.now();
-
-  for (const u of (data.unreachable || []).slice(0, 4)) {
-    out.push({
-      ts: u.lastSeen ? new Date(u.lastSeen).getTime() : now,
-      level: 'crit',
-      msg: (u.serverName || 'unknown host') + ' unreachable',
-      sub: (u.environment || 'unknown env') + (u.lastSeen ? ' · last seen ' + new Date(u.lastSeen).toLocaleString('en-GB') : ''),
-    });
-  }
-  for (const s of (data.syncs || []).filter(x => x.status !== 'success').slice(0, 3)) {
-    out.push({
-      ts: now - (s.hours || 0) * 3600 * 1000,
-      level: (s.fails && s.fails > 1) ? 'crit' : 'warn',
-      msg: s.name + ' sync ' + s.status,
-      sub: s.error || ((s.fails || 0) + ' consecutive failures · expected ' + (s.schedule || 'regularly')),
-    });
-  }
-  const cs = data.certSummary || {};
-  if (cs.expiredCount > 0) {
-    out.push({ ts: now, level: 'crit', msg: cs.expiredCount + ' certificate' + (cs.expiredCount === 1 ? '' : 's') + ' expired', sub: 'Reissue required — see Certificates' });
-  }
-  if (cs.criticalCount > 0) {
-    out.push({ ts: now, level: 'warn', msg: cs.criticalCount + ' certificate' + (cs.criticalCount === 1 ? '' : 's') + ' expiring within 14 days', sub: 'Review Certificates' });
-  }
-  out.sort((a, b) => b.ts - a.ts);
-  return out.slice(0, 8);
-}
-
-// ── Boot ────────────────────────────────────────────────
-
-// Page through /api/servers (backend clamps limit to 1000 per call).
+// ── Paginated /api/servers (backend caps limit at 1000) ──────────────
 async function fetchAllServers() {
   const PAGE = 1000;
-  const MAX_PAGES = 10; // safety cap — 10,000 servers
+  const MAX_PAGES = 10;
   let offset = 0;
   let all = [];
   let total = null;
@@ -163,88 +192,212 @@ async function fetchAllServers() {
   if (total !== null && all.length < total) {
     console.warn('op-boot: server inventory exceeds MAX_PAGES ceiling', { fetched: all.length, total });
   }
-  return all;
+  return { items: all, total };
 }
 
-async function boot() {
-  if (!OC || !OC.state) return;
-  const data = OC.state.data;
+// ── Boot ─────────────────────────────────────────────────────────────
 
-  // /health is the demo-fallback probe.
+async function boot() {
+  // Seed globals exist from the design bundle by the time this runs (deferred
+  // module script). Overwrite as fetches resolve and re-render.
+  const rerender = () => {
+    const m = mount();
+    if (window.RERENDER_PAGE && m) window.RERENDER_PAGE(m);
+  };
+
+  // Health probe gates demo fallback. If null, leave demo data in place.
   const healthPromise = api('/health');
 
-  // Fire the rest in parallel. Each resolver patches one slot and re-renders.
+  // Fire everything in parallel.
   const fetches = [
-    fetchAllServers().then(items => {
-      if (Array.isArray(items)) { data.servers = mapServers(items); OC.render(); }
+    fetchAllServers().then(r => {
+      if (!r) return;
+      const servers = mapServers(r.items);
+      const envCounts = {};
+      for (const s of servers) envCounts[s.env] = (envCounts[s.env] || 0) + 1;
+      const envBreakdown = Object.entries(envCounts).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count);
+      window.SERVERS_DATA = Object.assign({}, window.SERVERS_DATA, {
+        servers,
+        SRV_TOTAL: r.total,
+        SRV_ENV: envBreakdown,
+        SRV_ENV_MAX: envBreakdown.length ? Math.max(...envBreakdown.map(e => e.count)) : 0,
+      });
+      rerender();
     }),
     api('/servers/summary').then(s => {
-      if (s) { Object.assign(data, mapSummary(s)); OC.render(); }
+      if (!s) return;
+      const envBreakdown = mapEnvBreakdown(s);
+      window.SERVERS_DATA = Object.assign({}, window.SERVERS_DATA, {
+        envBreakdown,
+        SRV_ENV: envBreakdown,
+        SRV_ENV_MAX: envBreakdown.length ? Math.max(...envBreakdown.map(e => e.count)) : 0,
+        SRV_TOTAL: s.totalCount,
+      });
+      rerender();
     }),
     api('/servers/unreachable').then(v => {
-      if (Array.isArray(v)) { data.unreachable = v; OC.render(); }
+      if (!Array.isArray(v)) return;
+      window.SERVERS_DATA = Object.assign({}, window.SERVERS_DATA, { unreachable: mapUnreachable(v) });
+      rerender();
     }),
     api('/servers/unmatched').then(v => {
-      if (Array.isArray(v)) { data.unmatched = v; OC.render(); }
+      if (!Array.isArray(v)) return;
+      window.SERVERS_DATA = Object.assign({}, window.SERVERS_DATA, { unmatched: mapUnmatched(v) });
+      rerender();
     }),
     api('/certificates?limit=1000').then(v => {
-      if (Array.isArray(v)) { data.certs = v; OC.render(); }
+      if (!Array.isArray(v)) return;
+      window.CERTS_DATA = Object.assign({}, window.CERTS_DATA, { CERTS: mapCerts(v) });
+      rerender();
     }),
     api('/certificates/summary').then(s => {
-      if (s) { data.certSummary = s; OC.render(); }
+      if (!s) return;
+      window.CERTS_DATA = Object.assign({}, window.CERTS_DATA, { CERT_COUNTS: mapCertCounts(s) });
+      rerender();
     }),
     api('/eol?limit=500').then(v => {
-      if (Array.isArray(v)) { data.eol = mapEol(v); OC.render(); }
+      if (!Array.isArray(v)) return;
+      window.EOL_DATA = Object.assign({}, window.EOL_DATA, { EOL_PRODUCTS: mapEolProducts(v) });
+      rerender();
     }),
-    api('/patching/next').then(n => {
-      const mapped = mapNextPatch(n);
-      if (mapped) { data.nextPatch = mapped; OC.render(); }
+    api('/eol/summary').then(s => {
+      if (!s) return;
+      window.EOL_DATA = Object.assign({}, window.EOL_DATA, { EOL_TOTALS: mapEolTotals(s) });
+      rerender();
     }),
-    api('/patching/cycles').then(v => {
-      if (Array.isArray(v)) { data.cycles = mapCycles(v); OC.render(); }
-    }),
-    api('/patching/issues').then(v => {
-      if (Array.isArray(v)) { data.issues = mapIssues(v); OC.render(); }
-    }),
-    api('/patching/exclusions').then(v => {
-      if (Array.isArray(v)) { data.exclusions = mapExclusions(v); OC.render(); }
+    Promise.all([api('/patching/cycles'), api('/patching/next')]).then(([cycles, next]) => {
+      window.PATCH_GROUPS = mapPatchGroups(cycles, next);
+      rerender();
     }),
     api('/health/syncs').then(r => {
-      if (r && Array.isArray(r.syncStatuses)) { data.syncs = mapSyncs(r.syncStatuses); OC.render(); }
+      if (!r || !Array.isArray(r.syncStatuses)) return;
+      window.SYNCS = mapSyncs(r.syncStatuses);
+      rerender();
+    }),
+    api('/alerts/recent?limit=20').then(v => {
+      if (!Array.isArray(v)) return;
+      window.RECENT_ALERTS_BASE = mapAlerts(v);
+      rerender();
+    }),
+    api('/patching/exclusions?limit=500').then(v => {
+      if (!v) return;
+      window.EXCLUSIONS = mapExclusions(v);
+      rerender();
     }),
   ];
 
   const health = await healthPromise;
   if (health) {
-    OC.state.usingDemo = false;
-    OC.state.lastOkAt = Date.now();
-    OC.render();
+    // Success — rendered data is live, clear any leftover demo banner state.
   }
 
   await Promise.allSettled(fetches);
-
-  // Surface current errors into state.
-  OC.state.apiErrors = apiErrors.slice();
-
-  // Synthesize alerts once real data has settled.
-  data.alerts = synthAlerts(data);
-  OC.render();
+  // Final rerender to ensure a consistent view once everything has landed.
+  rerender();
 }
 
-// Expose refetch + apiPost so op-core's "Retry" button and page action handlers
-// can trigger live API calls from inside the IIFE modules.
-if (OC) {
-  OC.refetch = async function refetch() {
-    clearApiErrors();
-    OC.state.apiErrors = [];
-    await boot();
-  };
-  OC.apiPost = apiPost;
+// ── OC_ACTIONS: wizard submit hooks (op-pages-v3.js calls these) ─────
+
+window.OC_ACTIONS = {
+  // { servers: [{id,name}], reason, until, notes } + cb()
+  addExclusion: async (payload, onDone) => {
+    // Translate design's formatted "Apr 22, 2026" → ISO yyyy-mm-dd
+    const iso = toIsoDate(payload.until);
+    if (!iso) { alert('Hold-until date is required.'); return; }
+    const body = {
+      serverIds: (payload.servers || []).map(s => s.id).filter(Boolean),
+      reason: payload.reason || 'Exclusion',
+      reasonSlug: slugify(payload.reason),
+      notes: payload.notes || null,
+      heldUntil: iso,
+    };
+    if (body.serverIds.length === 0) { alert('No servers selected.'); return; }
+    const res = await apiPost('/patching/exclusions', body);
+    if (!res.ok) { alert('Could not exclude (' + res.status + '): ' + (res.error || 'unknown error')); return; }
+    await refetchExclusions();
+    if (onDone) onDone();
+  },
+
+  // { kind: 'group'|'env', target, reason, until, affectedCount } + cb()
+  bulkExclude: async (payload, onDone) => {
+    const iso = toIsoDate(payload.until);
+    if (!iso) { alert('Hold-until date is required.'); return; }
+    const body = {
+      kind: payload.kind,
+      target: payload.target,
+      reason: payload.reason || 'Bulk exclusion',
+      reasonSlug: slugify(payload.reason),
+      heldUntil: iso,
+    };
+    const res = await apiPost('/patching/exclusions/bulk', body);
+    if (!res.ok) { alert('Bulk exclude failed (' + res.status + '): ' + (res.error || 'unknown error')); return; }
+    await refetchExclusions();
+    if (onDone) onDone();
+  },
+
+  // r = exclusion row, extraDays = number of days to extend (default 30)
+  renewExclusion: async (r, extraDays) => {
+    const id = r.exclusionId;
+    if (!id) { alert('Cannot renew: no ID on row (demo mode?).'); return; }
+    const days = typeof extraDays === 'number' ? extraDays : 30;
+    const newDate = new Date();
+    newDate.setDate(newDate.getDate() + days);
+    const iso = newDate.toISOString().slice(0, 10);
+    const res = await apiPost('/patching/exclusions/' + id + '/extend', { heldUntil: iso });
+    // apiPost uses POST; the design expects PATCH semantics. The /extend route
+    // on the backend is still POST — we keep it that way and reuse here.
+    if (!res.ok) { alert('Could not renew (' + res.status + '): ' + (res.error || 'unknown error')); return; }
+    await refetchExclusions();
+  },
+
+  releaseExclusion: async (r) => {
+    const id = r.exclusionId;
+    if (!id) { alert('Cannot release: no ID on row (demo mode?).'); return; }
+    if (!confirm('Release exclusion for ' + (r.server || r.id) + '?')) return;
+    // apiPost only does POST/body; keep using /remove for compatibility.
+    const res = await apiPost('/patching/exclusions/' + id + '/remove', {});
+    if (!res.ok) { alert('Could not release (' + res.status + '): ' + (res.error || 'unknown error')); return; }
+    await refetchExclusions();
+  },
+};
+
+async function refetchExclusions() {
+  const v = await api('/patching/exclusions?limit=500');
+  if (v) {
+    window.EXCLUSIONS = mapExclusions(v);
+    const m = mount();
+    if (window.RERENDER_PAGE && m) window.RERENDER_PAGE(m);
+  }
 }
 
-// Kick off as soon as the module lands.
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => { boot(); });
+function toIsoDate(formatted) {
+  // Accept "Apr 22, 2026" (design format) or ISO "2026-04-22".
+  if (!formatted) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(formatted)) return formatted;
+  const d = new Date(formatted);
+  if (isNaN(d.getTime())) return null;
+  const p = n => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+}
+
+function slugify(s) {
+  if (!s) return null;
+  const norm = String(s).toLowerCase().trim();
+  if (norm.includes('freeze')) return 'business-freeze';
+  if (norm.includes('vendor')) return 'pending-vendor-fix';
+  if (norm.includes('depend')) return 'dependency-block';
+  if (norm.includes('change')) return 'change-window-conflict';
+  return 'custom';
+}
+
+// Kick off after the shell is rendered. op-app.js registers a DOMContentLoaded
+// listener that builds the shell (rail + statusline + .page-mount). We queue
+// boot as a SUBSEQUENT DOMContentLoaded listener so it runs right after, or
+// schedule a microtask if the event already fired. Either way .page-mount exists.
+if (document.readyState === 'loading' || document.readyState === 'interactive') {
+  document.addEventListener('DOMContentLoaded', boot);
 } else {
-  boot();
+  // readyState === 'complete' — shell definitely rendered. Queue on next tick so
+  // any late microtasks from op-app.js resolve first.
+  setTimeout(boot, 0);
 }

@@ -8,8 +8,11 @@ public class Server
     public string? IpAddress { get; set; }
     public string? Environment { get; set; }
     public string? ApplicationName { get; set; }
+    public string? Service { get; set; }
+    public string? Func { get; set; }
     public string? PatchGroup { get; set; }
     public bool IsActive { get; set; }
+    public DateTime? LastSeen { get; set; }
 }
 
 public class ServerDetail : Server

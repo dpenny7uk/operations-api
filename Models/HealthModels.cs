@@ -43,3 +43,12 @@ public class ValidationRunResult
     public int ViolationCount { get; set; }
     public int ExecutionTimeMs { get; set; }
 }
+
+public class RecentAlert
+{
+    public string Id { get; set; } = "";      // e.g. "server:SQL-PR-07" or "cert:42" or "sync:confluence"
+    public DateTime When { get; set; }        // occurrence timestamp
+    public string Sub { get; set; } = "";     // short title
+    public string Detail { get; set; } = "";  // one-line explanation
+    public string Tone { get; set; } = "info";// 'crit' | 'warn' | 'info'
+}

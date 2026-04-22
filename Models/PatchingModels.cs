@@ -7,6 +7,10 @@ public class PatchCycle
     public int ServerCount { get; set; }
     public string Status { get; set; } = "";
     public string DisplayStatus { get; set; } = "";
+    public int CompletedCount { get; set; }
+    public int FailedCount { get; set; }
+    public DateTime? StartedAt { get; set; }
+    public DateTime? CompletedAt { get; set; }
 }
 
 public class NextPatchingSummary
@@ -43,6 +47,7 @@ public class KnownIssue
     public int IssueId { get; set; }
     public string Title { get; set; } = "";
     public string Severity { get; set; } = "";
+    public string? Status { get; set; } // blocking | workaround | resolved
     public string? Application { get; set; }
     public string? Fix { get; set; }
     public bool AppliesToWindows { get; set; }

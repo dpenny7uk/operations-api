@@ -51,6 +51,7 @@ steps:
         css/**
         js/**
         fonts/**
+        v1/**
       targetFolder: '$(Build.ArtifactStagingDirectory)/frontend'
     displayName: 'Copy frontend'
 

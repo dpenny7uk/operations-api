@@ -4,18 +4,47 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="robots" content="noindex, nofollow">
-<title>Operator Console — Operations API</title>
+<title>Service Ops Console — Operations API</title>
 <link rel="stylesheet" href="css/op-fonts.css?v=__BUILD_HASH__">
 <link rel="stylesheet" href="css/op-base.css?v=__BUILD_HASH__">
 <link rel="stylesheet" href="css/op-layout.css?v=__BUILD_HASH__">
 <link rel="stylesheet" href="css/op-components.css?v=__BUILD_HASH__">
 <link rel="stylesheet" href="css/op-states.css?v=__BUILD_HASH__">
+<link rel="stylesheet" href="css/op-alerts.css?v=__BUILD_HASH__">
+<style>
+  /* Prototype-only tweaks from the design bundle — keep as-is. */
+  .page { gap: 28px; }
+  .section-label { margin-top: 0; }
+  .inv-card {
+    border: 1px solid var(--rule);
+    background: var(--card);
+    padding: 28px 24px 24px;
+    display: flex; flex-direction: column; gap: 6px;
+    min-height: 180px;
+  }
+  .inv-card .inv-big {
+    font-family: var(--display);
+    font-size: 64px; line-height: 1; letter-spacing: -0.02em; color: var(--ink);
+  }
+  .inv-card .inv-lbl {
+    font-family: var(--mono); font-size: 11px; text-transform: uppercase;
+    letter-spacing: 0.14em; color: var(--ink-3); margin-top: 6px;
+  }
+  .inv-card .inv-sub {
+    font-family: var(--mono); font-size: 11.5px; color: var(--ink-2); margin-top: 14px;
+    padding-top: 12px; border-top: 1px dashed var(--rule);
+  }
+  .inv-card .inv-sub b { color: var(--ink); font-weight: 600; }
+  .page-mount { display: contents; }
+</style>
 </head>
-<body>
+<body data-theme="light" data-alert-style="v2" data-accent="amber" data-surface="ivory" data-density="comfy">
 <div id="root"></div>
-<script src="js/op-core.js?v=__BUILD_HASH__"></script>
-<script src="js/op-pages.js?v=__BUILD_HASH__"></script>
-<script src="js/op-drawers.js?v=__BUILD_HASH__"></script>
+<!-- Script order: pages-v2 then pages-v3 (overrides RENDER_PATCHING/PATCHMGMT) then app (drives state + router).
+     op-boot.js is a module and runs last; it fetches real data and overwrites window.*_DATA globals. -->
+<script src="js/op-pages-v2.js?v=__BUILD_HASH__"></script>
+<script src="js/op-pages-v3.js?v=__BUILD_HASH__"></script>
+<script src="js/op-app.js?v=__BUILD_HASH__"></script>
 <script type="module" src="js/op-boot.js?v=__BUILD_HASH__"></script>
 </body>
 </html>

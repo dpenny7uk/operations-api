@@ -55,7 +55,12 @@ public class DatabaseFixture : IAsyncLifetime
             "database/004-patching-schema.sql",
             "database/005-system-health-schema.sql",
             "database/006-eol-schema.sql",
-            "database/008-eol-add-machine-name.sql"
+            "database/007-migration-tracking.sql",
+            "database/008-eol-add-machine-name.sql",
+            "database/009-eol-split-dates.sql",
+            "database/010-patch-exclusions.sql",
+            "database/011-patch-exclusion-grants.sql",
+            "database/012-design-v2-fields.sql"
         };
 
         // Walk up from bin/Debug/net10.0 to find the project root
@@ -97,18 +102,24 @@ public class DatabaseFixture : IAsyncLifetime
         -- ═══ Servers ═══
         INSERT INTO shared.servers
             (server_name, fqdn, ip_address, operating_system, environment, location,
-             business_unit, primary_application_id, primary_contact, patch_group, is_active, source_system)
+             business_unit, primary_application_id, primary_contact, patch_group, is_active, source_system,
+             service, func, last_seen_at)
         VALUES
             ('WEB01', 'web01.contoso.com', '10.0.0.1', 'Windows Server 2022', 'Production', 'DC1',
-             'Engineering', 1, 'ops@contoso.com', '8a', TRUE, 'test'),
+             'Engineering', 1, 'ops@contoso.com', '8a', TRUE, 'test',
+             'portal-web', 'front-door', CURRENT_TIMESTAMP - INTERVAL '15 minutes'),
             ('WEB02', 'web02.contoso.com', '10.0.0.2', 'Windows Server 2022', 'Production', 'DC1',
-             'Engineering', 1, 'ops@contoso.com', '8b', TRUE, 'test'),
+             'Engineering', 1, 'ops@contoso.com', '8b', TRUE, 'test',
+             'portal-web', 'front-door', CURRENT_TIMESTAMP - INTERVAL '20 minutes'),
             ('API01', 'api01.contoso.com', '10.0.1.1', 'Windows Server 2022', 'Production', 'DC2',
-             'Engineering', 2, 'api-team@contoso.com', '9a', TRUE, 'test'),
+             'Engineering', 2, 'api-team@contoso.com', '9a', TRUE, 'test',
+             'api-gateway', 'public-api', CURRENT_TIMESTAMP - INTERVAL '5 minutes'),
             ('DEV01', 'dev01.contoso.com', '10.0.2.1', 'Windows Server 2022', 'Development', 'DC1',
-             'Engineering', 1, 'dev@contoso.com', '8a', TRUE, 'test'),
+             'Engineering', 1, 'dev@contoso.com', '8a', TRUE, 'test',
+             NULL, NULL, NULL),
             ('OLD01', 'old01.contoso.com', '10.0.3.1', 'Windows Server 2019', 'Production', 'DC1',
-             'Engineering', 3, 'ops@contoso.com', '9b', FALSE, 'test');
+             'Engineering', 3, 'ops@contoso.com', '9b', FALSE, 'test',
+             NULL, NULL, NULL);
 
         -- ═══ Certificates ═══
         INSERT INTO certificates.inventory

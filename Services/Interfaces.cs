@@ -60,9 +60,18 @@ public interface IPatchExclusionService
     Task<PatchExclusionSummary> GetExclusionSummaryAsync();
     Task<PagedResult<PatchExclusion>> ListExclusionsAsync(string? search, int limit, int offset);
     Task<PagedResult<PatchServerItem>> SearchPatchServersAsync(string? search, int limit, int offset);
-    Task<int> ExcludeServersAsync(List<int> serverIds, string reason, DateOnly heldUntil, string excludedBy);
+    Task<int> ExcludeServersAsync(List<int> serverIds, string reason, DateOnly heldUntil, string excludedBy,
+        string? ticket = null, string? reasonSlug = null, string? notes = null);
+    Task<int> BulkExcludeAsync(string kind, string target, string reason, DateOnly heldUntil, string excludedBy,
+        string? ticket = null, string? reasonSlug = null, string? notes = null);
     Task<bool> ExtendExclusionAsync(int exclusionId, DateOnly newHeldUntil, string extendedBy);
+    Task<bool> UpdateExclusionAsync(int exclusionId, DateOnly? newHeldUntil, string? notes, string actingUser);
     Task<bool> RemoveExclusionAsync(int exclusionId, string removedBy);
+}
+
+public interface IAlertsService
+{
+    Task<IEnumerable<RecentAlert>> GetRecentAlertsAsync(int limit);
 }
 
 public interface IEolService

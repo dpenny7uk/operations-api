@@ -213,19 +213,6 @@
   box-shadow: 0 0 0 3px var(--ok-wash);
 }
 
-.theme-toggle {
-  width: 32px; height: 32px;
-  display: inline-flex; align-items: center; justify-content: center;
-  border: 1px solid var(--rule-2);
-  border-radius: 999px;
-  background: var(--paper);
-  color: var(--ink-2);
-  font-size: 14px; line-height: 1;
-  cursor: pointer;
-  transition: all var(--t);
-}
-.theme-toggle:hover { border-color: var(--ink); color: var(--ink); background: var(--card); }
-
 /* ── PAGE LAYOUT ─────────────────────────────────────── */
 .page {
   padding: 36px 40px 72px;

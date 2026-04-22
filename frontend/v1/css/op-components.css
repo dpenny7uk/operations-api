@@ -332,33 +332,14 @@ table.op td .btn.danger:hover {
 .env-bars {
   border: 1px solid var(--rule);
   background: var(--card);
-  padding: 12px 16px;
-  min-width: 0;
+  padding: 20px;
 }
 .env-row {
-  position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 150px) minmax(80px, 1fr) 64px;
+  grid-template-columns: 160px 1fr 80px;
   align-items: center;
-  gap: 12px;
-  padding: 8px 10px 8px 12px;
-  cursor: pointer;
-  border-radius: 2px;
-  transition: background var(--t);
-  min-width: 0;
-}
-.env-row::before {
-  /* thin left accent = this row's colour slug, visible at rest */
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 18%;
-  bottom: 18%;
-  width: 3px;
-  background: var(--env-accent, var(--ink-3));
-  border-radius: 1px;
-  opacity: 0.55;
-  transition: opacity var(--t), width var(--t), top var(--t), bottom var(--t);
+  gap: 16px;
+  padding: 8px 0;
 }
 .env-row + .env-row { border-top: 1px dashed var(--rule); }
 .env-row .name {
@@ -367,115 +348,46 @@ table.op td .btn.danger:hover {
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--ink-2);
-  transition: color var(--t);
 }
 .env-row .bar {
-  height: 10px;
+  height: 8px;
   background: var(--paper-2);
   border-radius: 1px;
   position: relative;
   overflow: hidden;
-  transition: height var(--t), background var(--t);
 }
 .env-row .bar .fill {
   position: absolute;
   inset: 0 auto 0 0;
-  background: var(--env-accent, var(--ink));
-  transition: background var(--t);
+  background: var(--ink);
 }
+/* Prod bar gets a subtle tint but not the signal colour —
+   signal is reserved for the active filter state. */
+.env-row.prod .bar .fill { background: var(--ink-2); }
 .env-row .count {
   font-family: var(--mono);
   font-size: 12px;
-  font-variant-numeric: tabular-nums;
   color: var(--ink);
   text-align: right;
 }
-
-/* Hover — small lift */
-.env-row:hover { background: var(--paper-2); }
-.env-row:hover::before { opacity: 0.9; width: 4px; }
 .env-row:hover .name { color: var(--ink); }
-
-/* Focus — keyboard ring */
+.env-row:hover .bar { background: var(--paper-3); }
 .env-row:focus-visible {
-  outline: 2px solid var(--env-accent, var(--signal));
+  outline: 2px solid var(--signal);
   outline-offset: 2px;
+  border-radius: 2px;
 }
-
-/* ACTIVE (selected filter) — unmistakable */
-.env-row.is-active {
-  background: var(--env-wash, var(--signal-wash));
-  box-shadow: inset 0 0 0 1px var(--env-accent, var(--signal));
+.env-row.active {
+  background: var(--signal-wash);
+  padding-left: 6px;
+  padding-right: 6px;
+  border-radius: 2px;
+  border-left: 3px solid var(--signal);
+  padding-left: 9px;
 }
-.env-row.is-active::before {
-  width: 5px;
-  top: 6%;
-  bottom: 6%;
-  opacity: 1;
-}
-.env-row.is-active .name {
-  color: var(--env-ink, var(--ink));
-  font-weight: 600;
-}
-/* SELECTED pill lives absolutely inside the row so it never disrupts
-   the grid or the bar (even when the name wraps to two lines). */
-.env-row.is-active::after {
-  content: 'SELECTED';
-  position: absolute;
-  top: 50%;
-  right: 78px;               /* clear of the count column */
-  transform: translateY(-50%);
-  padding: 2px 6px;
-  font-family: var(--mono);
-  font-size: 9px;
-  letter-spacing: 0.14em;
-  color: var(--paper);
-  background: var(--env-accent, var(--signal));
-  border-radius: 1px;
-  pointer-events: none;
-  white-space: nowrap;
-  z-index: 1;
-}
-.env-row.is-active .bar { height: 12px; }
-.env-row.is-active .count {
-  color: var(--env-ink, var(--signal-2));
-  font-weight: 600;
-}
-
-/* ── Per-env colour tokens ────────────────────────────────
-   Each env gets its own accent + a soft wash for the active
-   state. Values are hand-balanced against --paper / --card so
-   no row dominates at rest, but a selected row is obvious.
-   ──────────────────────────────────────────────────────── */
-.env-row.env-production     { --env-accent:#1f2a44; --env-ink:#111827; --env-wash:#eef1fa; }
-.env-row.env-development    { --env-accent:#2b6cb0; --env-ink:#1b4878; --env-wash:#e8f1fb; }
-.env-row.env-uat            { --env-accent:#b7791f; --env-ink:#7b4f0a; --env-wash:#fbf3e3; }
-.env-row.env-staging        { --env-accent:#805ad5; --env-ink:#553c9a; --env-wash:#f1ebfb; }
-.env-row.env-shared-services{ --env-accent:#38a169; --env-ink:#22543d; --env-wash:#e6f4ec; }
-.env-row.env-systest        { --env-accent:#d69e2e; --env-ink:#7b5a11; --env-wash:#faf1d9; }
-.env-row.env-live-support   { --env-accent:#c53030; --env-ink:#742020; --env-wash:#fbe6e6; }
-.env-row.env-proof-of-concept { --env-accent:#00a3a3; --env-ink:#115e5e; --env-wash:#e1f3f3; }
-.env-row.env-continuous-integration { --env-accent:#dd6b20; --env-ink:#7c3d0f; --env-wash:#fbebde; }
-.env-row.env-training       { --env-accent:#718096; --env-ink:#3c4653; --env-wash:#eef1f4; }
-
-/* Dark-theme tints — brighter accents, subtler washes */
-[data-theme="dark"] .env-row.env-production     { --env-accent:#9aa7c7; --env-ink:#cdd4e4; --env-wash:rgba(154,167,199,0.14); }
-[data-theme="dark"] .env-row.env-development    { --env-accent:#63b3ed; --env-ink:#bee3f8; --env-wash:rgba(99,179,237,0.14); }
-[data-theme="dark"] .env-row.env-uat            { --env-accent:#ecc94b; --env-ink:#faf089; --env-wash:rgba(236,201,75,0.14); }
-[data-theme="dark"] .env-row.env-staging        { --env-accent:#b794f4; --env-ink:#d6bcfa; --env-wash:rgba(183,148,244,0.14); }
-[data-theme="dark"] .env-row.env-shared-services{ --env-accent:#68d391; --env-ink:#9ae6b4; --env-wash:rgba(104,211,145,0.14); }
-[data-theme="dark"] .env-row.env-systest        { --env-accent:#f6ad55; --env-ink:#fbd38d; --env-wash:rgba(246,173,85,0.14); }
-[data-theme="dark"] .env-row.env-live-support   { --env-accent:#fc8181; --env-ink:#feb2b2; --env-wash:rgba(252,129,129,0.14); }
-[data-theme="dark"] .env-row.env-proof-of-concept { --env-accent:#4fd1c5; --env-ink:#81e6d9; --env-wash:rgba(79,209,197,0.14); }
-[data-theme="dark"] .env-row.env-continuous-integration { --env-accent:#f6ad55; --env-ink:#fbd38d; --env-wash:rgba(246,173,85,0.14); }
-[data-theme="dark"] .env-row.env-training       { --env-accent:#a0aec0; --env-ink:#cbd5e0; --env-wash:rgba(160,174,192,0.14); }
-
-/* Tiny button variant used beside section labels */
-.btn.xs {
-  font-size: 9.5px;
-  padding: 3px 8px;
-  letter-spacing: 0.10em;
-}
+.env-row.active .name { color: var(--ink); font-weight: 600; }
+.env-row.active .bar .fill { background: var(--signal); }
+.env-row.active .count { color: var(--signal-2); font-weight: 600; }
 
 /* ── CERTIFICATE TIMELINE ────────────────────────────── */
 .cert-strip {
@@ -651,38 +563,6 @@ table.op td .btn.danger:hover {
   font-weight: 600;
 }
 .filters .btn:disabled { opacity: 0.4; cursor: not-allowed; }
-
-/* Global .btn fallback — patching / patch-mgmt flows use .btn outside .filters */
-.btn {
-  height: 34px;
-  padding: 0 14px;
-  border: 1px solid var(--rule-2);
-  border-radius: 2px;
-  background: var(--card);
-  color: var(--ink);
-  font-size: 12px;
-  font-family: var(--mono);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  cursor: pointer;
-  transition: all var(--t);
-}
-.btn:hover { border-color: var(--ink); }
-.btn.primary {
-  background: var(--ink);
-  color: var(--paper);
-  border-color: var(--ink);
-  font-weight: 600;
-}
-.btn.primary:hover { background: var(--signal); border-color: var(--signal); }
-.btn.danger {
-  background: var(--crit);
-  color: oklch(0.98 0 0);
-  border-color: var(--crit);
-  font-weight: 600;
-}
-.btn.danger:hover { background: var(--signal-2); border-color: var(--signal-2); }
-.btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
 /* ── PATCH BANNER ────────────────────────────────────── */
 .patch-banner {
@@ -1213,14 +1093,10 @@ table.op td .btn.danger:hover {
 }
 .no-hits b { color: var(--ink); font-weight: 600; }
 
-/* ── CRITICAL ISSUES STRIP (Health / Patching summaries) ───────────
-   Cells auto-size equally based on how many you render (3 or 5). No
-   more hardcoded column widths — the grid uses repeat(auto-fit) so
-   any count of cells lines up cleanly.
-   ───────────────────────────────────────────────────────────────── */
+/* ── CRITICAL ISSUES STRIP (Health page) ──────────── */
 .crit-strip {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: 1.1fr 1fr 1fr 1fr 1fr;
   gap: 0;
   border: 1px solid var(--rule);
   background: var(--card);
@@ -1315,76 +1191,4 @@ table.op td .btn.danger:hover {
   .crit-strip { grid-template-columns: 1fr 1fr; }
   .crit-strip .cs-cell { border-right: none; border-bottom: 1px solid var(--rule); }
   .crit-strip .cs-cell:nth-child(odd) { border-right: 1px solid var(--rule); }
-}
-
-/* ── TABS (Patching Schedules, Patch Management) ─────── */
-.tabs {
-  display: flex;
-  gap: 0;
-  border-bottom: 1px solid var(--rule);
-  margin: 4px 0 24px;
-  padding: 0;
-  align-items: stretch;
-}
-.tabs .tab {
-  appearance: none;
-  -webkit-appearance: none;
-  background: transparent;
-  border: none;
-  border-bottom: 2px solid transparent;
-  padding: 14px 22px 12px;
-  margin: 0;
-  margin-bottom: -1px;
-  font-family: var(--mono);
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--ink-3);
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  transition: color var(--t), border-color var(--t);
-  position: relative;
-}
-.tabs .tab:hover {
-  color: var(--ink-2);
-  border-bottom-color: var(--rule-2);
-}
-.tabs .tab.on {
-  color: var(--ink);
-  border-bottom-color: var(--ink);
-  font-weight: 600;
-}
-.tabs .tab .n {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 20px;
-  height: 18px;
-  padding: 0 6px;
-  background: var(--paper-2);
-  border: 1px solid var(--rule-2);
-  border-radius: 2px;
-  font-family: var(--mono);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  color: var(--ink-3);
-}
-.tabs .tab.on .n {
-  background: var(--ink);
-  color: var(--paper);
-  border-color: var(--ink);
-}
-
-/* Section labels used by pages-v3 — small .ct helper */
-.section-label .ct {
-  font-family: var(--mono);
-  font-size: 10.5px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--ink-3);
-  font-weight: 500;
 }

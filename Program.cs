@@ -83,6 +83,7 @@ builder.Services.AddScoped<IPatchingService, PatchingService>();
 builder.Services.AddScoped<ICertificateService, CertificateService>();
 builder.Services.AddScoped<IEolService, EolService>();
 builder.Services.AddScoped<IPatchExclusionService, PatchExclusionService>();
+builder.Services.AddScoped<IAlertsService, AlertsService>();
 
 // API configuration
 builder.WebHost.ConfigureKestrel(options =>

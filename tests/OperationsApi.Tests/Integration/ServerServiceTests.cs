@@ -84,6 +84,28 @@ public class ServerServiceTests : IntegrationTestBase
     }
 
     [DockerFact]
+    public async Task ListServers_returns_service_and_func()
+    {
+        var svc = CreateService();
+        var results = (await svc.ListServersAsync(null, null, null, "WEB01", 100, 0)).ToList();
+
+        Assert.Single(results);
+        Assert.Equal("portal-web", results[0].Service);
+        Assert.Equal("front-door", results[0].Func);
+    }
+
+    [DockerFact]
+    public async Task ListServers_returns_last_seen()
+    {
+        var svc = CreateService();
+        // API01 was seeded with last_seen_at = now - 5 minutes.
+        var results = (await svc.ListServersAsync(null, null, null, "API01", 100, 0)).ToList();
+
+        Assert.Single(results);
+        Assert.NotNull(results[0].LastSeen);
+    }
+
+    [DockerFact]
     public async Task ListServers_search_escapes_percent()
     {
         var svc = CreateService();
