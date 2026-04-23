@@ -149,6 +149,22 @@
   const SRV = buildServers();
   window.SERVERS_DATA = { SRV_ENV, SRV_TOTAL, SRV_ENV_MAX, ...SRV };
 
+  // op-boot.js overwrites window.SERVERS_DATA with API data after fetch. The
+  // render functions must read live-or-demo rather than the demo-only local
+  // consts, otherwise the page stays pinned to synthesised rows.
+  function liveSrv() {
+    const D = window.SERVERS_DATA || {};
+    const env = Array.isArray(D.SRV_ENV) && D.SRV_ENV.length ? D.SRV_ENV : SRV_ENV;
+    return {
+      servers:     Array.isArray(D.servers)     && D.servers.length     ? D.servers     : SRV.servers,
+      unreachable: Array.isArray(D.unreachable)                         ? D.unreachable : SRV.unreachable,
+      unmatched:   Array.isArray(D.unmatched)                           ? D.unmatched   : SRV.unmatched,
+      env,
+      total: (D.SRV_TOTAL != null) ? D.SRV_TOTAL : SRV_TOTAL,
+      envMax: env.length ? Math.max(...env.map(e => e.count)) : SRV_ENV_MAX,
+    };
+  }
+
   // ================================================================
   // DATA — CERTIFICATES
   // ================================================================
@@ -190,6 +206,13 @@
   const CERT_COUNTS = CERTS.reduce((a, c) => (a[c.level] = (a[c.level]||0) + 1, a), {});
   window.CERTS_DATA = { CERTS, CERT_COUNTS };
 
+  function liveCerts() {
+    const D = window.CERTS_DATA || {};
+    const list = Array.isArray(D.CERTS) && D.CERTS.length ? D.CERTS : CERTS;
+    const counts = D.CERT_COUNTS && Object.keys(D.CERT_COUNTS).length ? D.CERT_COUNTS : CERT_COUNTS;
+    return { list, counts };
+  }
+
   // ================================================================
   // DATA — END OF LIFE
   // ================================================================
@@ -216,6 +239,13 @@
     affected: EOL_PRODUCTS.filter(p => p.status === 'eol').reduce((s,p) => s+p.servers, 0),
   };
   window.EOL_DATA = { EOL_PRODUCTS, EOL_COUNTS, EOL_TOTALS };
+
+  function liveEol() {
+    const D = window.EOL_DATA || {};
+    const products = Array.isArray(D.EOL_PRODUCTS) && D.EOL_PRODUCTS.length ? D.EOL_PRODUCTS : EOL_PRODUCTS;
+    const totals = D.EOL_TOTALS && Object.keys(D.EOL_TOTALS).length ? D.EOL_TOTALS : EOL_TOTALS;
+    return { products, totals };
+  }
 
   // Per-product affected-servers cache keyed by "product@version". Values:
   //   undefined       → never requested
@@ -318,14 +348,14 @@
 
   function applyServerFilters() {
     const q = srvState.q.trim().toLowerCase();
-    let rows = SRV.servers;
+    let rows = liveSrv().servers;
     if (srvState.env !== '__all') rows = rows.filter(r => r.env === srvState.env);
     if (q) rows = rows.filter(r =>
       r.name.toLowerCase().includes(q) ||
-      r.fqdn.toLowerCase().includes(q) ||
-      r.app.toLowerCase().includes(q) ||
-      r.pg.toLowerCase().includes(q) ||
-      r.env.toLowerCase().includes(q));
+      (r.fqdn || '').toLowerCase().includes(q) ||
+      (r.app || '').toLowerCase().includes(q) ||
+      (r.pg || '').toLowerCase().includes(q) ||
+      (r.env || '').toLowerCase().includes(q));
     const key = srvState.sort;
     const dir = srvState.sortDir;
     rows = rows.slice().sort((a, b) => {
@@ -339,6 +369,7 @@
 
   function renderServersPage(mount) {
     const page = h('div.page');
+    const live = liveSrv();
 
     // Inventory count + env split
     const inv = h('div.split.wide-left', null,
@@ -346,12 +377,12 @@
         const col = h('div');
         col.appendChild(sectionLabel('Server inventory'));
         col.appendChild(h('div.inv-card', null,
-          h('div.inv-big', null, SRV_TOTAL.toLocaleString()),
+          h('div.inv-big', null, live.total.toLocaleString()),
           h('div.inv-lbl', null, 'active servers tracked'),
           h('div.inv-sub', null,
-            h('span', null, h('b', null, String(SRV.unreachable.length)), ' unreachable'),
+            h('span', null, h('b', null, String(live.unreachable.length)), ' unreachable'),
             ' · ',
-            h('span', null, h('b', null, String(SRV.unmatched.length)), ' unmatched'),
+            h('span', null, h('b', null, String(live.unmatched.length)), ' unmatched'),
           ),
         ));
         return col;
@@ -361,15 +392,15 @@
         const envActive = srvState.env && srvState.env !== '__all';
         col.appendChild(sectionLabel(
           'Servers by environment',
-          SRV_ENV.length,
+          live.env.length,
           envActive ? h('button.btn.xs', {
             style:{marginLeft:'auto'},
             on:{click:()=>{ srvState.env='__all'; srvState.page=1; window.RERENDER_PAGE(mount); }},
           }, 'Clear filter') : null,
         ));
         const bars = h('div.env-bars');
-        SRV_ENV.forEach(e => {
-          const w = Math.max(2, Math.round(e.count / SRV_ENV_MAX * 100));
+        live.env.forEach(e => {
+          const w = Math.max(2, Math.round(e.count / live.envMax * 100));
           const slug = envSlug(e.name);
           const isActive = srvState.env === e.name;
           const classes = 'div.env-row.env-'+slug + (isActive ? '.is-active' : '');
@@ -400,7 +431,7 @@
 
     page.appendChild(sectionLabel('Server inventory', rows.length.toLocaleString()));
 
-    const envOpts = [['__all','All environments']].concat(SRV_ENV.map(e => [e.name, e.name + ' ('+e.count+')']));
+    const envOpts = [['__all','All environments']].concat(live.env.map(e => [e.name, e.name + ' ('+e.count+')']));
     const search = h('input', {'data-fk':'servers-search', 
       type:'text', placeholder:'Search name, FQDN, application, patch group…',
       value: srvState.q,
@@ -460,7 +491,7 @@
     page.appendChild(tbl);
 
     // Unreachable (errors — made loud)
-    page.appendChild(sectionLabel('Unreachable hosts', SRV.unreachable.length, h('span.ct', {style:{marginLeft:'auto'}}, 'no check-in · manual investigation')));
+    page.appendChild(sectionLabel('Unreachable hosts', live.unreachable.length, h('span.ct', {style:{marginLeft:'auto'}}, 'no check-in · manual investigation')));
     const utbl = h('div.table-wrap');
     const ut = h('table.op');
     ut.appendChild(h('thead', null, h('tr', null,
@@ -471,12 +502,12 @@
       h('th', null, 'Severity'),
     )));
     const utb = h('tbody');
-    SRV.unreachable.forEach(r => {
+    live.unreachable.forEach(r => {
       utb.appendChild(h('tr.sev-crit', null,
         h('td.host', null, r.name),
         h('td', null, h('span.env-tag', null, r.env)),
         h('td.muted', null, r.lastSeen),
-        h('td', null, r.duration),
+        h('td', null, r.duration || ''),
         h('td', null, stamp('crit','UNREACHABLE')),
       ));
     });
@@ -486,7 +517,7 @@
 
     // Unmatched (kept at the bottom)
     const uq = srvUnmatchedState.q.toLowerCase();
-    let urows = SRV.unmatched;
+    let urows = live.unmatched;
     if (uq) urows = urows.filter(r => r.raw.toLowerCase().includes(uq) || r.source.toLowerCase().includes(uq));
     const upag = paginate(urows.length, srvUnmatchedState.page, srvUnmatchedState.per);
     srvUnmatchedState.page = upag.cur;
@@ -542,12 +573,12 @@
 
   function applyCertFilters() {
     const q = certState.q.trim().toLowerCase();
-    let rows = CERTS;
+    let rows = liveCerts().list;
     if (certState.level !== '__all') rows = rows.filter(r => r.level === certState.level);
     if (q) rows = rows.filter(r =>
-      r.name.toLowerCase().includes(q) ||
-      r.server.toLowerCase().includes(q) ||
-      r.service.toLowerCase().includes(q));
+      (r.name || '').toLowerCase().includes(q) ||
+      (r.server || '').toLowerCase().includes(q) ||
+      (r.service || '').toLowerCase().includes(q));
     const key = certState.sort;
     const dir = certState.sortDir;
     rows = rows.slice().sort((a, b) => {
@@ -561,6 +592,7 @@
 
   function renderCertsPage(mount) {
     const page = h('div.page');
+    const { list: CERTS, counts: CERT_COUNTS } = liveCerts();
 
     // Hero status strip with STAMPED expired/crit counts — replaces the quiet tiles
     const strip = h('div.crit-strip');
@@ -708,7 +740,7 @@
 
   function applyEolFilters() {
     const q = eolState.q.trim().toLowerCase();
-    let rows = EOL_PRODUCTS.slice();
+    let rows = liveEol().products.slice();
     if (eolState.status !== '__all') rows = rows.filter(r => r.status === eolState.status);
     if (q) {
       rows = rows.filter(r => {
@@ -734,6 +766,7 @@
 
   function renderEolPage(mount) {
     const page = h('div.page');
+    const { products: EOL_PRODUCTS, totals: EOL_TOTALS } = liveEol();
 
     // Hero strip — STAMPED EOL counts (loud)
     const strip = h('div.crit-strip');

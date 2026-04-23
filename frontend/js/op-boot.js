@@ -53,50 +53,56 @@ function mapUnmatched(items) {
   return (items || []).map(u => ({
     raw: u.serverNameRaw || '—',
     source: u.sourceSystem || '—',
-    firstSeen: u.firstSeenAt ? new Date(u.firstSeenAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—',
+    times: u.occurrenceCount || 0,
+    first: u.firstSeenAt ? new Date(u.firstSeenAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—',
+    closest: u.closestMatch || null,
   }));
 }
 
 function mapCerts(items) {
   return (items || []).map(c => ({
+    name: c.subjectCn || c.serviceName || '—',
+    server: c.serverName || '',
     service: c.serviceName || '',
-    host: c.serverName || '',
-    issuer: c.issuer || '',
-    expiresAt: c.validTo,
-    daysRemaining: c.daysUntilExpiry,
+    expires: c.validTo ? new Date(c.validTo).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—',
+    days: c.daysUntilExpiry,
     level: (c.alertLevel || 'ok').toLowerCase(),
   }));
 }
 
+// Aliases: dashboard CertCard reads within7d/within30d/healthy; CertsPage reads
+// crit/warn/ok. Expose both so either render path works.
 function mapCertCounts(summary) {
-  if (!summary) return { expired: 0, within7d: 0, within30d: 0, within90d: 0, healthy: 0 };
-  return {
-    expired: summary.expiredCount || 0,
-    within7d: summary.criticalCount || 0,
-    within30d: summary.warningCount || 0,
-    within90d: 0,
-    healthy: summary.okCount || 0,
-  };
+  if (!summary) return { expired: 0, crit: 0, warn: 0, ok: 0, within7d: 0, within30d: 0, within90d: 0, healthy: 0 };
+  const expired = summary.expiredCount || 0;
+  const crit = summary.criticalCount || 0;
+  const warn = summary.warningCount || 0;
+  const ok = summary.okCount || 0;
+  return { expired, crit, warn, ok, within7d: crit, within30d: warn, within90d: 0, healthy: ok };
 }
 
 function mapEolProducts(items) {
+  const fmt = (iso) => iso ? new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : null;
   return (items || []).map(e => ({
     product: e.product,
     version: e.version,
     status: (e.alertLevel || 'supported').toLowerCase(),
-    eolDate: e.endOfLife,
+    eol: fmt(e.endOfLife),
+    ext: fmt(e.endOfExtendedSupport),
     servers: e.affectedAssets || 0,
     hosts: [], // detail endpoint provides .assets; list endpoint does not
   }));
 }
 
 function mapEolTotals(summary) {
-  if (!summary) return { eol: 0, extended: 0, divergent: 0, current: 0 };
+  if (!summary) return { products: 0, eol: 0, extended: 0, approaching: 0, supported: 0, affected: 0 };
   return {
+    products: summary.totalCount || 0,
     eol: summary.eolCount || 0,
     extended: summary.extendedCount || 0,
-    divergent: summary.approachingCount || 0,
-    current: summary.supportedCount || 0,
+    approaching: summary.approachingCount || 0,
+    supported: summary.supportedCount || 0,
+    affected: summary.affectedServers || 0,
   };
 }
 
@@ -171,6 +177,52 @@ function mapPatchGroups(cycles, nextSummary) {
   });
 
   return groups;
+}
+
+// Raw cycles for the Patching page's history tab. Demo shape:
+// { id, window, status, servers, completed, failed, skipped, groups, notes }
+function mapPatchCycles(cycles) {
+  if (!Array.isArray(cycles)) return [];
+  const monthLabel = (iso) => {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    return d.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+  };
+  const windowLabel = (iso) => {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  };
+  return cycles.map(c => ({
+    id: monthLabel(c.cycleDate),
+    window: windowLabel(c.cycleDate),
+    status: (c.displayStatus || c.status || 'queued').toLowerCase(),
+    servers: c.serverCount || 0,
+    completed: c.completedCount || 0,
+    failed: c.failedCount || 0,
+    skipped: 0,
+    groups: 0,
+    notes: '',
+  }));
+}
+
+// Known issues for the Patching page's issues tab. Demo shape:
+// { id, severity, product, kb, servers, group, first, status, title, notes }
+function mapPatchIssues(items) {
+  if (!Array.isArray(items)) return [];
+  const sevMap = { high: 'crit', critical: 'crit', medium: 'warn', low: 'info' };
+  return items.map(i => ({
+    id: 'IS-' + (i.issueId != null ? i.issueId : '?'),
+    severity: sevMap[(i.severity || '').toLowerCase()] || 'info',
+    product: i.application || '—',
+    kb: '—',
+    servers: 0,
+    group: '—',
+    first: '—',
+    status: (i.status || 'workaround').toLowerCase(),
+    title: i.title || '',
+    notes: i.fix || '',
+  }));
 }
 
 function mapSyncs(items) {
@@ -313,6 +365,16 @@ async function boot() {
     }),
     Promise.all([api('/patching/cycles'), api('/patching/next')]).then(([cycles, next]) => {
       window.PATCH_GROUPS = mapPatchGroups(cycles, next);
+      rerender();
+    }),
+    api('/patching/cycles?upcomingOnly=false&limit=24').then(v => {
+      if (!Array.isArray(v)) return;
+      window.PATCH_CYCLES = mapPatchCycles(v);
+      rerender();
+    }),
+    api('/patching/issues').then(v => {
+      if (!Array.isArray(v)) return;
+      window.PATCH_ISSUES = mapPatchIssues(v);
       rerender();
     }),
     api('/health/syncs').then(r => {

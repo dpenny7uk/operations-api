@@ -109,11 +109,19 @@
   }
   function getPatchTotal() { return getPatchGroups().reduce((s, g) => s + g.servers, 0); }
 
-  // Cycle history (most recent first). Current-cycle totals come from live
-  // data; prior months stay as last-known values until a cycle-history
-  // endpoint is added to the API.
+  // Cycle history (most recent first). op-boot.js populates window.PATCH_CYCLES
+  // from /api/patching/cycles?upcomingOnly=false. Fall back to a last-known
+  // demo list when the API hasn't responded (offline dev).
   function getPatchCycles() {
     const liveGroups = getPatchGroups();
+    const liveCycles = Array.isArray(window.PATCH_CYCLES) ? window.PATCH_CYCLES : null;
+    if (liveCycles && liveCycles.length) {
+      const upcoming = liveCycles.find(c => c.status === 'queued' || c.status === 'scheduled');
+      const liveTotal = getPatchTotal();
+      if (upcoming && !upcoming.servers && liveTotal) upcoming.servers = liveTotal;
+      if (upcoming && !upcoming.groups && liveGroups.length) upcoming.groups = liveGroups.length;
+      return liveCycles;
+    }
     return [
     {id:'April 2026',    window:'Apr 23–26, 2026', status:'queued',   servers:getPatchTotal(), completed:0,    failed:0,  skipped:0, groups:liveGroups.length, notes:'T-3 days'},
     {id:'March 2026',    window:'Mar 26–29, 2026', status:'partial',  servers:1020,        completed:977,  failed:43, skipped:0, groups:16,                  notes:'GROUP3B blocked on WU-8102 \u2014 3A/3B rerun queued'},
@@ -135,6 +143,13 @@
     {id:'WU-7412', severity:'info', product:'Windows Server 2022', kb:'KB5036893', servers:0,  group:'\u2014',   first:'Feb 27, 2026', status:'resolved',   title:'Hyper-V saved-state restore failure (fixed in cumulative)',
      notes:'Resolved by March cumulative. Kept for audit trail.'},
   ];
+
+  // Live accessor — op-boot.js populates window.PATCH_ISSUES from
+  // /api/patching/issues. Call at render time so updates are picked up.
+  function getPatchIssues() {
+    const live = Array.isArray(window.PATCH_ISSUES) ? window.PATCH_ISSUES : null;
+    return (live && live.length) ? live : PATCH_ISSUES;
+  }
 
   // =============================================================
   // DATA — PATCH MANAGEMENT
@@ -183,6 +198,7 @@
 
   function renderPatchingPage(mount) {
     const page = h('div.page');
+    const PATCH_ISSUES = getPatchIssues();
 
     // HERO — countdown + cycle meta + group bars
     const hero = h('div.patch-banner', null,
@@ -475,6 +491,7 @@
 
   function renderPatchIssues(mount) {
     const wrap = h('div', {style:{display:'flex',flexDirection:'column',gap:'18px'}});
+    const PATCH_ISSUES = getPatchIssues();
     wrap.appendChild(sectionLabel('Known issues & blockers', PATCH_ISSUES.length, h('span.ct', {style:{marginLeft:'auto'}}, 'Sorted by severity')));
 
     PATCH_ISSUES.forEach(issue => {
