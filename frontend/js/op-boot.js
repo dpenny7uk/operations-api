@@ -60,14 +60,23 @@ function mapUnmatched(items) {
 }
 
 function mapCerts(items) {
-  return (items || []).map(c => ({
-    name: c.subjectCn || c.serviceName || '—',
-    server: c.serverName || '',
-    service: c.serviceName || '',
-    expires: c.validTo ? new Date(c.validTo).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—',
-    days: c.daysUntilExpiry,
-    level: (c.alertLevel || 'ok').toLowerCase(),
-  }));
+  // Backend: alertLevel is 'CRITICAL'|'WARNING'|'OK' and isExpired is a
+  // separate boolean. CertsPage filters expect 'expired'|'crit'|'warn'|'ok'.
+  return (items || []).map(c => {
+    const raw = (c.alertLevel || '').toUpperCase();
+    const level = c.isExpired ? 'expired'
+      : raw === 'CRITICAL' ? 'crit'
+      : raw === 'WARNING'  ? 'warn'
+      : 'ok';
+    return {
+      name: c.subjectCn || c.serviceName || '—',
+      server: c.serverName || '',
+      service: c.serviceName || '',
+      expires: c.validTo ? new Date(c.validTo).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—',
+      days: c.daysUntilExpiry,
+      level,
+    };
+  });
 }
 
 // Aliases: dashboard CertCard reads within7d/within30d/healthy; CertsPage reads

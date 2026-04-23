@@ -7,6 +7,14 @@ namespace OperationsApi.Services;
 
 public class CertificateService : BaseService<CertificateService>, ICertificateService
 {
+    // Retention window for expired certs in the dashboard UI. Certs past this
+    // cut-off stay in the DB (is_active=TRUE) but are hidden from the summary
+    // counters and list endpoints so the "expired" metric doesn't grow
+    // indefinitely. Audit / history lookups go direct to the DB.
+    // days_until_expiry is negative for expired certs, so the SQL uses
+    // `days_until_expiry >= -ExpiredRetentionDays` via a bound parameter.
+    private const int ExpiredRetentionDays = 14;
+
     public CertificateService(IDbConnection db, ILogger<CertificateService> logger)
         : base(db, logger) { }
 
@@ -16,11 +24,11 @@ public class CertificateService : BaseService<CertificateService>, ICertificateS
                 COUNT(*) FILTER (WHERE alert_level = 'CRITICAL' AND NOT is_expired) AS CriticalCount,
                 COUNT(*) FILTER (WHERE alert_level = 'WARNING' AND NOT is_expired) AS WarningCount,
                 COUNT(*) FILTER (WHERE alert_level = 'OK' AND NOT is_expired) AS OkCount,
-                COUNT(*) FILTER (WHERE is_expired) AS ExpiredCount,
-                COUNT(*) AS TotalCount
+                COUNT(*) FILTER (WHERE is_expired AND days_until_expiry >= @MinExpiredDays) AS ExpiredCount,
+                COUNT(*) FILTER (WHERE NOT is_expired OR days_until_expiry >= @MinExpiredDays) AS TotalCount
             FROM {Sql.Tables.Certificates}
             WHERE is_active = TRUE
-        ")
+        ", new { MinExpiredDays = -ExpiredRetentionDays })
     );
 
     public Task<IEnumerable<Certificate>> ListCertificatesAsync(
@@ -42,9 +50,11 @@ public class CertificateService : BaseService<CertificateService>, ICertificateS
             FROM {Sql.Tables.Certificates} c
             LEFT JOIN {Sql.Tables.Servers} s ON UPPER(s.server_name) = UPPER(c.server_name) AND s.is_active
             LEFT JOIN {Sql.Tables.Applications} a ON a.application_id = s.primary_application_id
-            WHERE c.is_active = TRUE";
+            WHERE c.is_active = TRUE
+              AND (NOT c.is_expired OR c.days_until_expiry >= @MinExpiredDays)";
 
         var p = new DynamicParameters();
+        p.Add("MinExpiredDays", -ExpiredRetentionDays);
 
         if (daysUntil.HasValue)
         {
