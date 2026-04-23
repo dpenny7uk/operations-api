@@ -217,24 +217,33 @@
   };
   window.EOL_DATA = { EOL_PRODUCTS, EOL_COUNTS, EOL_TOTALS };
 
-  // Stable per-product FQDN list so the search can match hosts and
-  // the expansion panel renders the same names every time.
+  // Per-product affected-servers cache keyed by "product@version". Values:
+  //   undefined       → never requested
+  //   'loading'       → fetch in flight
+  //   Array           → real machine_name list from /api/eol/{product}/{version}
+  // On first access we kick off the fetch and return 'loading'; the fetch
+  // populates the cache and re-renders the page. Callers must handle the
+  // three states (null/loading/array).
   const EOL_HOST_CACHE = new Map();
-  function eolHostsFor(product, version, status, servers, i) {
+  function eolHostsFor(product, version) {
     const key = product + '@' + version;
-    if (EOL_HOST_CACHE.has(key)) return EOL_HOST_CACHE.get(key);
-    const domains = ['hiscox.com','internal.hiscox.com','corp.hiscox.com','aws.hiscox.com','azure.hiscox.com'];
-    const prefix = status==='eol' ? 'PR' : status==='extended' ? 'EX' : 'DV';
-    const list = [];
-    for (let j = 1; j <= servers; j++) {
-      const block = String(5000 + (i*37 + j*29) % 4999).padStart(4,'0');
-      const n = String((i*11 + j) % 99).padStart(2,'0');
-      const host = prefix + '0' + String(j%9+1) + (j%10) + '-' + block + '-' + n;
-      const fqdn = host.toLowerCase() + '.' + domains[(i*3 + j) % domains.length];
-      list.push({ idx: j, host, fqdn });
+    const cached = EOL_HOST_CACHE.get(key);
+    if (cached !== undefined) return cached;
+    EOL_HOST_CACHE.set(key, 'loading');
+    if (window.OC_API && window.OC_API.getEolDetail) {
+      window.OC_API.getEolDetail(product, version).then(detail => {
+        const assets = (detail && Array.isArray(detail.assets)) ? detail.assets : [];
+        const list = assets.map((name, i) => ({
+          idx: i + 1,
+          host: String(name || ''),
+          fqdn: String(name || '').toLowerCase(),
+        }));
+        EOL_HOST_CACHE.set(key, list);
+        const m = document.querySelector('.page-mount');
+        if (m && window.RERENDER_PAGE) window.RERENDER_PAGE(m);
+      }).catch(() => { EOL_HOST_CACHE.delete(key); });
     }
-    EOL_HOST_CACHE.set(key, list);
-    return list;
+    return 'loading';
   }
 
   // ================================================================
@@ -702,12 +711,13 @@
     let rows = EOL_PRODUCTS.slice();
     if (eolState.status !== '__all') rows = rows.filter(r => r.status === eolState.status);
     if (q) {
-      const origIndex = new Map(EOL_PRODUCTS.map((p, i) => [p, i]));
       rows = rows.filter(r => {
         if (r.product.toLowerCase().includes(q)) return true;
         if (String(r.version).toLowerCase().includes(q)) return true;
-        // match against generated FQDNs/hosts for this product
-        const hosts = eolHostsFor(r.product, r.version, r.status, r.servers, origIndex.get(r));
+        // Match against cached host list for this product. If not loaded
+        // yet, skip host-level matching — product-name match still applies.
+        const hosts = eolHostsFor(r.product, r.version);
+        if (!Array.isArray(hosts)) return false;
         return hosts.some(hh => hh.fqdn.includes(q) || hh.host.toLowerCase().includes(q));
       });
     }
@@ -800,9 +810,10 @@
     const statusChip = (s) => s==='eol' ? stamp('crit','EOL') : s==='extended' ? stamp('warn','EXTENDED SUPPORT') : stamp('ok','SUPPORTED');
     const qStr = eolState.q.trim().toLowerCase();
     rows.forEach((r, i) => {
-      const origIdx = EOL_PRODUCTS.indexOf(r);
-      const hosts = eolHostsFor(r.product, r.version, r.status, r.servers, origIdx);
-      const hostMatches = qStr ? hosts.filter(hh => hh.fqdn.includes(qStr) || hh.host.toLowerCase().includes(qStr)) : [];
+      const hostsOrState = eolHostsFor(r.product, r.version);
+      const hosts = Array.isArray(hostsOrState) ? hostsOrState : [];
+      const isLoading = hostsOrState === 'loading';
+      const hostMatches = (qStr && hosts.length) ? hosts.filter(hh => hh.fqdn.includes(qStr) || hh.host.toLowerCase().includes(qStr)) : [];
       const hasHostMatch = hostMatches.length > 0;
       // Auto-expand if the product matches via hosts, or the user explicitly expanded
       const key = r.product + '@' + r.version;
@@ -828,21 +839,32 @@
         const affected = h('tr', null, h('td', {colspan:6, style:{padding:'0'}},
           (function(){
             const wrap = h('div', {style:{padding:'14px 20px',background:'var(--paper-2)',borderLeft:'3px solid var(--crit)'}});
+            const hdrCount = isLoading ? 'loading\u2026'
+              : hasHostMatch ? (hostMatches.length + ' of ' + r.servers)
+              : String(hosts.length || r.servers);
             const hdr = h('div', {style:{fontFamily:'var(--mono)',fontSize:'10.5px',letterSpacing:'0.14em',textTransform:'uppercase',color:'var(--ink-3)',marginBottom:'10px',display:'flex',alignItems:'center',gap:'14px'}},
               h('span', null, hasHostMatch ? 'Matching hosts \u00b7 ' : 'Affected servers \u00b7 ',
-                h('b', {style:{color:'var(--ink)'}}, hasHostMatch ? (hostMatches.length + ' of ' + r.servers) : String(r.servers))));
+                h('b', {style:{color:'var(--ink)'}}, hdrCount)));
             if (hasHostMatch) hdr.appendChild(h('a', {href:'#',
               style:{fontFamily:'var(--mono)',fontSize:'10.5px',color:'var(--signal)',textDecoration:'underline',cursor:'pointer'},
               on:{click:(e)=>{ e.preventDefault(); e.stopPropagation(); eolState.q=''; window.RERENDER_PAGE(mount); }}}, 'clear filter to show all'));
             wrap.appendChild(hdr);
-            const grid = h('div', {style:{display:'grid',gridTemplateColumns:'repeat(2, 1fr)',gap:'2px 24px',fontFamily:'var(--mono)',fontSize:'11.5px',maxHeight:'420px',overflowY:'auto',paddingRight:'6px'}});
-            shown.forEach(hh => {
-              grid.appendChild(h('div', {style:{padding:'4px 0',borderBottom:'1px dashed var(--rule)',display:'flex',gap:'10px'}},
-                h('span', {style:{color:'var(--ink-4)',minWidth:'34px'}}, String(hh.idx).padStart(4,' ')),
-                h('span', null, mark(hh.fqdn, qStr)),
-              ));
-            });
-            wrap.appendChild(grid);
+            if (isLoading) {
+              wrap.appendChild(h('div', {style:{padding:'18px 0',fontFamily:'var(--mono)',fontSize:'11.5px',color:'var(--ink-3)',letterSpacing:'0.06em'}},
+                'Loading affected servers\u2026'));
+            } else if (!hosts.length) {
+              wrap.appendChild(h('div', {style:{padding:'18px 0',fontFamily:'var(--mono)',fontSize:'11.5px',color:'var(--ink-3)',letterSpacing:'0.06em'}},
+                'No affected servers returned by the API for this product.'));
+            } else {
+              const grid = h('div', {style:{display:'grid',gridTemplateColumns:'repeat(2, 1fr)',gap:'2px 24px',fontFamily:'var(--mono)',fontSize:'11.5px',maxHeight:'420px',overflowY:'auto',paddingRight:'6px'}});
+              shown.forEach(hh => {
+                grid.appendChild(h('div', {style:{padding:'4px 0',borderBottom:'1px dashed var(--rule)',display:'flex',gap:'10px'}},
+                  h('span', {style:{color:'var(--ink-4)',minWidth:'34px'}}, String(hh.idx).padStart(4,' ')),
+                  h('span', null, mark(hh.fqdn, qStr)),
+                ));
+              });
+              wrap.appendChild(grid);
+            }
             return wrap;
           })()
         ));

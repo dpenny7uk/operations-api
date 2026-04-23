@@ -18,7 +18,10 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
 
     public Task<NextPatchingSummary?> GetNextPatchingSummaryAsync() => RunDbAsync(async () =>
     {
-        // Find ALL active cycles this week (Monday to Sunday)
+        // Find ALL upcoming active cycles in the next 45 days. Weekly cycles
+        // (most groups) and monthly cycles (e.g. usa/usb) both fall inside
+        // this window. Widened from the original current-week-only filter,
+        // which silently dropped monthly groups.
         var cycles = (await Db.QueryAsync<NextCycleRow>($@"
             SELECT
                 cycle_id AS CycleId,
@@ -28,28 +31,10 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
                 (cycle_date - CURRENT_DATE)::INT AS DaysUntil
             FROM {Sql.Tables.PatchCycles}
             WHERE status = 'active'
-              AND cycle_date >= date_trunc('week', CURRENT_DATE)::DATE
-              AND cycle_date <  (date_trunc('week', CURRENT_DATE) + INTERVAL '7 days')::DATE
+              AND cycle_date >= CURRENT_DATE
+              AND cycle_date <  CURRENT_DATE + INTERVAL '45 days'
             ORDER BY cycle_date
         ")).ToList();
-
-        // Fall back to next single upcoming cycle if nothing this week
-        if (cycles.Count == 0)
-        {
-            var next = await Db.QueryFirstOrDefaultAsync<NextCycleRow>($@"
-                SELECT
-                    cycle_id AS CycleId,
-                    cycle_date AS CycleDate,
-                    servers_onprem AS ServersOnprem,
-                    status AS Status,
-                    (cycle_date - CURRENT_DATE)::INT AS DaysUntil
-                FROM {Sql.Tables.PatchCycles}
-                WHERE cycle_date >= CURRENT_DATE AND status = 'active'
-                ORDER BY cycle_date
-                LIMIT 1
-            ");
-            if (next != null) cycles.Add(next);
-        }
 
         if (cycles.Count == 0)
             return null;

@@ -106,16 +106,37 @@ function mapEolTotals(summary) {
 // where available.
 function mapPatchGroups(cycles, nextSummary) {
   const groups = [];
-  const sbg = nextSummary && nextSummary.serversByGroup ? nextSummary.serversByGroup : null;
   const wbg = (nextSummary && nextSummary.windowsByGroup) || {};
-  if (sbg) {
+
+  // Preferred path: iterate cycleDetails so each (cycle, group) entry gets
+  // the correct cycle date. Earlier code pulled ServersByGroup flat and
+  // assigned cycle[0].cycleDate to every group — wrong when cycles span
+  // multiple days.
+  if (nextSummary && Array.isArray(nextSummary.cycleDetails) && nextSummary.cycleDetails.length > 0) {
+    for (const cd of nextSummary.cycleDetails) {
+      const date = cd.cycleDate ? new Date(cd.cycleDate) : null;
+      const sbg = cd.serversByGroup || {};
+      for (const [name, count] of Object.entries(sbg)) {
+        const scheduled = wbg[name];
+        groups.push({
+          name,
+          servers: count,
+          date,
+          window: scheduled ? scheduled + ' UTC' : '—',
+          services: '',
+        });
+      }
+    }
+  } else if (nextSummary && nextSummary.serversByGroup) {
+    // Legacy fallback — only one cycle's worth of data, all same date.
     const nextCycleDate = nextSummary.cycle && nextSummary.cycle.cycleDate;
-    for (const [name, count] of Object.entries(sbg)) {
+    const date = nextCycleDate ? new Date(nextCycleDate) : null;
+    for (const [name, count] of Object.entries(nextSummary.serversByGroup)) {
       const scheduled = wbg[name];
       groups.push({
         name,
         servers: count,
-        date: nextCycleDate ? new Date(nextCycleDate) : null,
+        date,
         window: scheduled ? scheduled + ' UTC' : '—',
         services: '',
       });
@@ -131,6 +152,24 @@ function mapPatchGroups(cycles, nextSummary) {
       });
     }
   }
+
+  // Sort by date asc, then by window start time, then by name. Parses
+  // "HH:MM-HH:MM UTC" to minutes; unknown windows sort last within a date.
+  const startMins = (w) => {
+    if (!w) return 1e9;
+    const m = w.match(/^(\d{1,2}):(\d{2})/);
+    return m ? (+m[1]) * 60 + (+m[2]) : 1e9;
+  };
+  groups.sort((a, b) => {
+    const da = a.date ? a.date.getTime() : Infinity;
+    const db = b.date ? b.date.getTime() : Infinity;
+    if (da !== db) return da - db;
+    const ta = startMins(a.window);
+    const tb = startMins(b.window);
+    if (ta !== tb) return ta - tb;
+    return (a.name || '').localeCompare(b.name || '');
+  });
+
   return groups;
 }
 
@@ -294,6 +333,11 @@ async function boot() {
       window.EXCLUSIONS = mapExclusions(v);
       rerender();
     }),
+    api('/me').then(v => {
+      if (!v) return;
+      window.CURRENT_USER = v; // { username, fullName }
+      rerender();
+    }),
   ];
 
   const health = await healthPromise;
@@ -305,6 +349,14 @@ async function boot() {
   // Final rerender to ensure a consistent view once everything has landed.
   rerender();
 }
+
+// ── OC_API: authenticated GET helpers for IIFE modules (op-pages-v2.js) ──
+
+window.OC_API = {
+  // Returns EolSoftwareDetail with .assets[] (machine names) or null on error.
+  getEolDetail: (product, version) =>
+    api('/eol/' + encodeURIComponent(product) + '/' + encodeURIComponent(version)),
+};
 
 // ── OC_ACTIONS: wizard submit hooks (op-pages-v3.js calls these) ─────
 

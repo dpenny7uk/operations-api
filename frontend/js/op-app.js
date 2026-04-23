@@ -720,6 +720,11 @@
     page.appendChild(h('div.section-label', null, h('span',null,'Recent alerts'), h('span.count',null,String(recentCount))));
     page.appendChild(RecentAlerts());
 
+    // Currently excluded — operationally significant, sits above reference
+    // tables below.
+    page.appendChild(h('div.section-label', null, h('span',null,'Currently excluded servers'), h('span.count',null,String(window.EXCLUSIONS.length))));
+    page.appendChild(ExclusionsTable());
+
     // Unreachable + Unmatched split
     const unreachable = getUnreachable();
     const unmatched = getUnmatched();
@@ -734,10 +739,6 @@
     mcol.appendChild(UnmatchedTable());
     split.appendChild(mcol);
     page.appendChild(split);
-
-    // Currently excluded (from old screenshot)
-    page.appendChild(h('div.section-label', null, h('span',null,'Currently excluded servers'), h('span.count',null,String(window.EXCLUSIONS.length))));
-    page.appendChild(ExclusionsTable());
 
     // Sync statuses (from old screenshot, now at bottom)
     page.appendChild(h('div.section-label', null, h('span',null,'Sync statuses'), h('span.count',null,String(window.SYNCS.length))));

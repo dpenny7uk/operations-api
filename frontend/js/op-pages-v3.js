@@ -190,7 +190,8 @@
       h('div.meta', null,
         h('span.t', null, 'Next Cycle'),
         h('span.d', null, 'April 2026 · begins Apr 23, 2026'),
-        h('span.sub', null, getPatchTotal().toLocaleString()+' servers across '+getPatchGroups().length+' groups · '
+        h('span.sub', null, getPatchTotal().toLocaleString()+' servers across '
+          + (new Set(getPatchGroups().map(g => g.id)).size)+' groups · '
           + (PATCH_ISSUES.filter(i => i.status==='blocking').length>0
               ? PATCH_ISSUES.filter(i => i.status==='blocking').length+' open blocker'
               : 'no open blockers'))),
@@ -225,7 +226,7 @@
     strip.appendChild(h('div.cs-cell.ok', null,
       h('div.cs-label', null, 'Servers queued'),
       h('div.cs-value', null, getPatchTotal().toLocaleString(), h('span.cs-unit', null, 'in April')),
-      h('div.cs-sub', null, getPatchGroups().length+' patch groups'),
+      h('div.cs-sub', null, (new Set(getPatchGroups().map(g => g.id)).size)+' patch groups'),
     ));
     page.appendChild(strip);
 
@@ -236,7 +237,7 @@
         label, n != null ? h('span.n', null, String(n)) : null);
     };
     page.appendChild(h('div.tabs', null,
-      tab('groups',  'Patch groups',     getPatchGroups().length),
+      tab('groups',  'Patch groups',     new Set(getPatchGroups().map(g => g.id)).size),
       tab('history', 'Cycle history',    getPatchCycles().length),
       tab('issues',  'Known issues',     PATCH_ISSUES.length),
     ));
@@ -1042,7 +1043,9 @@
       }
       row('Reason',        pmState.add.reason || '—').forEach(x => kv.appendChild(x));
       row('Hold until',    pmState.add.until  || '—').forEach(x => kv.appendChild(x));
-      row('Requester',     'you (a.naidu)').forEach(x => kv.appendChild(x));
+      row('Requester',     window.CURRENT_USER && window.CURRENT_USER.username
+                              ? 'you (' + window.CURRENT_USER.username + ')'
+                              : 'you').forEach(x => kv.appendChild(x));
       panel.appendChild(kv);
 
       panel.appendChild(h('div', {style:{fontFamily:'var(--mono)',fontSize:'10px',letterSpacing:'0.14em',textTransform:'uppercase',color:'var(--ink-3)'}}, 'Optional notes'));
