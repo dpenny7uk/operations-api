@@ -257,6 +257,9 @@ function mapExclusions(items) {
     server: x.serverName,
     fqdn: x.serverName, // /api/servers gives fqdn; this endpoint only has server_name
     group: x.patchGroup || '',
+    service: x.service || '',
+    func: x.application || '',
+    env: x.environment || '',
     reason: x.reason || '',
     ticket: x.ticket || '',
     notes: x.notes || '',

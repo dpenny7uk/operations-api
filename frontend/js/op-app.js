@@ -473,22 +473,40 @@
 
   function PatchingCard(stale) {
     const card = h('div.metric-card');
+
+    // Card scope: current Mon-Sun week (UTC). Backend returns ~45 days for the
+    // Patching page; the dashboard card is an at-a-glance view.
+    const now = new Date();
+    const day = (now.getUTCDay() + 6) % 7; // Mon=0 .. Sun=6
+    const weekStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - day));
+    const weekEnd = new Date(weekStart); weekEnd.setUTCDate(weekStart.getUTCDate() + 7);
+    const inWeek = window.PATCH_GROUPS.filter(g => g.date && g.date >= weekStart && g.date < weekEnd);
+
+    const totalServers = inWeek.reduce((s,g)=>s+(g.servers||0),0);
+    const weekEndDisplay = new Date(weekEnd.getTime() - 86400000);
     card.appendChild(h('div.mc-head', null,
       h('span.mc-title', null, 'Patching'),
-      h('span.mc-total', null, (window.PATCH_GROUPS.reduce((s,g)=>s+(g.servers||0),0)).toLocaleString(), h('small', null, 'servers')),
-      h('span.mc-sub', null, window.PATCH_GROUPS[0] ? ('next cycle · ' + fmtDate(window.PATCH_GROUPS[0].date)) : 'no upcoming cycle'),
+      h('span.mc-total', null, totalServers.toLocaleString(), h('small', null, 'servers')),
+      h('span.mc-sub', null, inWeek.length ? ('this week · ' + fmtDate(weekStart) + '–' + fmtDate(weekEndDisplay)) : 'no cycles this week'),
       stale ? h('span.stale-chip', null, 'cached') : null,
     ));
 
+    const list = h('div.patch-list');
+    if (!inWeek.length) {
+      list.appendChild(h('div.patch-date.muted', null,
+        h('span.pd-date', null, 'No patching scheduled this week')));
+      card.appendChild(list);
+      return card;
+    }
+
     // Group them by date heading
     const byDate = new Map();
-    for (const g of window.PATCH_GROUPS) {
+    for (const g of inWeek) {
       const k = (g.date && g.date.toDateString) ? g.date.toDateString() : String(g.date);
       if (!byDate.has(k)) byDate.set(k, {date:g.date, groups:[]});
       byDate.get(k).groups.push(g);
     }
-    const max = Math.max(...PATCH_GROUPS.map(g=>g.servers));
-    const list = h('div.patch-list');
+    const max = Math.max(1, ...inWeek.map(g=>g.servers));
     for (const [_, bucket] of byDate) {
       list.appendChild(h('div.patch-date', null,
         h('span.pd-day', null, bucket.date.toLocaleDateString('en-GB',{weekday:'short'}).toUpperCase()),
@@ -596,9 +614,26 @@
       h('th', null, 'Held until'),
       h('th', null, 'Notes'),
     )));
-    if (!window.EXCLUSIONS.length) {
-      tbl.appendChild(h('tbody', null, h('tr', null, h('td', { colspan:8, style:{padding:'28px 20px',textAlign:'center',fontFamily:'var(--mono)',fontSize:'11.5px',color:'var(--ink-3)',letterSpacing:'.1em',textTransform:'uppercase'} }, 'No servers currently excluded from patching.'))));
+    const list = Array.isArray(window.EXCLUSIONS) ? window.EXCLUSIONS : [];
+    const tb = h('tbody');
+    if (!list.length) {
+      tb.appendChild(h('tr', null, h('td', { colspan:8, style:{padding:'28px 20px',textAlign:'center',fontFamily:'var(--mono)',fontSize:'11.5px',color:'var(--ink-3)',letterSpacing:'.1em',textTransform:'uppercase'} }, 'No servers currently excluded from patching.')));
+    } else {
+      for (const r of list) {
+        const stateCls = r.state === 'overdue' ? '.sev-crit' : r.state === 'expiring' || r.state === 'expiring-soon' ? '.sev-warn' : '';
+        tb.appendChild(h('tr'+stateCls, null,
+          h('td.host', null, r.server || r.fqdn || '—'),
+          h('td', null, r.group ? h('span.badge', null, h('span.dot'), r.group) : '—'),
+          h('td.muted', null, r.service || '—'),
+          h('td.muted', null, r.func || '—'),
+          h('td', null, r.env ? h('span.env-tag', null, r.env) : '—'),
+          h('td.mono.muted', null, r.requested || '—'),
+          h('td.mono', null, r.until || '—'),
+          h('td.muted', null, r.notes || r.reason || '—'),
+        ));
+      }
     }
+    tbl.appendChild(tb);
     wrap.appendChild(tbl);
     return wrap;
   }
