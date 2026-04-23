@@ -100,7 +100,7 @@
       id: g.id || g.name,
       servers: g.servers || 0,
       window: g.date instanceof Date
-        ? g.date.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}) + (g.window && g.window !== 'see patch_windows' ? ' · ' + g.window : '')
+        ? g.date.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}) + (g.window && g.window !== '—' ? ' · ' + g.window : '')
         : (g.window || '—'),
       cycle: g.cycle || '',
       status: g.status || 'queued',

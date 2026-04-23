@@ -20,6 +20,7 @@ public class NextPatchingSummary
     public List<DateOnly> CycleDates { get; set; } = new();
     public List<CycleDetailItem> CycleDetails { get; set; } = new();
     public Dictionary<string, int> ServersByGroup { get; set; } = new();
+    public Dictionary<string, string> WindowsByGroup { get; set; } = new();
     public Dictionary<string, int> IssuesBySeverity { get; set; } = new();
     public int TotalIssuesAffectingServers { get; set; }
 }

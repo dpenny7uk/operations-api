@@ -107,14 +107,16 @@ function mapEolTotals(summary) {
 function mapPatchGroups(cycles, nextSummary) {
   const groups = [];
   const sbg = nextSummary && nextSummary.serversByGroup ? nextSummary.serversByGroup : null;
+  const wbg = (nextSummary && nextSummary.windowsByGroup) || {};
   if (sbg) {
     const nextCycleDate = nextSummary.cycle && nextSummary.cycle.cycleDate;
     for (const [name, count] of Object.entries(sbg)) {
+      const scheduled = wbg[name];
       groups.push({
         name,
         servers: count,
         date: nextCycleDate ? new Date(nextCycleDate) : null,
-        window: 'see patch_windows',
+        window: scheduled ? scheduled + ' UTC' : '—',
         services: '',
       });
     }

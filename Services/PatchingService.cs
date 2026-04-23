@@ -11,6 +11,7 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
     private record NextCycleRow(int CycleId, DateOnly CycleDate, int? ServersOnprem, string? Status, int? DaysUntil);
     private record GroupCount(int CycleId, string? PatchGroup, int Count);
     private record SeverityCount(string? Severity, int ServerCount);
+    private record GroupWindow(string PatchGroup, string ScheduledTime);
 
     public PatchingService(IDbConnection db, ILogger<PatchingService> logger)
         : base(db, logger) { }
@@ -55,7 +56,10 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
 
         var cycleIds = cycles.Select(c => c.CycleId).ToArray();
 
-        // Get servers by group and issues by severity across ALL cycles
+        // Get servers by group, issues by severity, and the configured time
+        // window per patch group. DISTINCT ON collapses the onprem/azure pair
+        // to one row; WHERE scheduled_time IS NOT NULL drops the empty Azure
+        // placeholder rows.
         using var multi = await Db.QueryMultipleAsync($@"
             SELECT cycle_id AS CycleId, patch_group AS PatchGroup, COUNT(*)::INT AS Count
             FROM {Sql.Tables.PatchSchedule}
@@ -68,10 +72,16 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
                 AND (LOWER(ps.app) = ANY(COALESCE(ki.affected_apps, ARRAY[]::TEXT[])) OR LOWER(ps.service) = ANY(COALESCE(ki.affected_services, ARRAY[]::TEXT[])))
             WHERE ps.cycle_id = ANY(@CycleIds)
             GROUP BY ki.severity;
+
+            SELECT DISTINCT ON (patch_group) patch_group AS PatchGroup, scheduled_time AS ScheduledTime
+            FROM {Sql.Tables.PatchWindows}
+            WHERE scheduled_time IS NOT NULL
+            ORDER BY patch_group, window_type;
         ", new { CycleIds = cycleIds });
 
         var groups = (await multi.ReadAsync<GroupCount>()).ToList();
         var issues = (await multi.ReadAsync<SeverityCount>()).ToList();
+        var windows = (await multi.ReadAsync<GroupWindow>()).ToList();
         var first = cycles[0];
 
         // Build per-cycle detail (date + groups for that date)
@@ -102,6 +112,7 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
             CycleDates = cycles.Select(c => c.CycleDate).ToList(),
             CycleDetails = cycleDetails,
             ServersByGroup = aggregatedGroups,
+            WindowsByGroup = windows.ToDictionary(w => w.PatchGroup, w => w.ScheduledTime),
             IssuesBySeverity = issues.ToDictionary(
                 i => i.Severity ?? "Unknown",
                 i => i.ServerCount
