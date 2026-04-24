@@ -1190,7 +1190,8 @@
           (s.fqdn||'').toLowerCase().includes(iq) ||
           (s.service||'').toLowerCase().includes(iq) ||
           (s.func||'').toLowerCase().includes(iq) ||
-          (s.app||'').toLowerCase().includes(iq))
+          (s.app||'').toLowerCase().includes(iq) ||
+          (s.bu||'').toLowerCase().includes(iq))
       : all;
 
     const tr = h('tr.row-expansion', {style:{background:'var(--paper-2)'}},
@@ -1235,6 +1236,7 @@
     table.appendChild(h('thead', null, h('tr', null,
       h('th', null, 'Server'),
       h('th', null, 'Patch group'),
+      h('th', null, 'Business unit'),
       h('th', null, 'Scheduled'),
       h('th', null, 'Service'),
       h('th', null, 'Function'),
@@ -1245,6 +1247,7 @@
       tb.appendChild(h('tr', null,
         h('td.host', null, mark(s.name, iq)),
         h('td', null, h('span.badge', null, h('span.dot'), s.pg)),
+        h('td.muted', null, mark(s.bu || 'Unknown', iq)),
         h('td.muted', null, s.active ? '14:00–16:00' : '—'),
         h('td', null, mark(s.service || '—', iq)),
         h('td.muted', null, mark(s.func || '—', iq)),
