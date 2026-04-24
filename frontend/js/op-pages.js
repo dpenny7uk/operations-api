@@ -1270,7 +1270,12 @@
     const wrap = h('div', {style:{display:'flex',flexDirection:'column',gap:'18px'}});
     const cycles = getPatchCycles();
     const allGroups = getPatchGroups();
-    wrap.appendChild(sectionLabel('Cycle outcomes', cycles.length, h('span.ct', {style:{marginLeft:'auto'}}, 'most recent first')));
+    wrap.appendChild(sectionLabel('Cycle outcomes', cycles.length,
+      h('div', {style:{marginLeft:'auto',display:'flex',gap:'14px',alignItems:'baseline'}},
+        h('span.ct', null, 'per-server counts pending Ivanti integration'),
+        h('span.ct', null, 'most recent first'),
+      ),
+    ));
 
     const tbl = h('div.table-wrap');
     const table = h('table.op');
@@ -1285,17 +1290,39 @@
       h('th', null, 'Notes'),
     )));
     const tbody = h('tbody');
-    cycles.forEach(c => {
-      const rowCls = c.status === 'partial' ? '.sev-warn' : c.status === 'failed' ? '.sev-crit' : '';
+    // Backend DisplayStatus values (lowercased by mapPatchCycles): upcoming,
+    // active, completed, cancelled, past. Legacy demo uses queued, success,
+    // partial, failed. We handle both vocabularies so live and demo render
+    // consistently, and 'completed' with 0 counts degrades to "COMPLETED"
+    // rather than a misleading "CLEAN PASS · 0%" — per-server completion
+    // tracking in patch_schedule.patch_status isn't currently populated, so
+    // aggregated completed/failed counts come back zero for most cycles.
+    const cycleBadge = (c) => {
       const pct = c.servers ? (c.completed / c.servers * 100).toFixed(1) : '0.0';
+      switch (c.status) {
+        case 'queued':
+        case 'upcoming':  return { tone: 'info', el: stamp('info', 'QUEUED') };
+        case 'active':    return { tone: 'info', el: stamp('info', 'IN PROGRESS') };
+        case 'cancelled': return { tone: 'warn', el: stamp('warn', 'CANCELLED') };
+        case 'success':
+        case 'completed':
+        case 'past':
+          if (c.failed > 0 && c.completed > 0) return { tone: 'warn', el: stamp('warn', c.failed + ' FAILED · ' + pct + '%') };
+          if (c.failed > 0)                    return { tone: 'crit', el: stamp('crit', 'FAILED') };
+          if (c.completed > 0)                 return { tone: 'ok',   el: stamp('ok',   'CLEAN PASS · ' + pct + '%') };
+          return { tone: 'ok', el: stamp('ok', 'COMPLETED') };
+        case 'partial':   return { tone: 'warn', el: stamp('warn', c.failed + ' FAILED · ' + pct + '%') };
+        case 'failed':    return { tone: 'crit', el: stamp('crit', 'FAILED') };
+        default:          return { tone: 'info', el: stamp('info', (c.status || 'unknown').toUpperCase()) };
+      }
+    };
+    cycles.forEach(c => {
+      const { tone, el } = cycleBadge(c);
+      const rowCls = tone === 'warn' ? '.sev-warn' : tone === 'crit' ? '.sev-crit' : '';
       tbody.appendChild(h('tr'+rowCls, null,
         h('td.host', null, c.id),
         h('td.muted', null, c.window),
-        h('td', null,
-          c.status === 'queued'  ? stamp('info', 'QUEUED') :
-          c.status === 'success' ? stamp('ok',   'CLEAN PASS · '+pct+'%') :
-          c.status === 'partial' ? stamp('warn', c.failed+' FAILED · '+pct+'%') :
-                                   stamp('crit', 'FAILED')),
+        h('td', null, el),
         h('td.num', null, c.servers.toLocaleString()),
         h('td.num', null, c.completed.toLocaleString()),
         h('td.num'+(c.failed>0?'.strong':''), {style: c.failed>0?{color:'var(--crit)'}:null}, c.failed.toLocaleString()),
