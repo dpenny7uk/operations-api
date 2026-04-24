@@ -40,8 +40,10 @@
 </head>
 <body data-theme="light" data-alert-style="v2" data-accent="amber" data-surface="ivory" data-density="comfy">
 <div id="root"></div>
-<!-- Script order: pages (exposes RENDER_* and ROUTER) then app (drives state + router).
-     op-boot.js is a module and runs last; it fetches real data and overwrites window.*_DATA globals. -->
+<!-- Script order: op-h first (shared DOM helper on window.H), then pages (exposes
+     RENDER_* and ROUTER), then app (drives state + router). op-boot.js is a module
+     and runs last; it fetches real data and overwrites window.*_DATA globals. -->
+<script src="js/op-h.js?v=__BUILD_HASH__"></script>
 <script src="js/op-pages.js?v=__BUILD_HASH__"></script>
 <script src="js/op-app.js?v=__BUILD_HASH__"></script>
 <script type="module" src="js/op-boot.js?v=__BUILD_HASH__"></script>
