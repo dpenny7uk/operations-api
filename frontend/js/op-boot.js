@@ -2,7 +2,7 @@
    Replaces the design bundle's synthetic window.*_DATA globals with real
    API responses, and exposes window.OC_ACTIONS for wizard submits.
 
-   The design bundle (op-app.js / op-pages-v2.js / op-pages-v3.js) is IIFE-based
+   The design bundle (op-app.js / op-pages.js) is IIFE-based
    with all renders reading from window.PATCH_GROUPS / SYNCS / EXCLUSIONS / RECENT_ALERTS_BASE
    / SERVERS_DATA / CERTS_DATA / EOL_DATA. We populate those globals after
    parallel fetches and call window.RERENDER_PAGE(mount) to redraw. */
@@ -424,7 +424,7 @@ async function boot() {
   rerender();
 }
 
-// ── OC_API: authenticated GET helpers for IIFE modules (op-pages-v2.js) ──
+// ── OC_API: authenticated GET helpers for IIFE modules (op-pages.js) ──
 
 window.OC_API = {
   // Returns EolSoftwareDetail with .assets[] (machine names) or null on error.
@@ -432,7 +432,7 @@ window.OC_API = {
     api('/eol/' + encodeURIComponent(product) + '/' + encodeURIComponent(version)),
 };
 
-// ── OC_ACTIONS: wizard submit hooks (op-pages-v3.js calls these) ─────
+// ── OC_ACTIONS: wizard submit hooks (op-pages.js calls these) ─────
 
 window.OC_ACTIONS = {
   // { servers: [{id,name}], reason, until, notes } + cb()
