@@ -41,6 +41,23 @@
 
   window.ROUTER = { ROUTES, currentRoute, goto };
 
+  // Canonical business-unit values — mirrors derive_business_unit() in
+  // sync/servers/sync_server_list.py. Used as the dropdown option list on
+  // every BU filter across the app.
+  const BU_VALUES = [
+    'Hiscox UK',
+    'UK & I',
+    'Hiscox US',
+    'Hiscox Europe',
+    'Hiscox London Market',
+    'Hiscox Re & ILS',
+    'Hiscox Group Support',
+    'Hiscox Special Risks',
+    'ITS',
+    'Infosec',
+    'Unknown',
+  ];
+
   // ================================================================
   // DATA — SERVERS (modelled on the legacy screenshots)
   // ================================================================
@@ -102,6 +119,7 @@
           service: pick(services),
           func: pick(functions),
           pg: pick(patchGroups),
+          bu: pick(BU_VALUES),
           active: rng() > 0.04, // ~96% active
         });
       }
@@ -321,6 +339,7 @@
   const srvState = {
     q: '',
     env: '__all',
+    bu: '__all',
     sort: 'name',
     sortDir: 1,
     page: 1,
@@ -332,12 +351,14 @@
     const q = srvState.q.trim().toLowerCase();
     let rows = liveSrv().servers;
     if (srvState.env !== '__all') rows = rows.filter(r => r.env === srvState.env);
+    if (srvState.bu !== '__all') rows = rows.filter(r => (r.bu || 'Unknown') === srvState.bu);
     if (q) rows = rows.filter(r =>
       r.name.toLowerCase().includes(q) ||
       (r.fqdn || '').toLowerCase().includes(q) ||
       (r.app || '').toLowerCase().includes(q) ||
       (r.pg || '').toLowerCase().includes(q) ||
-      (r.env || '').toLowerCase().includes(q));
+      (r.env || '').toLowerCase().includes(q) ||
+      (r.bu || '').toLowerCase().includes(q));
     const key = srvState.sort;
     const dir = srvState.sortDir;
     rows = rows.slice().sort((a, b) => {
@@ -421,10 +442,13 @@
     });
     const envSel = h('select', { on:{change:(e)=>{ srvState.env = e.target.value; srvState.page = 1; window.RERENDER_PAGE(mount); }}},
       envOpts.map(([v,l]) => h('option'+(srvState.env===v?'.on':''), {value:v, selected: srvState.env===v}, l)));
-    const clearBtn = h('button.btn', { on:{click:()=>{ srvState.q=''; srvState.env='__all'; srvState.page=1; window.RERENDER_PAGE(mount); }}}, 'Reset');
-    const exportBtn = h('button.btn', { on:{click:()=>exportCsv('servers', rows, ['name','fqdn','env','app','pg','active'])}}, 'Export CSV');
+    const buOpts = [['__all','All business units']].concat(BU_VALUES.map(b => [b, b]));
+    const buSel = h('select', { on:{change:(e)=>{ srvState.bu = e.target.value; srvState.page = 1; window.RERENDER_PAGE(mount); }}},
+      buOpts.map(([v,l]) => h('option', {value:v, selected: srvState.bu===v}, l)));
+    const clearBtn = h('button.btn', { on:{click:()=>{ srvState.q=''; srvState.env='__all'; srvState.bu='__all'; srvState.page=1; window.RERENDER_PAGE(mount); }}}, 'Reset');
+    const exportBtn = h('button.btn', { on:{click:()=>exportCsv('servers', rows, ['name','fqdn','env','bu','app','pg','active'])}}, 'Export CSV');
     const count = h('span.ct', null, 'Showing ' + (pag.start+1) + '–' + pag.end + ' of ' + rows.length.toLocaleString());
-    page.appendChild(filterBar([search, envSel, clearBtn, h('span.spacer'), count, exportBtn]));
+    page.appendChild(filterBar([search, envSel, buSel, clearBtn, h('span.spacer'), count, exportBtn]));
 
     const tbl = h('div.table-wrap');
     const table = h('table.op');
@@ -445,6 +469,7 @@
       sortableTh('name','Name'),
       sortableTh('fqdn','FQDN'),
       sortableTh('env','Environment'),
+      sortableTh('bu','Business unit'),
       sortableTh('app','Application'),
       sortableTh('pg','Patch group'),
       sortableTh('active','Active'),
@@ -459,13 +484,14 @@
         h('td.host', null, mark(r.name, q)),
         h('td.muted', null, mark(r.fqdn, q)),
         h('td', null, h('span.env-tag', null, mark(r.env, q))),
+        h('td.muted', null, mark(r.bu || 'Unknown', q)),
         h('td.muted', null, mark(r.app, q)),
         h('td', null, h('span.badge'+(r.pg==='NO PATCH GROUP FOUND'?'.warn':''), null, r.pg==='NO PATCH GROUP FOUND'?null:h('span.dot'), mark(r.pg, q))),
         activeCell,
       ));
     });
     if (paged.length === 0) {
-      tbody.appendChild(h('tr', null, h('td', {colspan:6}, h('div.no-hits', null, 'No servers match ', h('b', null, srvState.q || srvState.env)))));
+      tbody.appendChild(h('tr', null, h('td', {colspan:7}, h('div.no-hits', null, 'No servers match ', h('b', null, srvState.q || srvState.env || srvState.bu)))));
     }
     table.appendChild(tbody);
     tbl.appendChild(table);
@@ -551,16 +577,18 @@
   // ================================================================
   // CERTIFICATES PAGE
   // ================================================================
-  const certState = { q:'', level:'__all', sort:'days', sortDir:1, page:1, per:20 };
+  const certState = { q:'', level:'__all', bu:'__all', sort:'days', sortDir:1, page:1, per:20 };
 
   function applyCertFilters() {
     const q = certState.q.trim().toLowerCase();
     let rows = liveCerts().list;
     if (certState.level !== '__all') rows = rows.filter(r => r.level === certState.level);
+    if (certState.bu !== '__all') rows = rows.filter(r => (r.bu || 'Unknown') === certState.bu);
     if (q) rows = rows.filter(r =>
       (r.name || '').toLowerCase().includes(q) ||
       (r.server || '').toLowerCase().includes(q) ||
-      (r.service || '').toLowerCase().includes(q));
+      (r.service || '').toLowerCase().includes(q) ||
+      (r.bu || '').toLowerCase().includes(q));
     const key = certState.sort;
     const dir = certState.sortDir;
     rows = rows.slice().sort((a, b) => {
@@ -655,12 +683,15 @@
 
     const levelSel = h('select', { on:{change:(e)=>{ certState.level=e.target.value; certState.page=1; window.RERENDER_PAGE(mount); }}},
       levelOpts.map(([v,l]) => h('option', {value:v, selected: certState.level===v}, l)));
+    const buOpts = [['__all','All business units']].concat(BU_VALUES.map(b => [b, b]));
+    const buSel = h('select', { on:{change:(e)=>{ certState.bu=e.target.value; certState.page=1; window.RERENDER_PAGE(mount); }}},
+      buOpts.map(([v,l]) => h('option', {value:v, selected: certState.bu===v}, l)));
     const q = h('input', {'data-fk':'certs-search', type:'text', placeholder:'Filter by server or service…', value: certState.q,
       on:{input:(e)=>{ certState.q=e.target.value; certState.page=1; window.RERENDER_PAGE(mount); }}});
-    const reset = h('button.btn', { on:{click:()=>{ certState.q=''; certState.level='__all'; certState.page=1; window.RERENDER_PAGE(mount); }}}, 'Reset');
-    const exportBtn = h('button.btn', { on:{click:()=>exportCsv('certificates', rows, ['name','server','service','expires','days','level'])}}, 'Export CSV');
+    const reset = h('button.btn', { on:{click:()=>{ certState.q=''; certState.level='__all'; certState.bu='__all'; certState.page=1; window.RERENDER_PAGE(mount); }}}, 'Reset');
+    const exportBtn = h('button.btn', { on:{click:()=>exportCsv('certificates', rows, ['name','server','service','bu','expires','days','level'])}}, 'Export CSV');
     const count = h('span.ct', null, 'Showing ' + (pag.start+1) + '–' + pag.end + ' of ' + rows.length);
-    page.appendChild(filterBar([levelSel, q, reset, h('span.spacer'), count, exportBtn]));
+    page.appendChild(filterBar([levelSel, buSel, q, reset, h('span.spacer'), count, exportBtn]));
 
     const tbl = h('div.table-wrap');
     const table = h('table.op');
@@ -678,6 +709,7 @@
       sortableTh('name','Certificate name'),
       sortableTh('server','Server'),
       sortableTh('service','Service'),
+      sortableTh('bu','Business unit'),
       sortableTh('expires','Expires'),
       sortableTh('days','Days left'),
       h('th', null, 'Alert level'),
@@ -696,6 +728,7 @@
         h('td.host', null, mark(r.name, cq)),
         h('td.muted', null, mark(r.server, cq)),
         h('td.muted', null, mark(r.service, cq)),
+        h('td.muted', null, mark(r.bu || 'Unknown', cq)),
         h('td', null, r.expires),
         h('td.num'+((r.level==='expired'||r.level==='crit')?'.strong':''),
           {style: r.level==='expired'?{color:'var(--crit)',fontWeight:'600'}:r.level==='crit'?{color:'var(--crit)',fontWeight:'600'}:r.level==='warn'?{color:'var(--warn)',fontWeight:'600'}:null},
@@ -704,7 +737,7 @@
       ));
     });
     if (paged.length === 0) {
-      tbody.appendChild(h('tr', null, h('td', {colspan:6}, h('div.no-hits', null, 'No certificates match filter'))));
+      tbody.appendChild(h('tr', null, h('td', {colspan:7}, h('div.no-hits', null, 'No certificates match filter'))));
     }
     table.appendChild(tbody);
     tbl.appendChild(table);
@@ -1346,6 +1379,7 @@
     tab: 'excluded',   // excluded | add | bulk | expiring
     q: '',
     stateFilter: '__all',
+    bu: '__all',
     sort: 'until',
     sortDir: 1,
     page: 1,
@@ -1422,12 +1456,14 @@
     const q = pmState.q.trim().toLowerCase();
     let rows = window.EXCLUSIONS.slice();
     if (pmState.stateFilter !== '__all') rows = rows.filter(r => r.state === pmState.stateFilter);
+    if (pmState.bu !== '__all') rows = rows.filter(r => (r.bu || 'Unknown') === pmState.bu);
     if (q) rows = rows.filter(r =>
       r.server.toLowerCase().includes(q) ||
       r.fqdn.toLowerCase().includes(q) ||
       r.reason.toLowerCase().includes(q) ||
       r.requester.toLowerCase().includes(q) ||
       r.group.toLowerCase().includes(q) ||
+      (r.bu || '').toLowerCase().includes(q) ||
       r.id.toLowerCase().includes(q));
     const key = pmState.sort;
     const dir = pmState.sortDir;
@@ -1457,10 +1493,13 @@
       on:{input:(e)=>{ pmState.q=e.target.value; pmState.page=1; window.RERENDER_PAGE(mount); }}});
     const stateSel = h('select', { on:{change:(e)=>{ pmState.stateFilter=e.target.value; pmState.page=1; window.RERENDER_PAGE(mount); }}},
       stateOpts.map(([v,l]) => h('option', {value:v, selected: pmState.stateFilter===v}, l)));
-    const reset = h('button.btn', { on:{click:()=>{ pmState.q=''; pmState.stateFilter='__all'; pmState.page=1; window.RERENDER_PAGE(mount); }}}, 'Reset');
+    const buOpts = [['__all','All business units']].concat(BU_VALUES.map(b => [b, b]));
+    const buSel = h('select', { on:{change:(e)=>{ pmState.bu=e.target.value; pmState.page=1; window.RERENDER_PAGE(mount); }}},
+      buOpts.map(([v,l]) => h('option', {value:v, selected: pmState.bu===v}, l)));
+    const reset = h('button.btn', { on:{click:()=>{ pmState.q=''; pmState.stateFilter='__all'; pmState.bu='__all'; pmState.page=1; window.RERENDER_PAGE(mount); }}}, 'Reset');
     const addBtn = h('button.btn.primary', { on:{click:()=>{ pmState.tab='add'; window.RERENDER_PAGE(mount); }}}, '+ Add exclusion');
     const count = h('span.ct', null, 'Showing '+(pag.start+1)+'–'+pag.end+' of '+rows.length);
-    wrap.appendChild(filterBar([stateSel, q, reset, h('span.spacer'), count, addBtn]));
+    wrap.appendChild(filterBar([stateSel, buSel, q, reset, h('span.spacer'), count, addBtn]));
 
     const tbl = h('div.table-wrap');
     const table = h('table.op');
@@ -1479,6 +1518,7 @@
       sortableTh('server','Server'),
       sortableTh('fqdn','FQDN'),
       sortableTh('group','Group'),
+      sortableTh('bu','Business unit'),
       sortableTh('reason','Reason'),
       sortableTh('until','Hold until'),
       sortableTh('requester','Requester'),
@@ -1497,6 +1537,7 @@
         h('td.host', null, mark(r.server, qq)),
         h('td.muted', null, mark(r.fqdn, qq)),
         h('td', null, h('span.badge', null, h('span.dot'), mark(r.group, qq))),
+        h('td.muted', null, mark(r.bu || 'Unknown', qq)),
         h('td.muted', null, mark(r.reason, qq)),
         h('td'+(r.state==='overdue'?'.strong':''), {style: r.state==='overdue'?{color:'var(--crit)',fontWeight:'600'}:r.state==='expiring-soon'?{color:'var(--warn)',fontWeight:'600'}:null}, r.until),
         h('td.muted', null, mark(r.requester, qq)),
@@ -1513,7 +1554,7 @@
         )),
       ));
     });
-    if (paged.length === 0) tbody.appendChild(h('tr', null, h('td', {colspan:9}, h('div.no-hits', null, 'No exclusions match filter'))));
+    if (paged.length === 0) tbody.appendChild(h('tr', null, h('td', {colspan:10}, h('div.no-hits', null, 'No exclusions match filter'))));
     table.appendChild(tbody);
     tbl.appendChild(table);
     tbl.appendChild(paginationBar(pag, p => { pmState.page=p; window.RERENDER_PAGE(mount); }));

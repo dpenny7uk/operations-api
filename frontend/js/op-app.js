@@ -78,13 +78,20 @@
     const warn = recent.filter(a => a.tone === 'warn').length;
     const info = recent.filter(a => a.tone === 'info').length;
 
+    // usingDemo: op-boot.js flips this after Promise.allSettled if any fetch
+    // returned null, meaning at least one widget is still on its demo-data
+    // fallback from op-pages.js. Correlated with apiState but named for intent.
+    const usingDemo = window.USING_DEMO === true;
+
     // Banner: surface API degradation. When data is fully healthy this is null.
     let banner = null;
     if (apiState === 'off') {
       banner = {
         tone: 'crit',
         lead: 'API unreachable',
-        msg: '<b>Operator Console cannot reach the Operations API.</b> Figures below may be missing or stale.',
+        msg: '<b>Operator Console cannot reach the Operations API.</b> ' + (usingDemo
+          ? 'Figures below are <b>demo data</b>, not live.'
+          : 'Figures below may be missing or stale.'),
         sub: errs.slice(0, 4).join(' · '),
       };
     } else if (apiState === 'warn') {
@@ -92,15 +99,17 @@
       banner = {
         tone: 'warn',
         lead: 'API degraded',
-        msg: '<b>' + errCount + ' endpoint' + (errCount === 1 ? '' : 's') + ' returning errors.</b> Affected sections may be stale.',
+        msg: '<b>' + errCount + ' endpoint' + (errCount === 1 ? '' : 's') + ' returning errors.</b> ' + (usingDemo
+          ? 'Affected sections are showing <b>demo data</b>.'
+          : 'Affected sections may be stale.'),
         sub: pathErrs.slice(0, 4).join(' · '),
       };
     }
 
     // Label + tagline
     let label, tagline;
-    if (apiState === 'off')      { label = 'API unreachable'; tagline = '<b>API unreachable</b> — figures below may be stale.'; }
-    else if (apiState === 'warn'){ label = 'API degraded';    tagline = '<b>Degraded</b> — some endpoints failing.'; }
+    if (apiState === 'off')      { label = 'API unreachable'; tagline = '<b>API unreachable</b> — ' + (usingDemo ? 'showing demo data.' : 'figures below may be stale.'); }
+    else if (apiState === 'warn'){ label = 'API degraded';    tagline = '<b>Degraded</b> — ' + (usingDemo ? 'some widgets showing demo data.' : 'some endpoints failing.'); }
     else if (crit > 0)           { label = 'Needs attention'; tagline = '<b>' + crit + ' critical</b> alert' + (crit === 1 ? '' : 's') + ' open.'; }
     else if (warn > 0)           { label = 'With caveats';    tagline = '<b>' + warn + ' warning</b>' + (warn === 1 ? '' : 's') + ' — review when possible.'; }
     else                         { label = 'All healthy';     tagline = 'All systems operational.' + (info ? ' <b>' + info + ' informational</b> advisor' + (info === 1 ? 'y' : 'ies') + '.' : ''); }
@@ -163,6 +172,11 @@
     const route = (window.ROUTER && window.ROUTER.currentRoute()) || 'health';
     // Per-surface hero: status word + telegram pieces tailored to the page
     const heroCopy = surfaceHero(route, sc);
+    // When the API is degraded or unreachable, the per-surface word is derived
+    // from numbers we can't trust — override it so the hero doesn't contradict
+    // the banner below (e.g. "Status Operational" next to "API DEGRADED").
+    if (sc.apiState === 'off')       heroCopy.word = 'API unreachable';
+    else if (sc.apiState === 'warn') heroCopy.word = 'API degraded';
     return h('header.statusline', null,
       h('div', null,
         h('div.tag', null, heroCopy.tag),
@@ -275,7 +289,7 @@
         }
         return {
           tag: '— OPERATOR BULLETIN · '+sc.label.toUpperCase(),
-          word: s.crit>0 ? 'needs attention' : s.warn>0 ? 'with caveats' : 'Operational',
+          word: s.crit>0 ? 'needs attention' : s.warn>0 ? 'review warnings' : 'Operational',
           pieces: [
             h('span.piece'+(s.crit?'.crit':''), null, h('b', null, String(s.crit)), ' critical'),
             h('span.piece'+(s.warn?'.warn':''), null, h('b', null, String(s.warn)), ' warning'),
@@ -313,11 +327,6 @@
     counts.appendChild(h('div.c.info', null, h('div.n', null, String(s.info)), h('div.l', null, 'Info')));
     bar.appendChild(counts);
     const tg = h('div.tagline'); tg.innerHTML = s.tagline; bar.appendChild(tg);
-    bar.appendChild(h('div.actions', null,
-      h('button', null, 'Mute 15m'),
-      h('button', null, 'Export'),
-      h('button', null, 'Ack all'),
-    ));
     return bar;
   }
 

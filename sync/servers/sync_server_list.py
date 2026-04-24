@@ -38,6 +38,39 @@ def derive_environment(server_name: str, raw_env: str | None) -> str | None:
     return ENV_PREFIX_MAP.get(prefix)
 
 
+BU_CANONICAL_MAP = {
+    'uk': 'Hiscox UK',
+    'hiscox uk': 'Hiscox UK',
+    'uk&i': 'UK & I',
+    'us': 'Hiscox US',
+    'hiscox us': 'Hiscox US',
+    'europe': 'Hiscox Europe',
+    'hiscox europe': 'Hiscox Europe',
+    'london_market': 'Hiscox London Market',
+    'hiscox london market': 'Hiscox London Market',
+    'hiscox_re': 'Hiscox Re & ILS',
+    'hiscox re and ils': 'Hiscox Re & ILS',
+    'group': 'Hiscox Group Support',
+    'hiscox group support': 'Hiscox Group Support',
+    'hiscox special risks': 'Hiscox Special Risks',
+    'it_services': 'ITS',
+    'infosec': 'Infosec',
+    'no bu found': 'Unknown',
+}
+
+
+def derive_business_unit(raw_bu: str | None) -> str:
+    """Normalise a raw business_unit value to its canonical display form.
+    Unknown values return 'Unknown' and log a warning so ops can spot new BUs."""
+    if not raw_bu or not str(raw_bu).strip():
+        return 'Unknown'
+    key = str(raw_bu).strip().lower()
+    if key in BU_CANONICAL_MAP:
+        return BU_CANONICAL_MAP[key]
+    logger.warning("Unknown business_unit value: %r — mapping to 'Unknown'", raw_bu)
+    return 'Unknown'
+
+
 def sync_servers(ctx, servers: list):
     """Sync servers to PostgreSQL using temp table + upsert pattern."""
     if not servers:
@@ -74,7 +107,7 @@ def sync_servers(ctx, servers: list):
                 (s.get('operating_system') or '').strip()[:255] or None,
                 derive_environment(s.get('server_name', ''), s.get('environment')),
                 (s.get('location') or '').strip()[:100] or None,
-                (s.get('business_unit') or '').strip()[:100] or None,
+                derive_business_unit(s.get('business_unit')),
                 (s.get('combined_service') or '').strip()[:255] or None,
                 (s.get('primary_contact') or '').strip()[:255] or None,
                 (s.get('patch_group') or '').strip()[:100] or None,

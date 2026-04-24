@@ -190,6 +190,7 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
 
         var joins = $@"
             FROM {Sql.Tables.PatchSchedule} ps
+            LEFT JOIN {Sql.Tables.Servers} s ON ps.server_id = s.server_id
             LEFT JOIN {Sql.Tables.PatchWindows} pw
                 ON pw.patch_group = ps.patch_group AND pw.window_type = 'onprem'
             LEFT JOIN {Sql.Tables.KnownIssues} ki
@@ -198,7 +199,7 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
 
         var groupBy = @"
             GROUP BY ps.schedule_id, ps.server_name,
-                     ps.patch_group, pw.scheduled_time, ps.app, ps.service";
+                     ps.patch_group, pw.scheduled_time, ps.app, ps.service, s.business_unit";
 
         p.Add("Limit", limit);
         p.Add("Offset", offset);
@@ -214,6 +215,7 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
                 pw.scheduled_time AS ScheduledTime,
                 ps.app AS Application,
                 ps.service AS Service,
+                s.business_unit AS BusinessUnit,
                 CASE WHEN COUNT(ki.issue_id) > 0 THEN TRUE ELSE FALSE END AS HasKnownIssue,
                 COUNT(ki.issue_id) AS IssueCount
             {joins}
@@ -349,10 +351,12 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
                 COALESCE(pw.scheduled_time, ps.scheduled_time) AS ScheduledTime,
                 ps.app AS Application,
                 ps.service AS Service,
+                s.business_unit AS BusinessUnit,
                 (COUNT(ki.issue_id) OVER (PARTITION BY ps.schedule_id) > 0) AS HasKnownIssue,
                 (COUNT(ki.issue_id) OVER (PARTITION BY ps.schedule_id))::INT AS IssueCount
             FROM {Sql.Tables.PatchSchedule} ps
             JOIN {Sql.Tables.PatchCycles} pc ON pc.cycle_id = ps.cycle_id
+            LEFT JOIN {Sql.Tables.Servers} s ON ps.server_id = s.server_id
             LEFT JOIN {Sql.Tables.PatchWindows} pw
                 ON pw.patch_group = ps.patch_group AND pw.window_type = 'onprem'
             LEFT JOIN {Sql.Tables.KnownIssues} ki
@@ -384,6 +388,7 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
                     ScheduledTime = r.ScheduledTime,
                     Application = r.Application,
                     Service = r.Service,
+                    BusinessUnit = r.BusinessUnit,
                     HasKnownIssue = r.HasKnownIssue,
                     IssueCount = r.IssueCount
                 }).ToList(),
@@ -397,7 +402,7 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
         int CycleId, DateOnly CycleDate, string DisplayStatus,
         int ScheduleId, string ServerName, string? PatchGroup,
         string? ScheduledTime, string? Application, string? Service,
-        bool HasKnownIssue, int IssueCount);
+        string? BusinessUnit, bool HasKnownIssue, int IssueCount);
 
     public Task<IEnumerable<PatchWindow>> GetPatchWindowsAsync() => RunDbAsync(() =>
         Db.QueryAsync<PatchWindow>($@"

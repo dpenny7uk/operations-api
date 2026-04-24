@@ -7,7 +7,7 @@
    / SERVERS_DATA / CERTS_DATA / EOL_DATA. We populate those globals after
    parallel fetches and call window.RERENDER_PAGE(mount) to redraw. */
 
-import { api, apiPost, apiErrors, clearApiErrors } from './api.js';
+import { api, apiPost, apiErrors, clearApiErrors, setUsingDemo } from './api.js';
 
 // RERENDER_PAGE expects the inner .page-mount div (NOT the outer #root).
 // Passing #root would wipe the shell (rail + statusline). Passing null lets
@@ -27,6 +27,7 @@ function mapServers(items) {
     service: s.service || '',
     func: s.func || '',
     pg: s.patchGroup || 'NO PATCH GROUP FOUND',
+    bu: s.businessUnit || 'Unknown',
     active: !!s.isActive,
     lastSeen: s.lastSeen || null,
   }));
@@ -75,6 +76,7 @@ function mapCerts(items) {
       expires: c.validTo ? new Date(c.validTo).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—',
       days: c.daysUntilExpiry,
       level,
+      bu: c.businessUnit || 'Unknown',
     };
   });
 }
@@ -269,6 +271,7 @@ function mapExclusions(items) {
     service: x.service || '',
     func: x.application || '',
     env: x.environment || '',
+    bu: x.businessUnit || 'Unknown',
     reason: x.reason || '',
     ticket: x.ticket || '',
     notes: x.notes || '',
@@ -314,9 +317,6 @@ async function boot() {
     // when the page re-renders, since apiState lives outside .page-mount.
     if (window.RERENDER_SHELL) window.RERENDER_SHELL();
   };
-
-  // Health probe gates demo fallback. If null, leave demo data in place.
-  const healthPromise = api('/health');
 
   // Fire everything in parallel.
   const fetches = [
@@ -414,12 +414,15 @@ async function boot() {
     }),
   ];
 
-  const health = await healthPromise;
-  if (health) {
-    // Success — rendered data is live, clear any leftover demo banner state.
-  }
-
   await Promise.allSettled(fetches);
+
+  // Any fetch that returned null left a demo-seeded widget in place (and
+  // recorded an error in apiErrors). Reflect that in the usingDemo flag so
+  // op-app.js can surface it in the banner.
+  const demoActive = apiErrors.length > 0;
+  window.USING_DEMO = demoActive;
+  setUsingDemo(demoActive);
+
   // Final rerender to ensure a consistent view once everything has landed.
   rerender();
 }

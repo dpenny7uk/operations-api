@@ -9,6 +9,7 @@ public class PatchExclusion
     public string? Service { get; set; }
     public string? Application { get; set; }
     public string? Environment { get; set; }
+    public string? BusinessUnit { get; set; }
     public string Reason { get; set; } = "";
     public string? ReasonSlug { get; set; }
     public string? Notes { get; set; }
@@ -35,4 +36,5 @@ public class PatchServerItem
     public string? Service { get; set; }
     public string? Application { get; set; }
     public string? Environment { get; set; }
+    public string? BusinessUnit { get; set; }
 }

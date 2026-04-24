@@ -39,6 +39,7 @@ public class PatchScheduleItem
     public string? ScheduledTime { get; set; }
     public string? Application { get; set; }
     public string? Service { get; set; }
+    public string? BusinessUnit { get; set; }
     public bool HasKnownIssue { get; set; }
     public int IssueCount { get; set; }
 }

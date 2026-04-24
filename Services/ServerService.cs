@@ -14,6 +14,7 @@ public class ServerService : BaseService<ServerService>, IServerService
         string? environment,
         string? application,
         string? patchGroup,
+        string? businessUnit,
         string? search,
         int limit,
         int offset) => RunDbAsync(async () =>
@@ -33,6 +34,7 @@ public class ServerService : BaseService<ServerService>, IServerService
                 COALESCE(s.service, latest_ps.service) AS Service,
                 COALESCE(s.func, latest_ps.app) AS Func,
                 s.patch_group AS PatchGroup,
+                s.business_unit AS BusinessUnit,
                 s.is_active AS IsActive,
                 COALESCE(s.last_seen_at, s.synced_at) AS LastSeen
             FROM {Sql.Tables.Servers} s
@@ -54,6 +56,7 @@ public class ServerService : BaseService<ServerService>, IServerService
             AddExactFilter(ref sql, p, "s.environment", "Env", environment);
         AddILikeFilter(ref sql, p, "a.application_name", "App", application);
         AddExactFilter(ref sql, p, "s.patch_group", "PG", patchGroup);
+        AddExactFilter(ref sql, p, "s.business_unit", "BU", businessUnit);
 
         if (!string.IsNullOrEmpty(search))
         {
@@ -70,6 +73,7 @@ public class ServerService : BaseService<ServerService>, IServerService
         string? environment,
         string? application,
         string? patchGroup,
+        string? businessUnit,
         string? search) => RunDbAsync(async () =>
     {
         var sql = $@"
@@ -86,6 +90,7 @@ public class ServerService : BaseService<ServerService>, IServerService
             AddExactFilter(ref sql, p, "s.environment", "Env", environment);
         AddILikeFilter(ref sql, p, "a.application_name", "App", application);
         AddExactFilter(ref sql, p, "s.patch_group", "PG", patchGroup);
+        AddExactFilter(ref sql, p, "s.business_unit", "BU", businessUnit);
 
         if (!string.IsNullOrEmpty(search))
         {
@@ -130,6 +135,7 @@ public class ServerService : BaseService<ServerService>, IServerService
                 COALESCE(s.service, latest_ps.service) AS Service,
                 COALESCE(s.func, latest_ps.app) AS Func,
                 s.patch_group AS PatchGroup,
+                s.business_unit AS BusinessUnit,
                 s.is_active AS IsActive,
                 COALESCE(s.last_seen_at, s.synced_at) AS LastSeen,
                 s.operating_system AS OperatingSystem,

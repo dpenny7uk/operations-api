@@ -19,6 +19,7 @@ public class Certificate
     public string AlertLevel { get; set; } = "";
     public bool IsExpired { get; set; }
     public string? ServiceName { get; set; }
+    public string? BusinessUnit { get; set; }
 }
 
 public class CertificateDetail : Certificate

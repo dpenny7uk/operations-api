@@ -48,6 +48,7 @@ public class PatchExclusionService : BaseService<PatchExclusionService>, IPatchE
                 ps.service AS Service,
                 ps.app AS Application,
                 s.environment AS Environment,
+                s.business_unit AS BusinessUnit,
                 pe.reason AS Reason,
                 pe.reason_slug AS ReasonSlug,
                 pe.notes AS Notes,
@@ -120,7 +121,8 @@ public class PatchExclusionService : BaseService<PatchExclusionService>, IPatchE
                 ps.patch_group AS PatchGroup,
                 ps.service AS Service,
                 ps.app AS Application,
-                s.environment AS Environment
+                s.environment AS Environment,
+                s.business_unit AS BusinessUnit
             FROM {Sql.Tables.PatchSchedule} ps
             JOIN {Sql.Tables.PatchCycles} pc ON pc.cycle_id = ps.cycle_id
             LEFT JOIN {Sql.Tables.Servers} s ON ps.server_id = s.server_id

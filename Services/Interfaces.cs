@@ -16,14 +16,16 @@ public interface IServerService
         string? environment,
         string? application,
         string? patchGroup,
+        string? businessUnit,
         string? search,
         int limit,
         int offset);
-    
+
     Task<int> CountServersAsync(
         string? environment,
         string? application,
         string? patchGroup,
+        string? businessUnit,
         string? search);
     Task<ServerSummary> GetServerSummaryAsync();
     Task<ServerDetail?> GetServerByIdAsync(int id);

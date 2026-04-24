@@ -17,34 +17,34 @@ public class ServersControllerTests
     [Fact]
     public async Task List_clamps_limit_to_max_1000()
     {
-        _svc.Setup(s => s.ListServersAsync(null, null, null, null, It.IsAny<int>(), It.IsAny<int>()))
+        _svc.Setup(s => s.ListServersAsync(null, null, null, null, null, It.IsAny<int>(), It.IsAny<int>()))
             .ReturnsAsync(Array.Empty<Server>());
 
-        await Controller.List(null, null, null, null, limit: 5000, offset: 0);
+        await Controller.List(null, null, null, null, null, limit: 5000, offset: 0);
 
-        _svc.Verify(s => s.ListServersAsync(null, null, null, null, 1000, 0));
+        _svc.Verify(s => s.ListServersAsync(null, null, null, null, null, 1000, 0));
     }
 
     [Fact]
     public async Task List_clamps_limit_to_min_1()
     {
-        _svc.Setup(s => s.ListServersAsync(null, null, null, null, It.IsAny<int>(), It.IsAny<int>()))
+        _svc.Setup(s => s.ListServersAsync(null, null, null, null, null, It.IsAny<int>(), It.IsAny<int>()))
             .ReturnsAsync(Array.Empty<Server>());
 
-        await Controller.List(null, null, null, null, limit: -5, offset: 0);
+        await Controller.List(null, null, null, null, null, limit: -5, offset: 0);
 
-        _svc.Verify(s => s.ListServersAsync(null, null, null, null, 1, 0));
+        _svc.Verify(s => s.ListServersAsync(null, null, null, null, null, 1, 0));
     }
 
     [Fact]
     public async Task List_clamps_negative_offset_to_zero()
     {
-        _svc.Setup(s => s.ListServersAsync(null, null, null, null, It.IsAny<int>(), It.IsAny<int>()))
+        _svc.Setup(s => s.ListServersAsync(null, null, null, null, null, It.IsAny<int>(), It.IsAny<int>()))
             .ReturnsAsync(Array.Empty<Server>());
 
-        await Controller.List(null, null, null, null, limit: 100, offset: -10);
+        await Controller.List(null, null, null, null, null, limit: 100, offset: -10);
 
-        _svc.Verify(s => s.ListServersAsync(null, null, null, null, 100, 0));
+        _svc.Verify(s => s.ListServersAsync(null, null, null, null, null, 100, 0));
     }
 
     [Fact]

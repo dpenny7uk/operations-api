@@ -18,7 +18,7 @@ public class ServerServiceTests : IntegrationTestBase
     public async Task ListServers_returns_only_active()
     {
         var svc = CreateService();
-        var results = (await svc.ListServersAsync(null, null, null, null, 100, 0)).ToList();
+        var results = (await svc.ListServersAsync(null, null, null, null, null, 100, 0)).ToList();
 
         Assert.All(results, s => Assert.True(s.IsActive));
         Assert.DoesNotContain(results, s => s.ServerName == "OLD01");
@@ -28,7 +28,7 @@ public class ServerServiceTests : IntegrationTestBase
     public async Task ListServers_filter_by_environment()
     {
         var svc = CreateService();
-        var results = (await svc.ListServersAsync("Production", null, null, null, 100, 0)).ToList();
+        var results = (await svc.ListServersAsync("Production", null, null, null, null, 100, 0)).ToList();
 
         Assert.All(results, s => Assert.Equal("Production", s.Environment));
         Assert.Equal(3, results.Count); // WEB01, WEB02, API01
@@ -38,7 +38,7 @@ public class ServerServiceTests : IntegrationTestBase
     public async Task ListServers_filter_by_application_ilike()
     {
         var svc = CreateService();
-        var results = (await svc.ListServersAsync(null, "portal", null, null, 100, 0)).ToList();
+        var results = (await svc.ListServersAsync(null, "portal", null, null, null, 100, 0)).ToList();
 
         Assert.All(results, s => Assert.Equal("Portal", s.ApplicationName));
     }
@@ -47,7 +47,7 @@ public class ServerServiceTests : IntegrationTestBase
     public async Task ListServers_filter_by_patch_group()
     {
         var svc = CreateService();
-        var results = (await svc.ListServersAsync(null, null, "8a", null, 100, 0)).ToList();
+        var results = (await svc.ListServersAsync(null, null, "8a", null, null, 100, 0)).ToList();
 
         Assert.All(results, s => Assert.Equal("8a", s.PatchGroup));
         Assert.Equal(2, results.Count); // WEB01, DEV01
@@ -57,7 +57,7 @@ public class ServerServiceTests : IntegrationTestBase
     public async Task ListServers_search_by_name()
     {
         var svc = CreateService();
-        var results = (await svc.ListServersAsync(null, null, null, "web", 100, 0)).ToList();
+        var results = (await svc.ListServersAsync(null, null, null, null, "web", 100, 0)).ToList();
 
         Assert.Equal(2, results.Count);
         Assert.All(results, s => Assert.Contains("WEB", s.ServerName));
@@ -67,7 +67,7 @@ public class ServerServiceTests : IntegrationTestBase
     public async Task ListServers_search_by_fqdn()
     {
         var svc = CreateService();
-        var results = (await svc.ListServersAsync(null, null, null, "api01.contoso", 100, 0)).ToList();
+        var results = (await svc.ListServersAsync(null, null, null, null, "api01.contoso", 100, 0)).ToList();
 
         Assert.Single(results);
         Assert.Equal("API01", results[0].ServerName);
@@ -77,7 +77,7 @@ public class ServerServiceTests : IntegrationTestBase
     public async Task ListServers_returns_ip_address()
     {
         var svc = CreateService();
-        var results = (await svc.ListServersAsync(null, null, null, "WEB01", 100, 0)).ToList();
+        var results = (await svc.ListServersAsync(null, null, null, null, "WEB01", 100, 0)).ToList();
 
         Assert.Single(results);
         Assert.Equal("10.0.0.1", results[0].IpAddress);
@@ -87,7 +87,7 @@ public class ServerServiceTests : IntegrationTestBase
     public async Task ListServers_returns_service_and_func()
     {
         var svc = CreateService();
-        var results = (await svc.ListServersAsync(null, null, null, "WEB01", 100, 0)).ToList();
+        var results = (await svc.ListServersAsync(null, null, null, null, "WEB01", 100, 0)).ToList();
 
         Assert.Single(results);
         Assert.Equal("portal-web", results[0].Service);
@@ -99,7 +99,7 @@ public class ServerServiceTests : IntegrationTestBase
     {
         var svc = CreateService();
         // API01 was seeded with last_seen_at = now - 5 minutes.
-        var results = (await svc.ListServersAsync(null, null, null, "API01", 100, 0)).ToList();
+        var results = (await svc.ListServersAsync(null, null, null, null, "API01", 100, 0)).ToList();
 
         Assert.Single(results);
         Assert.NotNull(results[0].LastSeen);
@@ -110,7 +110,7 @@ public class ServerServiceTests : IntegrationTestBase
     {
         var svc = CreateService();
         // A search for "%" should not match everything
-        var results = (await svc.ListServersAsync(null, null, null, "%", 100, 0)).ToList();
+        var results = (await svc.ListServersAsync(null, null, null, null, "%", 100, 0)).ToList();
 
         Assert.Empty(results);
     }
@@ -119,8 +119,8 @@ public class ServerServiceTests : IntegrationTestBase
     public async Task ListServers_pagination()
     {
         var svc = CreateService();
-        var page1 = (await svc.ListServersAsync(null, null, null, null, 2, 0)).ToList();
-        var page2 = (await svc.ListServersAsync(null, null, null, null, 2, 2)).ToList();
+        var page1 = (await svc.ListServersAsync(null, null, null, null, null, 2, 0)).ToList();
+        var page2 = (await svc.ListServersAsync(null, null, null, null, null, 2, 2)).ToList();
 
         Assert.Equal(2, page1.Count);
         Assert.Equal(2, page2.Count);
@@ -131,7 +131,7 @@ public class ServerServiceTests : IntegrationTestBase
     public async Task ListServers_combined_filters()
     {
         var svc = CreateService();
-        var results = (await svc.ListServersAsync("Production", "Portal", "8a", null, 100, 0)).ToList();
+        var results = (await svc.ListServersAsync("Production", "Portal", "8a", null, null, 100, 0)).ToList();
 
         Assert.Single(results);
         Assert.Equal("WEB01", results[0].ServerName);

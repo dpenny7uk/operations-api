@@ -459,7 +459,7 @@ table.op tbody tr.sev-warn td:first-child { border-left: 3px solid var(--warn) !
 /* Scenario-specific severity summary bar */
 .sev-summary {
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: auto 1fr;
   gap: 20px;
   align-items: center;
   padding: 14px 24px;
@@ -505,23 +505,6 @@ table.op tbody tr.sev-warn td:first-child { border-left: 3px solid var(--warn) !
   letter-spacing: 0.02em;
 }
 .sev-summary .tagline b { color: var(--ink); font-weight: 600; }
-.sev-summary .actions {
-  display: flex;
-  gap: 6px;
-}
-.sev-summary .actions button {
-  font-family: var(--mono);
-  font-size: 10.5px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  padding: 7px 12px;
-  border: 1px solid var(--rule-2);
-  border-radius: 2px;
-  background: var(--card);
-  color: var(--ink-2);
-  cursor: pointer;
-}
-.sev-summary .actions button:hover { border-color: var(--ink); color: var(--ink); }
 
 /* =========================================================
    LOUD PAGE-LEVEL BANNER (replaces api-banner depending on style)

@@ -36,22 +36,25 @@ public class ServersController : ControllerBase
         [FromQuery] string? environment,
         [FromQuery] string? application,
         [FromQuery] string? patchGroup,
+        [FromQuery] string? businessUnit,
         [FromQuery] string? search,
         [FromQuery] int limit = 100,
         [FromQuery] int offset = 0)
     {
-        if (environment?.Length > 100 || application?.Length > 255 || patchGroup?.Length > 50 || search?.Length > 255)
+        if (environment?.Length > 100 || application?.Length > 255 || patchGroup?.Length > 50
+            || businessUnit?.Length > 100 || search?.Length > 255)
             return BadRequest("Query parameter exceeds maximum length.");
         // Reject control characters to prevent log injection (newline, carriage return, etc.)
         if (InputGuard.ContainsControlChars(environment) || InputGuard.ContainsControlChars(application) ||
-            InputGuard.ContainsControlChars(patchGroup) || InputGuard.ContainsControlChars(search))
+            InputGuard.ContainsControlChars(patchGroup) || InputGuard.ContainsControlChars(businessUnit) ||
+            InputGuard.ContainsControlChars(search))
             return BadRequest("Query parameter contains invalid characters.");
 
         var clampedLimit = Math.Clamp(limit, 1, 1000);
         var clampedOffset = Math.Clamp(offset, 0, 100000);
-        var servers = await _svc.ListServersAsync(environment, application, patchGroup, search,
+        var servers = await _svc.ListServersAsync(environment, application, patchGroup, businessUnit, search,
             clampedLimit, clampedOffset);
-        var totalCount = await _svc.CountServersAsync(environment, application, patchGroup, search);
+        var totalCount = await _svc.CountServersAsync(environment, application, patchGroup, businessUnit, search);
         return Ok(new { items = servers, totalCount });
     }
 

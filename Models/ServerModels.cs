@@ -11,6 +11,7 @@ public class Server
     public string? Service { get; set; }
     public string? Func { get; set; }
     public string? PatchGroup { get; set; }
+    public string? BusinessUnit { get; set; }
     public bool IsActive { get; set; }
     public DateTime? LastSeen { get; set; }
 }

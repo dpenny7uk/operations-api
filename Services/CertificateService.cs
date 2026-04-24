@@ -46,7 +46,8 @@ public class CertificateService : BaseService<CertificateService>, ICertificateS
                 c.days_until_expiry AS DaysUntilExpiry,
                 c.alert_level AS AlertLevel,
                 c.is_expired AS IsExpired,
-                a.application_name AS ServiceName
+                a.application_name AS ServiceName,
+                s.business_unit AS BusinessUnit
             FROM {Sql.Tables.Certificates} c
             LEFT JOIN {Sql.Tables.Servers} s ON UPPER(s.server_name) = UPPER(c.server_name) AND s.is_active
             LEFT JOIN {Sql.Tables.Applications} a ON a.application_id = s.primary_application_id
@@ -117,7 +118,8 @@ public class CertificateService : BaseService<CertificateService>, ICertificateS
                 c.valid_to AS ValidTo,
                 c.days_until_expiry AS DaysUntilExpiry,
                 c.alert_level AS AlertLevel,
-                a.application_name AS ServiceName
+                a.application_name AS ServiceName,
+                s.business_unit AS BusinessUnit
             FROM {Sql.Tables.Certificates} c
             LEFT JOIN {Sql.Tables.Servers} s ON UPPER(s.server_name) = UPPER(c.server_name) AND s.is_active
             LEFT JOIN {Sql.Tables.Applications} a ON a.application_id = s.primary_application_id
