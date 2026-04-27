@@ -170,5 +170,8 @@ public static class Sql
         public const string ScanFailures = "system.scan_failures";
         public const string PatchExclusions = "patching.patch_exclusions";
         public const string ExclusionAlerts = "patching.exclusion_alerts";
+        public const string DiskSnapshots = "monitoring.disk_snapshots";
+        public const string DiskCurrent = "monitoring.disk_current";
+        public const string DiskAlerts = "monitoring.alerts";
     }
 }

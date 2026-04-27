@@ -60,7 +60,8 @@ public class DatabaseFixture : IAsyncLifetime
             "database/009-eol-split-dates.sql",
             "database/010-patch-exclusions.sql",
             "database/011-patch-exclusion-grants.sql",
-            "database/012-design-v2-fields.sql"
+            "database/012-design-v2-fields.sql",
+            "database/013-monitoring-schema.sql"
         };
 
         // Walk up from bin/Debug/net10.0 to find the project root
@@ -230,6 +231,48 @@ public class DatabaseFixture : IAsyncLifetime
         -- ═══ Server aliases ═══
         INSERT INTO system.server_aliases (canonical_name, alias_name, source_system, created_by)
         VALUES ('WEB01', 'WEBSERVER01', 'patching_html', 'test');
+
+        -- ═══ Disk snapshots — current state covering all three alert statuses ═══
+        -- The disk_current view picks the latest snapshot per (server, disk).
+        -- WEB01 C:\ is OK (50%), WEB02 C:\ is warn (85%), API01 D:\ is crit (95%).
+        INSERT INTO monitoring.disk_snapshots
+            (captured_at, server_name, service, environment, technical_owner,
+             business_unit, disk_label, volume_size_gb, used_gb, free_gb, percent_used,
+             alert_status, threshold_warn_pct, threshold_crit_pct,
+             source_volume_id, source_node_id)
+        VALUES
+            (NOW() - INTERVAL '5 minutes', 'WEB01', 'portal-web', 'Production', 'Andy King',
+             'Engineering', 'C:\', 500, 250.00, 250.00, 50.00, 1, 80, 90, 1001, 101),
+            (NOW() - INTERVAL '5 minutes', 'WEB02', 'portal-web', 'Production', 'Andy King',
+             'Engineering', 'C:\', 500, 425.00, 75.00, 85.00, 2, 80, 90, 1002, 102),
+            (NOW() - INTERVAL '5 minutes', 'API01', 'api-gateway', 'Production', 'Richard Wykes',
+             'Engineering', 'D:\', 200, 190.00, 10.00, 95.00, 3, 80, 90, 1003, 103),
+            (NOW() - INTERVAL '5 minutes', 'DEV01', 'portal-web', 'Development', 'Andy King',
+             'Engineering', 'C:\', 250, 100.00, 150.00, 40.00, 1, 80, 90, 1004, 104);
+
+        -- ═══ Disk history — small growth series for projection regression ═══
+        -- WEB01 C:\ growing ~1 GB/day (positive slope → daysUntilCritical computed).
+        INSERT INTO monitoring.disk_snapshots
+            (captured_at, server_name, service, environment, technical_owner, business_unit,
+             disk_label, volume_size_gb, used_gb, free_gb, percent_used,
+             alert_status, threshold_warn_pct, threshold_crit_pct,
+             source_volume_id, source_node_id)
+        VALUES
+            (NOW() - INTERVAL '20 days', 'WEB01', 'portal-web', 'Production', 'Andy King', 'Engineering',
+             'C:\', 500, 230.00, 270.00, 46.00, 1, 80, 90, 1001, 101),
+            (NOW() - INTERVAL '15 days', 'WEB01', 'portal-web', 'Production', 'Andy King', 'Engineering',
+             'C:\', 500, 235.00, 265.00, 47.00, 1, 80, 90, 1001, 101),
+            (NOW() - INTERVAL '10 days', 'WEB01', 'portal-web', 'Production', 'Andy King', 'Engineering',
+             'C:\', 500, 240.00, 260.00, 48.00, 1, 80, 90, 1001, 101),
+            (NOW() - INTERVAL '5 days', 'WEB01', 'portal-web', 'Production', 'Andy King', 'Engineering',
+             'C:\', 500, 245.00, 255.00, 49.00, 1, 80, 90, 1001, 101);
+
+        -- ═══ Disk alerts — one previously-sent crit alert for de-dup tests ═══
+        INSERT INTO monitoring.alerts
+            (server_name, disk_label, alert_type, alert_status_at_send,
+             percent_used_at_send, notification_sent, notification_sent_at)
+        VALUES
+            ('API01', 'D:\', 'breach_crit', 3, 92.00, TRUE, NOW() - INTERVAL '6 hours');
         """;
 }
 

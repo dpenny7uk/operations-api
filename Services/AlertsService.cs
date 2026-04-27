@@ -73,6 +73,21 @@ public class AlertsService : BaseService<AlertsService>, IAlertsService
                     'warn' AS Tone
                 FROM patching.patch_exclusions pe
                 WHERE pe.is_active AND pe.held_until < CURRENT_DATE
+
+                UNION ALL
+
+                -- Disk threshold breaches (current state from monitoring.disk_current).
+                -- Read-on-demand for the in-app feed; Teams push notifications are
+                -- handled separately by alert_disk_breaches.py with a cooldown.
+                SELECT
+                    'disk:' || d.server_name || ':' || d.disk_label AS Id,
+                    d.captured_at               AS ""When"",
+                    (d.server_name || ' ' || d.disk_label || ' over threshold') AS Sub,
+                    ROUND(d.percent_used, 1)::text || '% used (' ||
+                        ROUND(d.used_gb, 0)::text || '/' || ROUND(d.volume_size_gb, 0)::text || ' GB)' AS Detail,
+                    CASE WHEN d.alert_status = 3 THEN 'crit' ELSE 'warn' END AS Tone
+                FROM {Sql.Tables.DiskCurrent} d
+                WHERE d.alert_status >= 2
             )
             SELECT Id, ""When"", Sub, Detail, Tone
             FROM alerts

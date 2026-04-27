@@ -134,6 +134,7 @@
       ['04','Patch Management','patchmgmt'],
       ['05','Certificates','certs'],
       ['06','End of Life','eol'],
+      ['07','Disk Monitoring','disks'],
     ];
     const active = (window.ROUTER && window.ROUTER.currentRoute()) || 'health';
     const nav = h('ul.nav-list');
@@ -274,6 +275,23 @@
             h('span.piece'+(expiring?'.warn':''), null, h('b', null, String(expiring)), ' expiring soon'),
             h('span.piece.ok', null, h('b', null, String(active)), ' active'),
             h('span.piece', null, h('b', null, String(ex.length)), ' total'),
+          ],
+        };
+      }
+      case 'disks': {
+        const items = (window.DISKS_DATA && Array.isArray(window.DISKS_DATA.items)) ? window.DISKS_DATA.items : [];
+        const crit = items.filter(d => d.alertStatus === 3).length;
+        const warn = items.filter(d => d.alertStatus === 2).length;
+        const ok   = items.filter(d => d.alertStatus === 1).length;
+        const word = crit>0 ? 'critical breaches' : warn>0 ? 'thresholds approaching' : 'Operational';
+        return {
+          tag: '— DISK MONITORING · '+sc.label.toUpperCase(),
+          word,
+          pieces: [
+            h('span.piece'+(crit?'.crit':''), null, h('b', null, String(crit)), ' critical'),
+            h('span.piece'+(warn?'.warn':''), null, h('b', null, String(warn)), ' warning'),
+            h('span.piece.ok', null, h('b', null, String(ok)), ' healthy'),
+            h('span.piece', null, h('b', null, String(items.length)), ' total disks'),
           ],
         };
       }
@@ -841,6 +859,7 @@
       case 'eol':       if (window.RENDER_EOL)       window.RENDER_EOL(mount);       else mountHealth(mount); break;
       case 'patching':  if (window.RENDER_PATCHING)  window.RENDER_PATCHING(mount);  else mountHealth(mount); break;
       case 'patchmgmt': if (window.RENDER_PATCHMGMT) window.RENDER_PATCHMGMT(mount); else mountHealth(mount); break;
+      case 'disks':     if (window.RENDER_DISKS)     window.RENDER_DISKS(mount);     else mountHealth(mount); break;
       default:          mountHealth(mount);
     }
 

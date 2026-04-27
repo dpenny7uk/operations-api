@@ -260,6 +260,30 @@ function mapAlerts(items) {
   }));
 }
 
+// Disk monitoring rows from /api/disks. The renderer reads camelCase fields
+// directly, so this is essentially a passthrough that hardens nullables.
+function mapDisks(items) {
+  return (items || []).map((d, i) => ({
+    id: i + 1,
+    serverName: d.serverName || '',
+    diskLabel: d.diskLabel || '',
+    service: d.service || '',
+    environment: d.environment || '',
+    technicalOwner: d.technicalOwner || '',
+    businessOwner: d.businessOwner || '',
+    businessUnit: d.businessUnit || 'Unknown',
+    tier: d.tier || '',
+    volumeSizeGb: Number(d.volumeSizeGb) || 0,
+    usedGb: Number(d.usedGb) || 0,
+    freeGb: Number(d.freeGb) || 0,
+    percentUsed: Number(d.percentUsed) || 0,
+    alertStatus: Number(d.alertStatus) || 1,
+    thresholdWarnPct: Number(d.thresholdWarnPct) || 80,
+    thresholdCritPct: Number(d.thresholdCritPct) || 90,
+    daysUntilCritical: d.daysUntilCritical != null ? Number(d.daysUntilCritical) : null,
+  }));
+}
+
 function mapExclusions(items) {
   const list = (items && items.items) ? items.items : (Array.isArray(items) ? items : []);
   return list.map(x => ({
@@ -423,6 +447,14 @@ async function boot() {
     api('/me').then(v => {
       if (!v) return;
       window.CURRENT_USER = v; // { username, fullName }
+      rerender();
+    }),
+    api('/disks?limit=1000').then(r => {
+      if (!r || !Array.isArray(r.items)) { markDemo('disks'); return; }
+      window.DISKS_DATA = Object.assign({}, window.DISKS_DATA, {
+        items: mapDisks(r.items),
+        totalCount: r.totalCount != null ? r.totalCount : r.items.length,
+      });
       rerender();
     }),
   ];
