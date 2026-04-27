@@ -7,7 +7,7 @@
    / SERVERS_DATA / CERTS_DATA / EOL_DATA. We populate those globals after
    parallel fetches and call window.RERENDER_PAGE(mount) to redraw. */
 
-import { api, apiPost, apiErrors, clearApiErrors, setUsingDemo } from './api.js';
+import { api, apiPost, apiErrors, clearApiErrors, setUsingDemo, setApiErrorsListener, markDemo, clearDemo, clearAllDemo } from './api.js';
 
 // RERENDER_PAGE expects the inner .page-mount div (NOT the outer #root).
 // Passing #root would wipe the shell (rail + statusline). Passing null lets
@@ -318,10 +318,22 @@ async function boot() {
     if (window.RERENDER_SHELL) window.RERENDER_SHELL();
   };
 
-  // Fire everything in parallel.
+  // Any error recorded after boot (e.g. from a failed apiPost) also updates
+  // the banner — not just errors that happened during the boot fetch wave.
+  setApiErrorsListener(() => {
+    window.API_ERRORS = apiErrors.slice();
+    if (window.RERENDER_SHELL) window.RERENDER_SHELL();
+  });
+
+  // Fresh demo state on each boot — refresh clears stale markers from a prior
+  // run where a fetch failed then succeeded on reload.
+  clearAllDemo();
+
+  // Fire everything in parallel. Each fetch's failure marks its owning widget
+  // as "on demo data" so the page renders a DEMO ribbon on that card only.
   const fetches = [
     fetchAllServers().then(r => {
-      if (!r) return;
+      if (!r) { markDemo('servers'); return; }
       const servers = mapServers(r.items);
       const envCounts = {};
       for (const s of servers) envCounts[s.env] = (envCounts[s.env] || 0) + 1;
@@ -335,7 +347,7 @@ async function boot() {
       rerender();
     }),
     api('/servers/summary').then(s => {
-      if (!s) return;
+      if (!s) { markDemo('servers'); return; }
       const envBreakdown = mapEnvBreakdown(s);
       window.SERVERS_DATA = Object.assign({}, window.SERVERS_DATA, {
         envBreakdown,
@@ -346,46 +358,47 @@ async function boot() {
       rerender();
     }),
     api('/servers/unreachable').then(v => {
-      if (!Array.isArray(v)) return;
+      if (!Array.isArray(v)) { markDemo('servers'); return; }
       window.SERVERS_DATA = Object.assign({}, window.SERVERS_DATA, { unreachable: mapUnreachable(v) });
       rerender();
     }),
     api('/servers/unmatched').then(v => {
-      if (!Array.isArray(v)) return;
+      if (!Array.isArray(v)) { markDemo('servers'); return; }
       window.SERVERS_DATA = Object.assign({}, window.SERVERS_DATA, { unmatched: mapUnmatched(v) });
       rerender();
     }),
     api('/certificates?limit=1000').then(v => {
-      if (!Array.isArray(v)) return;
+      if (!Array.isArray(v)) { markDemo('certs'); return; }
       window.CERTS_DATA = Object.assign({}, window.CERTS_DATA, { CERTS: mapCerts(v) });
       rerender();
     }),
     api('/certificates/summary').then(s => {
-      if (!s) return;
+      if (!s) { markDemo('certs'); return; }
       window.CERTS_DATA = Object.assign({}, window.CERTS_DATA, { CERT_COUNTS: mapCertCounts(s) });
       rerender();
     }),
     api('/eol?limit=500').then(v => {
-      if (!Array.isArray(v)) return;
+      if (!Array.isArray(v)) { markDemo('eol'); return; }
       window.EOL_DATA = Object.assign({}, window.EOL_DATA, { EOL_PRODUCTS: mapEolProducts(v) });
       rerender();
     }),
     api('/eol/summary').then(s => {
-      if (!s) return;
+      if (!s) { markDemo('eol'); return; }
       window.EOL_DATA = Object.assign({}, window.EOL_DATA, { EOL_TOTALS: mapEolTotals(s) });
       rerender();
     }),
     Promise.all([api('/patching/cycles'), api('/patching/next')]).then(([cycles, next]) => {
+      if (!cycles && !next) { markDemo('patching'); return; }
       window.PATCH_GROUPS = mapPatchGroups(cycles, next);
       rerender();
     }),
     api('/patching/cycles?upcomingOnly=false&limit=24').then(v => {
-      if (!Array.isArray(v)) return;
+      if (!Array.isArray(v)) { markDemo('patching'); return; }
       window.PATCH_CYCLES = mapPatchCycles(v);
       rerender();
     }),
     api('/patching/issues').then(v => {
-      if (!Array.isArray(v)) return;
+      if (!Array.isArray(v)) { markDemo('patching'); return; }
       window.PATCH_ISSUES = mapPatchIssues(v);
       rerender();
     }),
@@ -393,17 +406,17 @@ async function boot() {
       // /api/health/syncs returns a bare SyncStatus[]; only the /api/health
       // root endpoint wraps it in {syncStatuses}. Accept both shapes.
       const arr = Array.isArray(r) ? r : (r && Array.isArray(r.syncStatuses) ? r.syncStatuses : null);
-      if (!arr) return;
+      if (!arr) { markDemo('health'); return; }
       window.SYNCS = mapSyncs(arr);
       rerender();
     }),
     api('/alerts/recent?limit=20').then(v => {
-      if (!Array.isArray(v)) return;
+      if (!Array.isArray(v)) { markDemo('health'); return; }
       window.RECENT_ALERTS_BASE = mapAlerts(v);
       rerender();
     }),
     api('/patching/exclusions?limit=500').then(v => {
-      if (!v) return;
+      if (!v) { markDemo('exclusions'); return; }
       window.EXCLUSIONS = mapExclusions(v);
       rerender();
     }),
@@ -503,9 +516,13 @@ window.OC_ACTIONS = {
 async function refetchExclusions() {
   const v = await api('/patching/exclusions?limit=500');
   if (v) {
+    clearDemo('exclusions');
     window.EXCLUSIONS = mapExclusions(v);
     const m = mount();
     if (window.RERENDER_PAGE && m) window.RERENDER_PAGE(m);
+    if (window.RERENDER_SHELL) window.RERENDER_SHELL();
+  } else {
+    markDemo('exclusions');
   }
 }
 

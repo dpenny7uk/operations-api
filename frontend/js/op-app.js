@@ -716,6 +716,20 @@
       h('span.note', null, 'Live operational status across all managed servers, patching schedules, certificates and sync pipelines.'),
     ));
 
+    // Aggregate DEMO ribbon for the dashboard — any widget on demo data shows up
+    // in the list so the user can see at a glance which cards are unreliable.
+    const demoSet = (window.DEMO_WIDGETS instanceof Set) ? window.DEMO_WIDGETS : null;
+    if (demoSet && demoSet.size) {
+      const labels = Array.from(demoSet).map(k => ({
+        servers: 'Servers', certs: 'Certificates', eol: 'End-of-life',
+        patching: 'Patching', exclusions: 'Exclusions', health: 'Sync health',
+      }[k] || k));
+      page.appendChild(h('div.demo-ribbon-row', { role: 'status', 'aria-label': 'Some dashboard cards are showing demo data' },
+        h('span.demo-ribbon', null, 'DEMO DATA'),
+        h('span.demo-ribbon-note', null, 'live fetch failed for: ' + labels.join(', ') + '. Figures on these cards are placeholders.'),
+      ));
+    }
+
     if (sc.banner) page.appendChild(LoudBanner(sc.banner));
     page.appendChild(SevSummary(sc));
 

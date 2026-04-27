@@ -51,6 +51,38 @@ def validate_env_vars(required: List[str]) -> None:
         raise EnvironmentError(f"Missing required environment variables: {', '.join(missing)}")
 
 
+_SSL_VERIFY_LOGGED = False
+
+
+def _http_verify():
+    """Resolve the SSL verification setting for outbound HTTPS calls.
+
+    Reads OPS_HTTP_SSL_VERIFY:
+      - unset / "true" / "1" / "yes"  → verify against the system trust store (default)
+      - "false" / "0" / "no"          → disable verification (TLS-inspection proxy scenarios only)
+      - any other value               → treat as a filesystem path to a CA bundle
+    Logs the resolved policy once per process.
+    """
+    global _SSL_VERIFY_LOGGED
+    raw = os.environ.get('OPS_HTTP_SSL_VERIFY', '').strip()
+    logger = logging.getLogger('http_request')
+    if not raw or raw.lower() in ('true', '1', 'yes'):
+        verify = True
+    elif raw.lower() in ('false', '0', 'no'):
+        verify = False
+    else:
+        verify = raw  # CA bundle path
+    if not _SSL_VERIFY_LOGGED:
+        if verify is True:
+            logger.info("SSL verification: enabled (system trust store)")
+        elif verify is False:
+            logger.warning("SSL verification: DISABLED via OPS_HTTP_SSL_VERIFY — intended for TLS-inspection proxies only")
+        else:
+            logger.info("SSL verification: using CA bundle at %s", verify)
+        _SSL_VERIFY_LOGGED = True
+    return verify
+
+
 def http_request(
     method: str,
     url: str,
@@ -63,9 +95,12 @@ def http_request(
 
     Retries on connection errors, timeouts, and 5xx responses.
     Raises requests.HTTPError on non-retryable failures (4xx).
+    SSL verification policy is centralised via OPS_HTTP_SSL_VERIFY — callers should
+    not pass verify= themselves unless they have a caller-specific reason.
     """
     logger = logging.getLogger('http_request')
     kwargs.setdefault('timeout', timeout)
+    kwargs.setdefault('verify', _http_verify())
 
     if retries < 1:
         raise ValueError(f"retries must be >= 1, got {retries!r}")

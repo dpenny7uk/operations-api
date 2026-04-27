@@ -288,6 +288,17 @@
     return el;
   }
 
+  // Prepends a DEMO pill to a page when the endpoints powering it failed and
+  // the view is showing the pre-seeded demo data instead of live data.
+  function demoRibbon(widgetKey) {
+    const set = (typeof window !== 'undefined' ? window.DEMO_WIDGETS : null);
+    if (!set || !(set instanceof Set) || !set.has(widgetKey)) return null;
+    return h('div.demo-ribbon-row', { role: 'status', 'aria-label': 'This widget is showing demo data' },
+      h('span.demo-ribbon', null, 'DEMO DATA'),
+      h('span.demo-ribbon-note', null, 'live fetch failed — figures below are placeholders, not current.'),
+    );
+  }
+
   function stamp(kind, text) {
     // Reuses .affected-chip visual vocabulary — tone classes crit/warn/ok/info
     return h('span.affected-chip.'+kind, null, text);
@@ -372,6 +383,7 @@
 
   function renderServersPage(mount) {
     const page = h('div.page');
+    const ribbon = demoRibbon('servers'); if (ribbon) page.appendChild(ribbon);
     const live = liveSrv();
 
     // Inventory count + env split
@@ -602,6 +614,7 @@
 
   function renderCertsPage(mount) {
     const page = h('div.page');
+    const ribbon = demoRibbon('certs'); if (ribbon) page.appendChild(ribbon);
     const { list: CERTS, counts: CERT_COUNTS } = liveCerts();
 
     // Hero status strip with STAMPED expired/crit counts — replaces the quiet tiles
@@ -781,6 +794,7 @@
 
   function renderEolPage(mount) {
     const page = h('div.page');
+    const ribbon = demoRibbon('eol'); if (ribbon) page.appendChild(ribbon);
     const { products: EOL_PRODUCTS, totals: EOL_TOTALS } = liveEol();
 
     // Hero strip — STAMPED EOL counts (loud)
@@ -1038,6 +1052,7 @@
 
   function renderPatchingPage(mount) {
     const page = h('div.page');
+    const ribbon = demoRibbon('patching'); if (ribbon) page.appendChild(ribbon);
     const PATCH_ISSUES = getPatchIssues();
 
     // HERO — countdown + cycle meta + group bars
@@ -1422,6 +1437,7 @@
 
   function renderPatchMgmtPage(mount) {
     const page = h('div.page');
+    const ribbon = demoRibbon('exclusions'); if (ribbon) page.appendChild(ribbon);
 
     // Hero strip — exclusions health
     const strip = h('div.crit-strip');

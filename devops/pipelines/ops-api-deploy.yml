@@ -410,11 +410,31 @@ stages:
                                   $body = $response.Content
                                   Write-Host "Response: $body"
                                   $json = $body | ConvertFrom-Json
-                                  if ($json.status -eq "Healthy") {
-                                      Write-Host "##[section]Deployment verified - API is healthy"
+
+                                  $checks = @()
+                                  if ($json.PSObject.Properties['checks'] -and $json.checks) { $checks = @($json.checks) }
+                                  $unhealthy = @($checks | Where-Object { $_.status -eq 'Unhealthy' })
+                                  $degraded  = @($checks | Where-Object { $_.status -eq 'Degraded' })
+
+                                  # Unhealthy check — dependency is definitively broken, don't retry.
+                                  if ($unhealthy.Count -gt 0) {
+                                      foreach ($c in $unhealthy) {
+                                          Write-Error "CHECK $($c.name) UNHEALTHY: $($c.description)"
+                                      }
+                                      exit 1
+                                  }
+
+                                  if ($json.status -eq 'Healthy' -and $degraded.Count -eq 0) {
+                                      Write-Host "##[section]Deployment verified - API is healthy (all $($checks.Count) check(s) green)"
                                       exit 0
+                                  }
+
+                                  if ($degraded.Count -gt 0) {
+                                      foreach ($c in $degraded) {
+                                          Write-Warning "CHECK $($c.name) DEGRADED: $($c.description)"
+                                      }
                                   } else {
-                                      Write-Warning "Status 200 but health status was: $($json.status)"
+                                      Write-Warning "Status 200 but top-level health status was: $($json.status)"
                                   }
                               }
                           } catch {
