@@ -19,7 +19,7 @@ import re
 import sys
 from typing import Optional
 
-import pymssql
+import pyodbc
 from psycopg2.extras import execute_values
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -46,7 +46,7 @@ _READONLY_RE = re.compile(
 
 
 class _ReadOnlyCursor:
-    """pymssql cursor proxy that allows only SELECT statements."""
+    """pyodbc cursor proxy that allows only SELECT statements."""
 
     def __init__(self, inner):
         self._inner = inner
@@ -76,7 +76,7 @@ class _ReadOnlyCursor:
 
 
 class _ReadOnlyConnection:
-    """pymssql connection proxy that yields read-only cursors."""
+    """pyodbc connection proxy that yields read-only cursors."""
 
     def __init__(self, inner):
         self._inner = inner
@@ -120,38 +120,50 @@ WHERE v.VolumeType = 'Fixed Disk'
 
 
 def get_solarwinds_connection():
-    """Connect to SolarWinds Orion via pymssql, wrapped read-only.
+    """Connect to SolarWinds Orion via pyodbc + Trusted_Connection.
 
-    Reads SOLARWINDS_HOST/PORT/DATABASE/USER/PASSWORD env vars (matching the
-    OPS_DB_* and DATABRICKS_* conventions used elsewhere in this sync layer).
+    Authenticates with the process's Windows identity (HISCOX\\SVC_Tableau on
+    the dedicated solarwinds-readers ADO agent). No SOLARWINDS_USER/_PASSWORD
+    env vars — pyodbc inherits the agent service account's credentials at the
+    OS level. The named-instance form (host\\instance) is supported directly
+    by SERVER=; SQL Browser (UDP 1434) resolves the dynamic port.
 
-    The returned object is a _ReadOnlyConnection — any cursor it yields will
-    refuse non-SELECT statements at code level. This is defence in depth on
-    top of the db_datareader account permissions on SolarWindsOrion.
+    Returns a _ReadOnlyConnection wrapper that refuses non-SELECT statements
+    at code level. db_datareader on SolarWindsOrion is the strongest defence
+    at the SQL Server side; the wrapper backs that up at code level.
     """
-    validate_env_vars(['SOLARWINDS_HOST', 'SOLARWINDS_USER', 'SOLARWINDS_PASSWORD'])
-    raw = pymssql.connect(
-        server=os.environ['SOLARWINDS_HOST'],
-        port=int(os.environ.get('SOLARWINDS_PORT', '1433')),
-        database=os.environ.get('SOLARWINDS_DATABASE', 'SolarWindsOrion'),
-        user=os.environ['SOLARWINDS_USER'],
-        password=os.environ['SOLARWINDS_PASSWORD'],
-        as_dict=True,
+    validate_env_vars(['SOLARWINDS_HOST', 'SOLARWINDS_DATABASE'])
+    raw = pyodbc.connect(
+        "DRIVER={ODBC Driver 17 for SQL Server};"
+        f"SERVER={os.environ['SOLARWINDS_HOST']};"
+        f"DATABASE={os.environ['SOLARWINDS_DATABASE']};"
+        "Trusted_Connection=yes;"
+        "Encrypt=yes;TrustServerCertificate=no;",
         timeout=60,
-        login_timeout=30,
     )
     return _ReadOnlyConnection(raw)
 
 
+def _rows_as_dicts(cursor, rows):
+    """Convert pyodbc tuple-rows to dicts using cursor.description column names.
+
+    pymssql exposed `as_dict=True`; pyodbc has no equivalent flag, so we do it
+    explicitly here. transform_row() uses dict-style access (row['server_name'])
+    and is unchanged by the driver swap thanks to this helper.
+    """
+    cols = [c[0] for c in cursor.description]
+    return [dict(zip(cols, r)) for r in rows]
+
+
 def fetch_disks_from_solarwinds() -> list:
-    """Run the source query against SolarWinds and return raw rows."""
+    """Run the source query against SolarWinds and return raw rows as dicts."""
     conn = get_solarwinds_connection()
     try:
         with conn.cursor() as cur:
             cur.execute(SOURCE_QUERY)
             rows = cur.fetchall()
             logger.info("Fetched %d disk rows from SolarWinds", len(rows))
-            return rows
+            return _rows_as_dicts(cur, rows)
     finally:
         conn.close()
 
