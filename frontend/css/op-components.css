@@ -129,6 +129,7 @@ table.op thead th {
 }
 table.op thead th.sortable { cursor: pointer; }
 table.op thead th.sortable:hover { color: var(--ink); }
+table.op thead th.num { text-align: right; }
 table.op thead th .caret {
   display: inline-block;
   margin-left: 4px;

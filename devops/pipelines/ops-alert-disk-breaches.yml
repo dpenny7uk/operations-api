@@ -1,0 +1,54 @@
+# Operations API - Disk Threshold Breach Alert
+#
+# Runs every 4 hours during business hours (UK) — queries monitoring.disk_current
+# for disks at warn/crit, posts a single Teams Adaptive Card per run, and uses
+# monitoring.alerts to suppress repeats within DISK_ALERT_COOLDOWN_HOURS (default 24h).
+#
+# Also fires "resolved" notifications when a previously-alerted disk has recovered
+# to status=1, marking the corresponding monitoring.alerts row resolved.
+
+trigger: none
+
+schedules:
+  - cron: "0 8,12,16 * * 1-5"
+    displayName: "Disk breach check every 4h, business hours, Mon–Fri"
+    branches:
+      include:
+        - main
+    always: true
+
+pool:
+  name: 'Default'
+
+variables:
+  - group: operations-api-prod
+
+steps:
+  - powershell: |
+      $repoRoot = "$(Build.SourcesDirectory)\operations-api"
+      $workDir = "$(Build.StagingDirectory)\sync_run"
+      New-Item -ItemType Directory -Force -Path $workDir | Out-Null
+      Copy-Item "$repoRoot\sync\common.py" "$workDir\"
+      Copy-Item "$repoRoot\sync\alerts\alert_disk_breaches.py" "$workDir\"
+      pip install -r "$repoRoot\sync\requirements.txt"
+      if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    displayName: 'Prepare sync environment'
+    timeoutInMinutes: 10
+    errorActionPreference: stop
+
+  - powershell: |
+      Set-Location "$(Build.StagingDirectory)\sync_run"
+      python alert_disk_breaches.py --verbose
+      if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    displayName: 'Check for disk threshold breaches'
+    timeoutInMinutes: 10
+    errorActionPreference: stop
+    env:
+      OPS_DB_HOST: $(OPS_DB_HOST)
+      OPS_DB_PORT: $(OPS_DB_PORT)
+      OPS_DB_NAME: $(OPS_DB_NAME)
+      OPS_DB_USER: $(OPS_DB_USER)
+      OPS_DB_PASSWORD: $(OPS_DB_PASSWORD)
+      OPS_DB_SSLMODE: $(OPS_DB_SSLMODE)
+      TEAMS_WEBHOOK_URL: $(TEAMS_WEBHOOK_URL)
+      DISK_ALERT_COOLDOWN_HOURS: $(DISK_ALERT_COOLDOWN_HOURS)

@@ -83,3 +83,10 @@ public interface IEolService
     Task<EolSoftwareDetail?> GetByProductVersionAsync(string product, string version);
     Task<IEnumerable<EolSoftware>> GetByServerAsync(string serverName, int limit = 500);
 }
+
+public interface IDiskMonitoringService
+{
+    Task<DiskSummary> GetSummaryAsync();
+    Task<PagedResult<Disk>> ListDisksAsync(int limit, int offset);
+    Task<IEnumerable<DiskHistoryPoint>> GetHistoryAsync(string serverName, string diskLabel, int days);
+}

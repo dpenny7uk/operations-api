@@ -22,6 +22,7 @@
     {id:'patchmgmt', idx:'04', label:'Patch Management'},
     {id:'certs',     idx:'05', label:'Certificates'},
     {id:'eol',       idx:'06', label:'End of Life'},
+    {id:'disks',     idx:'07', label:'Disk Monitoring'},
   ];
 
   function currentRoute() {
@@ -2233,6 +2234,365 @@
   }
 
   // ================================================================
+  // DISK MONITORING — replaces the Tableau disk dashboard. SolarWinds-sourced.
+  // ================================================================
+  // Synthetic seed for demo mode and pre-API renders. Mirrors the API's
+  // /api/disks `items` shape so render code only needs one path.
+  function buildDisks() {
+    const rng = (() => { let s = 0xD15C00; return () => (s = (s*1103515245 + 12345) >>> 0) / 0x100000000; })();
+    const servers = [
+      {name:'PR0603-07012-00', service:'tyme', env:'Production',  owner:'Andy King',     bu:'Hiscox UK'},
+      {name:'PR0603-25002-00', service:'cms',  env:'Production',  owner:'Richard Wykes', bu:'Hiscox London Market'},
+      {name:'PR0603-31002-00', service:'tyche',env:'Production',  owner:'John MacMahon', bu:'Hiscox Re & ILS'},
+      {name:'DV0801-12001-00', service:'tyme', env:'Development', owner:'Andy King',     bu:'Hiscox UK'},
+      {name:'UT0901-04001-00', service:'cms',  env:'UAT',         owner:'Richard Wykes', bu:'Hiscox London Market'},
+    ];
+    const labels = ['C:\\', 'D:\\', 'E:\\SQL_RND_01', 'E:\\SQL_RND_04', 'F:\\Logs', 'G:\\Backups'];
+    // Spread of statuses: ~70% ok, ~20% warn, ~10% crit.
+    const buckets = [1,1,1,1,1,1,1,2,2,3];
+    const disks = [];
+    let i = 0;
+    for (const srv of servers) {
+      const n = 3 + Math.floor(rng() * 3); // 3-5 disks per server
+      for (let k = 0; k < n; k++) {
+        const status = buckets[Math.floor(rng() * buckets.length)];
+        const size = Math.round((50 + rng()*1500) / 10) * 10;
+        const pct = status === 3 ? 90 + rng()*8
+                  : status === 2 ? 80 + rng()*9
+                  : 20 + rng()*55;
+        const used = Math.round(size * pct / 100 * 10) / 10;
+        const free = Math.round((size - used) * 10) / 10;
+        // Most disks growing slowly; a couple shrinking; one ticking down to crit.
+        const slope = (rng() < 0.15) ? -0.1 - rng()*0.5 : 0.05 + rng()*0.4;
+        const critGb = size * 0.9;
+        const remaining = critGb - used;
+        const days = (slope > 0 && remaining > 0) ? remaining / slope : null;
+        // Force one disk under 7 days for badge demo.
+        const daysFinal = (i === 6) ? 4 : days;
+        disks.push({
+          id: ++i,
+          serverName: srv.name,
+          diskLabel: labels[k % labels.length],
+          service: srv.service,
+          environment: srv.env,
+          technicalOwner: srv.owner,
+          businessUnit: srv.bu,
+          volumeSizeGb: size,
+          usedGb: used,
+          freeGb: free,
+          percentUsed: Math.round(pct * 10) / 10,
+          alertStatus: status,
+          thresholdWarnPct: 80,
+          thresholdCritPct: 90,
+          daysUntilCritical: daysFinal,
+        });
+      }
+    }
+    return disks;
+  }
+
+  const DISKS_DEMO = buildDisks();
+  window.DISKS_DATA = { items: DISKS_DEMO, totalCount: DISKS_DEMO.length };
+
+  function liveDisks() {
+    const D = window.DISKS_DATA || {};
+    const items = Array.isArray(D.items) && D.items.length ? D.items : DISKS_DEMO;
+    return { items, total: D.totalCount != null ? D.totalCount : items.length };
+  }
+
+  // Filter state — single-select per dimension with '__all' default. Matches
+  // existing pages (Servers/Certs); Tableau's multi-select stays as v2 polish.
+  const diskState = {
+    status: '__all',
+    owner:  '__all',
+    env:    '__all',
+    service:'__all',
+    sizeBucket:'__all',
+    sort:'percentUsed',
+    sortDir:-1,
+    page:1,
+    per:50,
+  };
+
+  // Derived helpers --------------------------------------------------------
+  function diskSizeBucket(gb) {
+    if (gb < 100)   return '<100 GB';
+    if (gb < 500)   return '100–499 GB';
+    if (gb < 1000)  return '500–999 GB';
+    if (gb < 2000)  return '1–2 TB';
+    return '2 TB+';
+  }
+
+  function diskUniqValues(items, field) {
+    const set = new Set();
+    items.forEach(d => { const v = d[field]; if (v) set.add(v); });
+    return Array.from(set).sort();
+  }
+
+  function diskStatusKpis(items) {
+    const k = { total: items.length, ok: 0, warn: 0, crit: 0 };
+    items.forEach(d => {
+      if (d.alertStatus === 1) k.ok++;
+      else if (d.alertStatus === 2) k.warn++;
+      else if (d.alertStatus === 3) k.crit++;
+    });
+    return k;
+  }
+
+  function applyDiskFilters() {
+    let rows = liveDisks().items.slice();
+    if (diskState.status !== '__all') rows = rows.filter(d => String(d.alertStatus) === diskState.status);
+    if (diskState.owner !== '__all')  rows = rows.filter(d => (d.technicalOwner || '') === diskState.owner);
+    if (diskState.env !== '__all')    rows = rows.filter(d => (d.environment || '') === diskState.env);
+    if (diskState.service !== '__all')rows = rows.filter(d => (d.service || '') === diskState.service);
+    if (diskState.sizeBucket !== '__all') rows = rows.filter(d => diskSizeBucket(d.volumeSizeGb) === diskState.sizeBucket);
+    rows.sort((a, b) => {
+      const av = a[diskState.sort], bv = b[diskState.sort];
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      if (av < bv) return -1 * diskState.sortDir;
+      if (av > bv) return  1 * diskState.sortDir;
+      return 0;
+    });
+    return rows;
+  }
+
+  // Inline SVG sparkline. ~80 LoC, no charting library.
+  function diskSparkline(history, width, height) {
+    if (!history || history.length < 2) return null;
+    const w = width || 120;
+    const ht = height || 24;
+    const xs = history.map((_, i) => i);
+    const ys = history.map(p => Number(p.usedGb) || 0);
+    const xMin = 0, xMax = xs.length - 1;
+    const yMin = Math.min(...ys), yMax = Math.max(...ys);
+    const yRange = (yMax - yMin) || 1;
+    const path = xs.map((x, i) => {
+      const px = (x - xMin) / (xMax - xMin || 1) * (w - 2) + 1;
+      const py = ht - 1 - ((ys[i] - yMin) / yRange) * (ht - 2);
+      return (i === 0 ? 'M' : 'L') + px.toFixed(1) + ',' + py.toFixed(1);
+    }).join(' ');
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('width', String(w));
+    svg.setAttribute('height', String(ht));
+    svg.setAttribute('viewBox', '0 0 ' + w + ' ' + ht);
+    svg.style.display = 'inline-block';
+    svg.style.verticalAlign = 'middle';
+    const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    p.setAttribute('d', path);
+    p.setAttribute('fill', 'none');
+    p.setAttribute('stroke', 'currentColor');
+    p.setAttribute('stroke-width', '1.2');
+    svg.appendChild(p);
+    return svg;
+  }
+
+  // Inline usage bar styled to match the dark/light tokens used elsewhere.
+  // We don't use `.env-row .bar .fill` because that selector is grid-scoped;
+  // these styles are intentionally local so the bar renders inside table cells.
+  function diskUsageBar(d) {
+    const pct = Math.min(100, Math.max(0, Number(d.percentUsed) || 0));
+    const toneVar = d.alertStatus === 3 ? 'var(--crit)'
+                  : d.alertStatus === 2 ? 'var(--warn)'
+                  : 'var(--ok)';
+    return h('div', {
+      style: {
+        width: '140px',
+        height: '8px',
+        background: 'var(--paper-2)',
+        borderRadius: '1px',
+        overflow: 'hidden',
+        position: 'relative',
+      },
+    },
+      h('div', {
+        style: {
+          position: 'absolute',
+          left: '0', top: '0', bottom: '0',
+          width: pct + '%',
+          background: toneVar,
+        },
+      }),
+    );
+  }
+
+  // Days-until-critical badge. Reuses the .affected-chip vocabulary which only
+  // ships crit/warn/ok tones — we render a muted plain-text "stable" instead of
+  // inventing a non-existent .info tone.
+  function diskDaysBadge(days) {
+    if (days == null) return h('span.muted', null, 'stable');
+    if (days <= 0)    return stamp('crit', 'over');
+    const rounded = Math.round(days);
+    if (rounded < 7)  return stamp('crit', rounded + 'd');
+    if (rounded < 30) return stamp('warn', rounded + 'd');
+    return stamp('ok', rounded + 'd');
+  }
+
+  // History cache for sparklines — populated lazily by op-boot.js if available.
+  // Falls back to a synthesised series so demo rows still render a line.
+  function diskHistoryFor(disk) {
+    const cache = (window.DISKS_DATA && window.DISKS_DATA.history) || {};
+    const key = disk.serverName + '|' + disk.diskLabel;
+    if (Array.isArray(cache[key]) && cache[key].length >= 2) return cache[key];
+    // Synthesise: 30 points walking from (used - small change) to current.
+    const pts = [];
+    const slope = disk.daysUntilCritical && disk.daysUntilCritical > 0
+      ? (disk.volumeSizeGb * 0.9 - disk.usedGb) / disk.daysUntilCritical
+      : 0;
+    const start = Number(disk.usedGb) - slope * 30;
+    for (let i = 0; i < 30; i++) {
+      pts.push({ usedGb: start + slope * i });
+    }
+    return pts;
+  }
+
+  function renderDiskMonitoringPage(mount) {
+    const page = h('div.page');
+    const ribbon = demoRibbon('disks'); if (ribbon) page.appendChild(ribbon);
+    const allItems = liveDisks().items;
+    const kpis = diskStatusKpis(allItems);
+
+    // KPI strip — mirrors the Health page CritStrip vocabulary so the visual
+    // language of "current state at a glance" is consistent across surfaces.
+    const strip = h('div.crit-strip');
+    const overallTone = kpis.crit > 0 ? 'crit' : kpis.warn > 0 ? 'warn' : 'ok';
+    const overallWord = kpis.crit > 0 ? 'Critical' : kpis.warn > 0 ? 'Attention' : 'Healthy';
+    strip.appendChild(h('div.cs-cell.status-cell.'+overallTone, null,
+      h('div.cs-label', null, 'Disk capacity'),
+      h('div.cs-value', null, overallWord),
+      h('div.cs-sub', null, kpis.total + ' disks tracked'),
+    ));
+    strip.appendChild(h('div.cs-cell.crit', null,
+      h('div.cs-label', null, 'Critical'),
+      h('div.cs-value', null, String(kpis.crit), h('span.cs-unit', null, '≥ 90% used')),
+      h('div.cs-sub', null, kpis.crit ? 'over crit threshold' : 'none over crit'),
+      kpis.crit ? h('div.cs-link', null, 'Show critical') : null,
+    ));
+    strip.appendChild(h('div.cs-cell.warn', null,
+      h('div.cs-label', null, 'Warning'),
+      h('div.cs-value', null, String(kpis.warn), h('span.cs-unit', null, '≥ 80% used')),
+      h('div.cs-sub', null, kpis.warn ? 'approaching crit' : 'none over warn'),
+      kpis.warn ? h('div.cs-link', null, 'Show warnings') : null,
+    ));
+    strip.appendChild(h('div.cs-cell.ok', null,
+      h('div.cs-label', null, 'Healthy'),
+      h('div.cs-value', null, String(kpis.ok)),
+      h('div.cs-sub', null, '< 80% used'),
+    ));
+    page.appendChild(strip);
+
+    // Compute filtered rows once so the count display, table, and CSV export
+    // all share the same view.
+    const filtered = applyDiskFilters();
+    const pg = paginate(filtered.length, diskState.page, diskState.per);
+    const slice = filtered.slice(pg.start, pg.end);
+
+    // Filters — plain <select>s styled by `.filters select`. First option per
+    // dropdown is the "All ..." reset. Single-select for v1 (Tableau parity
+    // multi-select is v2 polish).
+    const mkSelect = (field, allLabel, opts) => h('select',
+      { on:{change:(e)=>{ diskState[field]=e.target.value; diskState.page=1; window.RERENDER_PAGE(mount); }}},
+      h('option', { value:'__all', selected: diskState[field]==='__all' }, allLabel),
+      ...opts.map(([v,l]) => h('option', { value:v, selected: diskState[field]===v }, l))
+    );
+    page.appendChild(filterBar([
+      mkSelect('status', 'All alert levels', [['1','OK'],['2','Warning'],['3','Critical']]),
+      mkSelect('owner', 'All technical owners', diskUniqValues(allItems, 'technicalOwner').map(v => [v,v])),
+      mkSelect('env',   'All environments',     diskUniqValues(allItems, 'environment').map(v => [v,v])),
+      mkSelect('service','All services',        diskUniqValues(allItems, 'service').map(v => [v,v])),
+      mkSelect('sizeBucket','All volume sizes', [
+        ['<100 GB','<100 GB'], ['100–499 GB','100–499 GB'], ['500–999 GB','500–999 GB'],
+        ['1–2 TB','1–2 TB'], ['2 TB+','2 TB+'],
+      ]),
+      h('button.btn', { on:{click:()=>{
+        diskState.status='__all'; diskState.owner='__all'; diskState.env='__all';
+        diskState.service='__all'; diskState.sizeBucket='__all'; diskState.page=1;
+        window.RERENDER_PAGE(mount);
+      }}}, 'Reset'),
+      h('span.spacer'),
+      h('span.ct', null, 'Showing ' + (pg.start+1) + '–' + pg.end + ' of ' + filtered.length),
+      h('button.btn', { on:{click:()=>exportCsv('disks', filtered,
+        ['serverName','diskLabel','service','environment','technicalOwner',
+         'volumeSizeGb','usedGb','percentUsed','alertStatus','daysUntilCritical'])}}, 'Export CSV'),
+    ]));
+
+    // Table — `table.op` inside a `.table-wrap` for the dark/light card surface.
+
+    const sortableTh = (key, label, extraCls) => {
+      const on = diskState.sort === key;
+      return h('th'+(extraCls?'.'+extraCls:'')+'.sortable'+(on?'.sorted':''),
+        { on:{click:()=>{
+          if (diskState.sort===key) diskState.sortDir *= -1;
+          else { diskState.sort=key; diskState.sortDir = (key==='serverName'||key==='diskLabel') ? 1 : -1; }
+          window.RERENDER_PAGE(mount);
+        }}},
+        label, h('span.caret', null, on ? (diskState.sortDir===1?'↑':'↓') : '·'));
+    };
+
+    const tableWrap = h('div.table-wrap');
+    const table = h('table.op');
+    table.appendChild(h('thead', null, h('tr', null,
+      sortableTh('serverName',   'Server'),
+      sortableTh('service',      'Service'),
+      sortableTh('diskLabel',    'Disk'),
+      h('th', null, 'Usage'),
+      sortableTh('percentUsed',  'Used %', 'num'),
+      h('th.num', null, 'Used / Total'),
+      sortableTh('daysUntilCritical', 'Days to crit', 'num'),
+      h('th', null, 'Alert'),
+      h('th', null, '30d trend'),
+    )));
+    const tbody = h('tbody');
+    const rowCls = (s) => s === 3 ? '.sev-crit' : s === 2 ? '.sev-warn' : '';
+    const statusChip = (s) => s === 3 ? stamp('crit', 'CRITICAL')
+                            : s === 2 ? stamp('warn', 'WARNING')
+                            : stamp('ok', 'OK');
+
+    slice.forEach(d => {
+      const tr = h('tr'+rowCls(d.alertStatus), null,
+        h('td.host', null, d.serverName),
+        h('td.muted', null, d.service || '—'),
+        h('td.mono', null, d.diskLabel),
+        h('td', null, diskUsageBar(d)),
+        h('td.num'+(d.alertStatus>=2?'.strong':''),
+          { style: d.alertStatus===3 ? {color:'var(--crit)',fontWeight:'600'}
+                 : d.alertStatus===2 ? {color:'var(--warn)',fontWeight:'600'}
+                 : null },
+          Number(d.percentUsed).toFixed(1) + '%'),
+        h('td.num.muted', null, Math.round(d.usedGb).toLocaleString() + ' / ' + Math.round(d.volumeSizeGb).toLocaleString() + ' GB'),
+        h('td.num', null, diskDaysBadge(d.daysUntilCritical)),
+        h('td', null, statusChip(d.alertStatus)),
+        (function(){
+          const cell = h('td');
+          const spark = diskSparkline(diskHistoryFor(d));
+          if (spark) {
+            cell.style.color = d.alertStatus === 3 ? 'var(--crit)'
+                             : d.alertStatus === 2 ? 'var(--warn)'
+                             : 'var(--ink-3)';
+            cell.appendChild(spark);
+          } else {
+            cell.appendChild(h('span.muted', null, '—'));
+          }
+          return cell;
+        })(),
+      );
+      tbody.appendChild(tr);
+    });
+    if (slice.length === 0) {
+      tbody.appendChild(h('tr', null, h('td', { colspan: 9 },
+        h('div.no-hits', null, 'No disks match filter'))));
+    }
+    table.appendChild(tbody);
+    tableWrap.appendChild(table);
+    tableWrap.appendChild(paginationBar(pg, p => { diskState.page = p; window.RERENDER_PAGE(mount); }));
+    page.appendChild(tableWrap);
+
+    mount.innerHTML = '';
+    mount.appendChild(page);
+  }
+
+  // ================================================================
   // Expose
   // ================================================================
   window.RENDER_SERVERS  = renderServersPage;
@@ -2240,4 +2600,5 @@
   window.RENDER_EOL      = renderEolPage;
   window.RENDER_PATCHING = renderPatchingPage;
   window.RENDER_PATCHMGMT= renderPatchMgmtPage;
+  window.RENDER_DISKS    = renderDiskMonitoringPage;
 })();
