@@ -17,7 +17,11 @@ schedules:
     always: true
 
 pool:
-  name: 'Default'
+  # Dedicated agent whose service runs as HISCOX\SVC_Tableau — the only
+  # identity that can read SolarWindsOrion (Windows-only login, db_datareader).
+  # pyodbc + Trusted_Connection inherits that identity at OS level. The pool
+  # must exist with at least one online agent before this pipeline can run.
+  name: 'solarwinds-readers'
 
 variables:
   - group: operations-api-prod
