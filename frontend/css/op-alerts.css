@@ -42,6 +42,15 @@
   align-items: center;
   gap: 8px;
 }
+.alert .a-body .a-source {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-bottom: 4px;
+}
 .alert .a-body .a-title {
   font-size: 14.5px;
   color: var(--ink);

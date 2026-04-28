@@ -51,6 +51,9 @@
   color: var(--ink-4);
   margin-bottom: 8px;
 }
+/* Two-group rail (Operate / Manage) — spacing between groups so the labels
+   read as section headers rather than running together. */
+.rail-groups { display: flex; flex-direction: column; gap: 22px; }
 
 .nav-list {
   display: flex;
@@ -92,6 +95,7 @@
   border: 1px solid var(--rule);
 }
 .nav-item .flag.crit { color: var(--paper); background: var(--crit); border-color: transparent; }
+.nav-item .flag.warn { color: oklch(0.45 0.14 75); background: var(--warn-wash); border-color: transparent; }
 .nav-item.active { color: var(--ink); }
 .nav-item.active .idx { color: var(--signal); }
 .nav-item.active .label::after {

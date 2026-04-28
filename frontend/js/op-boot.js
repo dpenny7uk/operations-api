@@ -250,6 +250,21 @@ function mapSyncs(items) {
   }));
 }
 
+// Derive a display-friendly source label from the alert's id namespace. The
+// AlertsService.cs UNION emits ids like 'disk:WEB01:C:\\', 'cert:42', etc.
+// — same prefix vocabulary client-side derivers (deriveDiskAlerts) emit.
+// Used by the Alert() renderer to show a small mono kicker so operators can
+// triage at a glance without inspecting the body text.
+function sourceFromId(id) {
+  const s = String(id || '');
+  if (s.startsWith('disk:'))      return 'Disks';
+  if (s.startsWith('cert:'))      return 'Certs';
+  if (s.startsWith('sync:'))      return 'Sync';
+  if (s.startsWith('server:'))    return 'Servers';
+  if (s.startsWith('exclusion:')) return 'Patching';
+  return null;
+}
+
 function mapAlerts(items) {
   return (items || []).map(a => ({
     id: a.id,
@@ -257,6 +272,7 @@ function mapAlerts(items) {
     sub: a.sub,
     detail: a.detail,
     tone: a.tone || 'info',
+    source: sourceFromId(a.id),
   }));
 }
 
