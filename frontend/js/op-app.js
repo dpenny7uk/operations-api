@@ -49,6 +49,35 @@
   // EXCLUSIONS: exposed via window.EXCLUSIONS so op-boot.js can replace after fetch.
   window.EXCLUSIONS = window.EXCLUSIONS || [];
 
+  // Derive disk alerts client-side from window.DISKS_DATA. The server-side
+  // /api/alerts/recent UNION (AlertsService.cs) is authoritative when the API
+  // is healthy; this filler runs all the time but its entries are deduped by
+  // id in consoleState() so a server-side disk:server:label entry suppresses
+  // the matching derived one. Demo mode (where /api/alerts/recent is empty)
+  // is the case this actually changes the behaviour of System Status.
+  function deriveDiskAlerts() {
+    const items = (window.DISKS_DATA && Array.isArray(window.DISKS_DATA.items)) ? window.DISKS_DATA.items : [];
+    return items
+      .filter(d => d.alertStatus >= 2 || (d.daysUntilCritical != null && d.daysUntilCritical <= 7))
+      .map(d => {
+        const tone = (d.alertStatus === 3 || (d.daysUntilCritical != null && d.daysUntilCritical <= 7)) ? 'crit' : 'warn';
+        const pct = Number(d.percentUsed).toFixed(1);
+        const used = Math.round(d.usedGb), total = Math.round(d.volumeSizeGb);
+        let detail = pct + '% used (' + used + '/' + total + ' GB)';
+        if (d.daysUntilCritical != null && d.daysUntilCritical <= 30) {
+          detail += ' — ~' + Math.round(d.daysUntilCritical) + ' days to crit';
+        }
+        return {
+          id: 'disk:' + d.serverName + ':' + d.diskLabel,
+          when: new Date(),
+          sub: d.serverName + ' ' + d.diskLabel + ' over threshold',
+          detail,
+          tone,
+          source: 'Disks',
+        };
+      });
+  }
+
   // ================================================================
   // CONSOLE STATE — derived live from window globals + apiErrors.
   // Returns the same shape the page renderers previously consumed from
@@ -66,12 +95,19 @@
     const apiState = errCount === 0 ? 'ok' : hasBlanket ? 'off' : 'warn';
 
     // Alerts come from /api/alerts/recent (populated into RECENT_ALERTS_BASE
-    // by op-boot.js). Tones there are already crit/warn/info.
-    const recent = Array.isArray(window.RECENT_ALERTS_BASE) ? window.RECENT_ALERTS_BASE : [];
+    // by op-boot.js). Tones there are already crit/warn/info. We then merge
+    // in client-side disk derivations, deduped by id — server-side entries
+    // win when both paths produce the same disk:server:label key. This means
+    // demo mode (empty RECENT_ALERTS_BASE) still surfaces disk crits in the
+    // System Status / CritStrip / Active-alerts feed.
+    const recentBase = Array.isArray(window.RECENT_ALERTS_BASE) ? window.RECENT_ALERTS_BASE : [];
+    const seenIds = new Set(recentBase.map(a => a.id));
+    const recent = recentBase.concat(deriveDiskAlerts().filter(d => !seenIds.has(d.id)));
     const alerts = recent.map(a => ({
       sev: a.tone || 'info',
       title: a.sub || a.id || 'Alert',
       detail: a.detail || '',
+      source: a.source || null,
       meta: { blast: a.id || '' },
     }));
     const crit = recent.filter(a => a.tone === 'crit').length;
@@ -126,36 +162,95 @@
   // ================================================================
   // RAIL + STATUSLINE
   // ================================================================
+  // Compute the optional severity pill shown next to a route in the rail.
+  // Reads the same window.* globals the per-surface heroes already consult,
+  // so no extra fetches. Returns null when the route has no open signals
+  // (the .flag span is then omitted entirely — zero visual cost).
+  function railFlagFor(rid) {
+    if (rid === 'disks') {
+      const items = (window.DISKS_DATA && window.DISKS_DATA.items) || [];
+      const c = items.filter(d => d.alertStatus === 3).length;
+      const w = items.filter(d => d.alertStatus === 2).length;
+      if (c) return { tone: 'crit', text: c + ' crit' };
+      if (w) return { tone: 'warn', text: w + ' warn' };
+      return null;
+    }
+    if (rid === 'certs') {
+      const cc = (window.CERTS_DATA && window.CERTS_DATA.CERT_COUNTS) || {};
+      const crit = (cc.crit || 0) + (cc.expired || 0);
+      const warn = cc.warn || 0;
+      if (crit) return { tone: 'crit', text: crit + ' crit' };
+      if (warn) return { tone: 'warn', text: warn + ' warn' };
+      return null;
+    }
+    if (rid === 'eol') {
+      const t = (window.EOL_DATA && window.EOL_DATA.EOL_TOTALS) || {};
+      const crit = t.eol || 0;
+      const warn = t.extended || 0;
+      if (crit) return { tone: 'crit', text: crit + ' EOL' };
+      if (warn) return { tone: 'warn', text: warn + ' ext' };
+      return null;
+    }
+    if (rid === 'patchmgmt') {
+      const ex = Array.isArray(window.EXCLUSIONS) ? window.EXCLUSIONS : [];
+      const overdue  = ex.filter(x => x.state === 'overdue').length;
+      const expiring = ex.filter(x => x.state === 'expiring').length;
+      if (overdue)  return { tone: 'crit', text: overdue + ' due' };
+      if (expiring) return { tone: 'warn', text: expiring + ' soon' };
+      return null;
+    }
+    return null;
+  }
+
   function Rail() {
-    const ROUTE_MAP = [
-      ['01','Health','health'],
-      ['02','Servers','servers'],
-      ['03','Patching Schedules','patching'],
-      ['04','Patch Management','patchmgmt'],
-      ['05','Certificates','certs'],
-      ['06','End of Life','eol'],
-      ['07','Disk Monitoring','disks'],
+    // Two groups so the rail reads as intent rather than a priority list:
+    //   Estate — what you have (Health overview + Servers inventory).
+    //   Risk   — things demanding attention (expiry, capacity, EOL, exclusions).
+    // The Risk group is exactly the set with severity pills attached, so the
+    // grouping reinforces the colour coding rather than fighting it. Flat
+    // numbering 01–07 is preserved so '07 is Disks' muscle memory still works.
+    const GROUPS = [
+      { label: 'Estate', items: [
+        ['01','Health','health'],
+        ['02','Servers','servers'],
+      ]},
+      { label: 'Risk', items: [
+        ['03','Patching Schedules','patching'],
+        ['04','Patch Management','patchmgmt'],
+        ['05','Certificates','certs'],
+        ['06','End of Life','eol'],
+        ['07','Disk Monitoring','disks'],
+      ]},
     ];
     const active = (window.ROUTER && window.ROUTER.currentRoute()) || 'health';
-    const nav = h('ul.nav-list');
-    for (const [idx,label,rid] of ROUTE_MAP) {
-      const cls = (rid === active) ? '.active' : '';
-      const li = h('li.nav-item'+cls, {
-        on:{click:()=>{ if (window.ROUTER) window.ROUTER.goto(rid); }},
-        role:'button', tabindex:'0',
-      },
-        h('span.idx', null, idx),
-        h('span.label', null, label));
-      nav.appendChild(li);
+
+    function renderGroup(group) {
+      const nav = h('ul.nav-list');
+      for (const [idx, label, rid] of group.items) {
+        const cls = (rid === active) ? '.active' : '';
+        const li = h('li.nav-item'+cls, {
+          on:{click:()=>{ if (window.ROUTER) window.ROUTER.goto(rid); }},
+          role:'button', tabindex:'0',
+        },
+          h('span.idx', null, idx),
+          h('span.label', null, label));
+        const flag = railFlagFor(rid);
+        if (flag) li.appendChild(h('span.flag.'+flag.tone, null, flag.text));
+        nav.appendChild(li);
+      }
+      return h('div.rail-group', null,
+        h('div.rail-section-label', null, group.label),
+        nav,
+      );
     }
+
     const api = consoleState().apiState;
     return h('aside.rail', null,
       h('div.brand', null,
         h('div.mark', null, 'Service Ops'),
         h('div.sub', null, 'operations dashboard')),
-      h('div', null,
-        h('div.rail-section-label', null, 'Surfaces'),
-        nav),
+      h('div.rail-groups', null,
+        ...GROUPS.map(renderGroup)),
       h('div.rail-footer', null,
         h('span.rail-api'+(api==='off'?'.off':api==='warn'?'.warn':''), null,
           h('span.d'), 'API '+(api==='off'?'offline':api==='warn'?'degraded':'online')),
@@ -380,7 +475,12 @@
     const title = h('div.a-title'); title.innerHTML = a.title;
     const el = h('div.alert.'+a.sev);
     el.appendChild(h('span.a-sev', null, h('span.a-dot'+(a.sev==='crit'||a.sev==='warn'?'.pulsing':'')), sevLabel));
-    el.appendChild(h('div.a-body', null, title, h('div.a-detail', null, a.detail), metaBlock));
+    const body = h('div.a-body');
+    if (a.source) body.appendChild(h('span.a-source', null, a.source));
+    body.appendChild(title);
+    body.appendChild(h('div.a-detail', null, a.detail));
+    body.appendChild(metaBlock);
+    el.appendChild(body);
 
     // Snooze = client-side dismiss. Not persistent — fades the alert on this
     // session only. (There is no snooze/ack endpoint yet.)
@@ -396,7 +496,8 @@
   }
 
   // ================================================================
-  // CRITICAL ISSUES STRIP (4 cells — no validation rules)
+  // CRITICAL ISSUES STRIP (6 cells — System status, Next patch cycle,
+  // Unmatched servers, Sync failures, Disk capacity, Patch exclusions)
   // ================================================================
   function CritStrip(sc) {
     const stale = sc.apiState !== 'ok';
@@ -440,6 +541,29 @@
       h('div.cs-value', null, String(failing)),
       h('div.cs-sub', null, failing ? (failing === 1 ? '1 sync failing' : failing + ' syncs failing') : 'all syncs healthy'),
       h('div.cs-link', null, 'View sync status')));
+
+    // Disk capacity — count crit/warn disks from window.DISKS_DATA
+    const disks = (window.DISKS_DATA && Array.isArray(window.DISKS_DATA.items)) ? window.DISKS_DATA.items : [];
+    const dCrit = disks.filter(d => d.alertStatus === 3).length;
+    const dWarn = disks.filter(d => d.alertStatus === 2).length;
+    const dTone = dCrit ? 'crit' : dWarn ? 'warn' : 'ok';
+    const dValue = String(dCrit || dWarn || disks.length);
+    const dUnit  = dCrit ? (dCrit === 1 ? 'critical' : 'critical')
+                 : dWarn ? (dWarn === 1 ? 'warning' : 'warning')
+                 : 'tracked';
+    strip.appendChild(h('div.cs-cell.'+dTone, {
+      on: { click: () => { if (window.ROUTER) window.ROUTER.goto('disks'); } },
+      role: 'button', tabindex: '0',
+    },
+      h('div.cs-label', null, 'Disk capacity'),
+      h('div.cs-value', null, dValue, h('span.cs-unit', null, dUnit)),
+      h('div.cs-sub', null,
+        dCrit && dWarn ? (dWarn + ' warning · ' + disks.length + ' tracked')
+        : dCrit ? (disks.length + ' tracked')
+        : dWarn ? (disks.length + ' tracked')
+        : 'all under threshold'),
+      (dCrit || dWarn) ? h('div.cs-link', null, 'Open Disk Monitoring') : null,
+    ));
 
     // Patch exclusions — already real via window.EXCLUSIONS
     const exCount = (window.EXCLUSIONS || []).length;
