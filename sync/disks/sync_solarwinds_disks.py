@@ -6,7 +6,7 @@ disk into monitoring.disk_snapshots — append-only history, never updated.
 
 Alert thresholds replicate Tableau's calculated fields exactly:
   warn (status=2): percent_used >= DISK_WARN_PCT (default 80, no per-disk override)
-  crit (status=3): percent_used >= COALESCE(Volumes.[Alert Vol], DISK_CRIT_PCT_DEFAULT)
+  crit (status=3): percent_used >= COALESCE(Volumes.ALERT_VOL, DISK_CRIT_PCT_DEFAULT)
   ok   (status=1): otherwise
 
 If thresholds are changed via env vars, also update DiskMonitoring:WarnThresholdPct
@@ -111,7 +111,7 @@ SELECT
     v.VolumeSpaceUsed        AS used_bytes,
     v.VolumeSpaceAvailable   AS free_bytes,
     v.VolumePercentUsed      AS percent_used,
-    v.[Alert Vol]            AS alert_vol_override
+    v.ALERT_VOL              AS alert_vol_override
 FROM dbo.Volumes v
 INNER JOIN dbo.Nodes n ON v.NodeID = n.NodeID
 WHERE v.VolumeType = 'Fixed Disk'
@@ -263,7 +263,7 @@ def main():
     args = parser.parse_args()
     configure_verbosity(args.verbose)
 
-    logger.info("Thresholds: warn=%.1f%%, crit_default=%.1f%% (per-disk override via Volumes.[Alert Vol])",
+    logger.info("Thresholds: warn=%.1f%%, crit_default=%.1f%% (per-disk override via Volumes.ALERT_VOL)",
                 WARN_PCT, CRIT_PCT_DEFAULT)
 
     with SyncContext("solarwinds_disks", "SolarWinds Disk Sync", dry_run=args.dry_run) as ctx:
