@@ -241,13 +241,13 @@ public class DatabaseFixture : IAsyncLifetime
              alert_status, threshold_warn_pct, threshold_crit_pct,
              source_volume_id, source_node_id)
         VALUES
-            (NOW() - INTERVAL '5 minutes', 'WEB01', 'portal-web', 'Production', 'Andy King',
+            (NOW() - INTERVAL '5 minutes', 'WEB01', 'portal-web', 'Production', 'Alex Morgan',
              'Engineering', 'C:\', 500, 250.00, 250.00, 50.00, 1, 80, 90, 1001, 101),
-            (NOW() - INTERVAL '5 minutes', 'WEB02', 'portal-web', 'Production', 'Andy King',
+            (NOW() - INTERVAL '5 minutes', 'WEB02', 'portal-web', 'Production', 'Alex Morgan',
              'Engineering', 'C:\', 500, 425.00, 75.00, 85.00, 2, 80, 90, 1002, 102),
-            (NOW() - INTERVAL '5 minutes', 'API01', 'api-gateway', 'Production', 'Richard Wykes',
+            (NOW() - INTERVAL '5 minutes', 'API01', 'api-gateway', 'Production', 'Jamie Carter',
              'Engineering', 'D:\', 200, 190.00, 10.00, 95.00, 3, 80, 90, 1003, 103),
-            (NOW() - INTERVAL '5 minutes', 'DEV01', 'portal-web', 'Development', 'Andy King',
+            (NOW() - INTERVAL '5 minutes', 'DEV01', 'portal-web', 'Development', 'Alex Morgan',
              'Engineering', 'C:\', 250, 100.00, 150.00, 40.00, 1, 80, 90, 1004, 104);
 
         -- ═══ Disk history — small growth series for projection regression ═══
@@ -258,13 +258,13 @@ public class DatabaseFixture : IAsyncLifetime
              alert_status, threshold_warn_pct, threshold_crit_pct,
              source_volume_id, source_node_id)
         VALUES
-            (NOW() - INTERVAL '20 days', 'WEB01', 'portal-web', 'Production', 'Andy King', 'Engineering',
+            (NOW() - INTERVAL '20 days', 'WEB01', 'portal-web', 'Production', 'Alex Morgan', 'Engineering',
              'C:\', 500, 230.00, 270.00, 46.00, 1, 80, 90, 1001, 101),
-            (NOW() - INTERVAL '15 days', 'WEB01', 'portal-web', 'Production', 'Andy King', 'Engineering',
+            (NOW() - INTERVAL '15 days', 'WEB01', 'portal-web', 'Production', 'Alex Morgan', 'Engineering',
              'C:\', 500, 235.00, 265.00, 47.00, 1, 80, 90, 1001, 101),
-            (NOW() - INTERVAL '10 days', 'WEB01', 'portal-web', 'Production', 'Andy King', 'Engineering',
+            (NOW() - INTERVAL '10 days', 'WEB01', 'portal-web', 'Production', 'Alex Morgan', 'Engineering',
              'C:\', 500, 240.00, 260.00, 48.00, 1, 80, 90, 1001, 101),
-            (NOW() - INTERVAL '5 days', 'WEB01', 'portal-web', 'Production', 'Andy King', 'Engineering',
+            (NOW() - INTERVAL '5 days', 'WEB01', 'portal-web', 'Production', 'Alex Morgan', 'Engineering',
              'C:\', 500, 245.00, 255.00, 49.00, 1, 80, 90, 1001, 101);
 
         -- ═══ Disk alerts — one previously-sent crit alert for de-dup tests ═══

@@ -122,7 +122,7 @@ WHERE v.VolumeType = 'Fixed Disk'
 def get_solarwinds_connection():
     """Connect to SolarWinds Orion via pyodbc + Trusted_Connection.
 
-    Authenticates with the process's Windows identity (HISCOX\\SVC_Tableau on
+    Authenticates with the process's Windows identity (CONTOSO\\SVC_Tableau on
     the dedicated solarwinds-readers ADO agent). No SOLARWINDS_USER/_PASSWORD
     env vars — pyodbc inherits the agent service account's credentials at the
     OS level. The named-instance form (host\\instance) is supported directly
