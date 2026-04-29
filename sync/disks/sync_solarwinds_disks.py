@@ -9,6 +9,11 @@ Alert thresholds replicate Tableau's calculated fields exactly:
   crit (status=3): percent_used >= COALESCE(Volumes.ALERT_VOL, DISK_CRIT_PCT_DEFAULT)
   ok   (status=1): otherwise
 
+Source scoping also mirrors the Tableau dashboard exactly:
+  - Group servers (Caption chars 3-4 = '06') plus two BU Risklink SQL hosts.
+  - Excludes nodes SolarWinds has marked UNMANAGED, OS (C:) drives, and volumes
+    with VolumeTypeID outside (4, 100).
+
 If thresholds are changed via env vars, also update DiskMonitoring:WarnThresholdPct
 and DiskMonitoring:CritThresholdPct in appsettings.json so the in-app alerts
 feed stays consistent with the snapshots.
@@ -33,6 +38,12 @@ logger = setup_logging('sync_solarwinds_disks')
 
 WARN_PCT = float(os.environ.get('DISK_WARN_PCT', '80.0'))
 CRIT_PCT_DEFAULT = float(os.environ.get('DISK_CRIT_PCT_DEFAULT', '90.0'))
+
+# Group servers are identified by characters 3-4 of the SolarWinds Caption being '06'.
+# Two BU Risklink SQL hosts don't follow this pattern but must still be monitored —
+# replicating the Tableau dashboard's hardcoded inclusion list.
+_GROUP_CAPTION_OPCO_DIGITS = '06'
+_BU_RISKLINK_CAPTIONS = ('pr0503-14002-00', 'pr0703-03002-00')
 
 
 # Whitelist matcher for SolarWinds queries: optional leading whitespace, line
@@ -93,8 +104,9 @@ class _ReadOnlyConnection:
 BYTES_PER_GB = 1073741824  # 1024**3
 
 # Source query — joins per-disk Volumes with per-server Nodes for owner/env context.
-# WHERE filters mirror typical Orion practice: only fixed disks, only managed volumes.
-SOURCE_QUERY = """
+# WHERE clause mirrors the Tableau dashboard exactly so the new operations-api Disks
+# page shows the same population the team has been reading for years.
+SOURCE_QUERY = f"""
 SELECT
     n.NodeID,
     n.Caption        AS server_name,
@@ -114,8 +126,23 @@ SELECT
     v.ALERT_VOL              AS alert_vol_override
 FROM dbo.Volumes v
 INNER JOIN dbo.Nodes n ON v.NodeID = n.NodeID
-WHERE v.VolumeType = 'Fixed Disk'
-  AND v.UnManaged = 0
+WHERE 1=1
+  -- Carried over from the Tableau workbook; original author noted "not sure TBH".
+  -- Likely guards against transient/empty volumes — kept for parity.
+  AND v.VolumeSpaceAvailable > 1
+  -- Skip nodes SolarWinds has marked unmanaged (typically offline/decommissioned).
+  AND n.Status <> 'UNMANAGED'
+  -- Group servers (caption chars 3-4 = '{_GROUP_CAPTION_OPCO_DIGITS}') plus the two BU Risklink
+  -- SQL hosts that don't follow the Group caption pattern.
+  AND (
+      RIGHT(LEFT(n.Caption, 4), 2) = '{_GROUP_CAPTION_OPCO_DIGITS}'
+      OR n.Caption IN ('{_BU_RISKLINK_CAPTIONS[0]}', '{_BU_RISKLINK_CAPTIONS[1]}')
+  )
+  -- Skip OS drives — capacity planning is about data volumes.
+  AND v.VolumeDescription NOT LIKE 'C:%'
+  -- Trial-and-error from the Tableau workbook: 4 = Fixed Disk, 100 = a custom type
+  -- in this Orion deployment that contains real disks worth monitoring.
+  AND v.VolumeTypeID IN (4, 100)
 """
 
 
