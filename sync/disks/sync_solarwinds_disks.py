@@ -138,7 +138,7 @@ def get_solarwinds_connection():
         f"SERVER={os.environ['SOLARWINDS_HOST']};"
         f"DATABASE={os.environ['SOLARWINDS_DATABASE']};"
         "Trusted_Connection=yes;"
-        "Encrypt=yes;TrustServerCertificate=no;",
+        "Encrypt=yes;TrustServerCertificate=yes;",
         timeout=60,
     )
     return _ReadOnlyConnection(raw)
