@@ -310,7 +310,7 @@
       case 'certs': {
         const exp = CERT.expired||0, crit = CERT.crit||0, warn = CERT.warn||0, ok = CERT.ok||0;
         const total = exp+crit+warn+ok;
-        const word = exp>0 ? 'certificates expired' : crit>0 ? 'rotation required' : warn>0 ? 'watch the window' : 'Operational';
+        const word = exp>0 ? 'certificates expired' : crit>0 ? 'rotation required' : warn>0 ? 'review warnings' : 'Operational';
         return {
           tag: '— CERTIFICATES SURFACE · '+sc.label.toUpperCase(),
           word: word,

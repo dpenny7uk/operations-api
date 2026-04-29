@@ -256,6 +256,12 @@
   // populates the cache and re-renders the page. Callers must handle the
   // three states (null/loading/array).
   const EOL_HOST_CACHE = new Map();
+  // Peek the cache without triggering a fetch. Returns undefined | 'loading' | Array.
+  // Used by search-time host matching and the auto-expand check, both of which
+  // must not fan out N+1 fetches across every row.
+  function eolHostsCached(product, version) {
+    return EOL_HOST_CACHE.get(product + '@' + version);
+  }
   function eolHostsFor(product, version) {
     const key = product + '@' + version;
     const cached = EOL_HOST_CACHE.get(key);
@@ -775,9 +781,11 @@
       rows = rows.filter(r => {
         if (r.product.toLowerCase().includes(q)) return true;
         if (String(r.version).toLowerCase().includes(q)) return true;
-        // Match against cached host list for this product. If not loaded
-        // yet, skip host-level matching — product-name match still applies.
-        const hosts = eolHostsFor(r.product, r.version);
+        // Best-effort host match against the cache only — never trigger a fetch
+        // here. Triggering N fetches per keystroke would saturate the API and
+        // earn us 429s. Hosts populate as users open rows; subsequent filter
+        // passes will then include them.
+        const hosts = eolHostsCached(r.product, r.version);
         if (!Array.isArray(hosts)) return false;
         return hosts.some(hh => hh.fqdn.includes(q) || hh.host.toLowerCase().includes(q));
       });
@@ -873,14 +881,18 @@
     const statusChip = (s) => s==='eol' ? stamp('crit','EOL') : s==='extended' ? stamp('warn','EXTENDED SUPPORT') : stamp('ok','SUPPORTED');
     const qStr = eolState.q.trim().toLowerCase();
     rows.forEach((r, i) => {
-      const hostsOrState = eolHostsFor(r.product, r.version);
+      const key = r.product + '@' + r.version;
+      // Auto-expand on host-match uses cache-only data — no fan-out fetches.
+      const cachedHosts = eolHostsCached(r.product, r.version);
+      const cachedHostList = Array.isArray(cachedHosts) ? cachedHosts : [];
+      const hostMatches = (qStr && cachedHostList.length) ? cachedHostList.filter(hh => hh.fqdn.includes(qStr) || hh.host.toLowerCase().includes(qStr)) : [];
+      const hasHostMatch = hostMatches.length > 0;
+      const isOpen = !!eolState.expanded[key] || hasHostMatch;
+      // Only fire the per-product detail fetch when the row is actually open.
+      // This is what avoids N×500 calls and the resulting 429 storm.
+      const hostsOrState = isOpen ? eolHostsFor(r.product, r.version) : cachedHosts;
       const hosts = Array.isArray(hostsOrState) ? hostsOrState : [];
       const isLoading = hostsOrState === 'loading';
-      const hostMatches = (qStr && hosts.length) ? hosts.filter(hh => hh.fqdn.includes(qStr) || hh.host.toLowerCase().includes(qStr)) : [];
-      const hasHostMatch = hostMatches.length > 0;
-      // Auto-expand if the product matches via hosts, or the user explicitly expanded
-      const key = r.product + '@' + r.version;
-      const isOpen = !!eolState.expanded[key] || hasHostMatch;
       const toggle = h('span', {style:{display:'inline-block',width:'12px',marginRight:'4px',color:'var(--ink-3)'}}, isOpen ? '▾' : '▸');
       const rowCls = r.status==='eol' ? '.sev-crit' : r.status==='extended' ? '.sev-warn' : '';
       const matchBadge = hasHostMatch

@@ -417,12 +417,12 @@ async function boot() {
       window.CERTS_DATA = Object.assign({}, window.CERTS_DATA, { CERT_COUNTS: mapCertCounts(s) });
       rerender();
     }),
-    api('/eol?limit=500').then(v => {
+    api('/eol?limit=500&hasServers=true').then(v => {
       if (!Array.isArray(v)) { markDemo('eol'); return; }
       window.EOL_DATA = Object.assign({}, window.EOL_DATA, { EOL_PRODUCTS: mapEolProducts(v) });
       rerender();
     }),
-    api('/eol/summary').then(s => {
+    api('/eol/summary?hasServers=true').then(s => {
       if (!s) { markDemo('eol'); return; }
       window.EOL_DATA = Object.assign({}, window.EOL_DATA, { EOL_TOTALS: mapEolTotals(s) });
       rerender();
