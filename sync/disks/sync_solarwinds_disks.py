@@ -134,7 +134,7 @@ def get_solarwinds_connection():
     """
     validate_env_vars(['SOLARWINDS_HOST', 'SOLARWINDS_DATABASE'])
     raw = pyodbc.connect(
-        "DRIVER={ODBC Driver 17 for SQL Server};"
+        "DRIVER={ODBC Driver 18 for SQL Server};"
         f"SERVER={os.environ['SOLARWINDS_HOST']};"
         f"DATABASE={os.environ['SOLARWINDS_DATABASE']};"
         "Trusted_Connection=yes;"
