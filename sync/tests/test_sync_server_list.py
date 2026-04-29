@@ -99,7 +99,7 @@ class TestNullPreservation:
             'operating_system': 'Windows Server 2022',
             'environment': 'Production',
             'location': 'DC1',
-            'business_unit': 'Hiscox UK',
+            'business_unit': 'Contoso UK',
             'combined_service': 'Portal',
             'primary_contact': 'ops@contoso.com',
             'patch_group': 'Group A',
@@ -112,7 +112,7 @@ class TestNullPreservation:
         assert t[3] == 'Windows Server 2022'
         assert t[4] == 'Production'
         assert t[5] == 'DC1'
-        assert t[6] == 'Hiscox UK'
+        assert t[6] == 'Contoso UK'
         assert t[7] == 'Portal'
         assert t[8] == 'ops@contoso.com'
         assert t[9] == 'Group A'
@@ -126,7 +126,7 @@ class TestNullPreservation:
             'operating_system': ' Windows Server 2022 ',
             'environment': ' Production ',
             'location': ' DC1 ',
-            'business_unit': ' Hiscox UK ',
+            'business_unit': ' Contoso UK ',
             'combined_service': ' Portal ',
             'primary_contact': ' ops@contoso.com ',
             'patch_group': ' Group A ',
@@ -181,43 +181,43 @@ class TestFieldTruncation:
 # ── Business-unit normalisation ──────────────────────────────────────────────
 
 class TestDeriveBusinessUnit:
-    def test_raw_uk_maps_to_hiscox_uk(self):
-        assert derive_business_unit('uk') == 'Hiscox UK'
+    def test_raw_uk_maps_to_contoso_uk(self):
+        assert derive_business_unit('uk') == 'Contoso UK'
 
-    def test_title_case_hiscox_uk_maps_to_hiscox_uk(self):
-        assert derive_business_unit('Hiscox UK') == 'Hiscox UK'
+    def test_title_case_contoso_uk_maps_to_contoso_uk(self):
+        assert derive_business_unit('Contoso UK') == 'Contoso UK'
 
     def test_uk_case_insensitive(self):
-        assert derive_business_unit('UK') == 'Hiscox UK'
-        assert derive_business_unit('Uk') == 'Hiscox UK'
-        assert derive_business_unit(' uk ') == 'Hiscox UK'
+        assert derive_business_unit('UK') == 'Contoso UK'
+        assert derive_business_unit('Uk') == 'Contoso UK'
+        assert derive_business_unit(' uk ') == 'Contoso UK'
 
     def test_uk_and_i_distinct_from_uk(self):
         assert derive_business_unit('uk&i') == 'UK & I'
         assert derive_business_unit('uk&i') != derive_business_unit('uk')
 
     def test_us_variants_merge(self):
-        assert derive_business_unit('us') == 'Hiscox US'
-        assert derive_business_unit('Hiscox US') == 'Hiscox US'
+        assert derive_business_unit('us') == 'Contoso US'
+        assert derive_business_unit('Contoso US') == 'Contoso US'
 
     def test_europe_variants_merge(self):
-        assert derive_business_unit('europe') == 'Hiscox Europe'
-        assert derive_business_unit('Hiscox Europe') == 'Hiscox Europe'
+        assert derive_business_unit('europe') == 'Contoso Europe'
+        assert derive_business_unit('Contoso Europe') == 'Contoso Europe'
 
     def test_london_market_variants_merge(self):
-        assert derive_business_unit('london_market') == 'Hiscox London Market'
-        assert derive_business_unit('Hiscox London Market') == 'Hiscox London Market'
+        assert derive_business_unit('london_market') == 'Contoso London Market'
+        assert derive_business_unit('Contoso London Market') == 'Contoso London Market'
 
-    def test_hiscox_re_variants_merge(self):
-        assert derive_business_unit('hiscox_re') == 'Hiscox Re & ILS'
-        assert derive_business_unit('Hiscox Re and ILS') == 'Hiscox Re & ILS'
+    def test_contoso_re_variants_merge(self):
+        assert derive_business_unit('contoso_re') == 'Contoso Re & ILS'
+        assert derive_business_unit('Contoso Re and ILS') == 'Contoso Re & ILS'
 
     def test_group_variants_merge(self):
-        assert derive_business_unit('group') == 'Hiscox Group Support'
-        assert derive_business_unit('Hiscox Group Support') == 'Hiscox Group Support'
+        assert derive_business_unit('group') == 'Contoso Group Support'
+        assert derive_business_unit('Contoso Group Support') == 'Contoso Group Support'
 
     def test_special_risks_maps_to_itself(self):
-        assert derive_business_unit('Hiscox Special Risks') == 'Hiscox Special Risks'
+        assert derive_business_unit('Contoso Special Risks') == 'Contoso Special Risks'
 
     def test_it_services_maps_to_its(self):
         assert derive_business_unit('it_services') == 'ITS'

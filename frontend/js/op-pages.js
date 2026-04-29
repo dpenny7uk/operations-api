@@ -46,14 +46,14 @@
   // sync/servers/sync_server_list.py. Used as the dropdown option list on
   // every BU filter across the app.
   const BU_VALUES = [
-    'Hiscox UK',
+    'Contoso UK',
     'UK & I',
-    'Hiscox US',
-    'Hiscox Europe',
-    'Hiscox London Market',
-    'Hiscox Re & ILS',
-    'Hiscox Group Support',
-    'Hiscox Special Risks',
+    'Contoso US',
+    'Contoso Europe',
+    'Contoso London Market',
+    'Contoso Re & ILS',
+    'Contoso Group Support',
+    'Contoso Special Risks',
     'ITS',
     'Infosec',
     'Unknown',
@@ -89,7 +89,7 @@
       'Kafka broker','Redis cache node','Jenkins build agent','Splunk forwarder','WebMethods integration server',
       'Active Directory domain controller','LDAP proxy','Vault seal node','Consul server','API gateway node',
     ];
-    const fqdns = ['azure.hiscox.com','hiscox.com','aws.hiscox.com','internal.hiscox.com','corp.hiscox.com'];
+    const fqdns = ['azure.contoso.com','contoso.com','aws.contoso.com','internal.contoso.com','corp.contoso.com'];
     const patchGroups = ['GROUP0','GROUP1','GROUP2','GROUP3','2A','2B','3A','3B','4A','4B','5A','5B','5C','6A','7A','7B','NO PATCH GROUP FOUND'];
     const rng = (() => { let s = 0xC1A5CE; return () => (s = (s*1103515245 + 12345) >>> 0) / 0x100000000; })();
     const pick = arr => arr[Math.floor(rng() * arr.length)];
@@ -173,19 +173,19 @@
     const rng = (() => { let s = 0xCE271F; return () => (s = (s*1103515245 + 12345) >>> 0) / 0x100000000; })();
     const certs = [];
     // 2 expired
-    certs.push({name:'kandr_sanctions.hiscox.com', server:'PR0604-26002-00', service:'fcrm',            expires:'Apr 12, 2026', days:-9,  level:'expired'});
-    certs.push({name:'kandr_sanctions.hiscox.com', server:'KNR-Prod',        service:'fcrm',            expires:'Apr 12, 2026', days:-9,  level:'expired'});
+    certs.push({name:'kandr_sanctions.contoso.com', server:'PR0604-26002-00', service:'fcrm',            expires:'Apr 12, 2026', days:-9,  level:'expired'});
+    certs.push({name:'kandr_sanctions.contoso.com', server:'KNR-Prod',        service:'fcrm',            expires:'Apr 12, 2026', days:-9,  level:'expired'});
     // 2 critical (<14d)
-    certs.push({name:'dv0702-14001-00.hiscox.com', server:'DV0702-14001-00', service:'tosca',           expires:'Apr 22, 2026', days:1,   level:'crit'});
-    certs.push({name:'signal.hiscox.de',           server:'Signal Germany',  service:'signal',          expires:'May 1, 2026',  days:10,  level:'crit'});
+    certs.push({name:'dv0702-14001-00.contoso.com', server:'DV0702-14001-00', service:'tosca',           expires:'Apr 22, 2026', days:1,   level:'crit'});
+    certs.push({name:'signal.contoso.de',           server:'Signal Germany',  service:'signal',          expires:'May 1, 2026',  days:10,  level:'crit'});
     // 4 warning (15-30d)
-    certs.push({name:'alteryx.hiscox.com',         server:'PR0602-11001-00', service:'alteryx',         expires:'May 15, 2026', days:24,  level:'warn'});
-    certs.push({name:'alteryx.hiscox.com',         server:'Alteryx-Prod',    service:'alteryx',         expires:'May 15, 2026', days:24,  level:'warn'});
-    certs.push({name:'alteryx-staging.hiscox.com', server:'ST0602-11001-00', service:'alteryx',         expires:'May 15, 2026', days:24,  level:'warn'});
-    certs.push({name:'alteryx-staging.hiscox.com', server:'Alteryx-Staging', service:'alteryx',         expires:'May 15, 2026', days:24,  level:'warn'});
+    certs.push({name:'alteryx.contoso.com',         server:'PR0602-11001-00', service:'alteryx',         expires:'May 15, 2026', days:24,  level:'warn'});
+    certs.push({name:'alteryx.contoso.com',         server:'Alteryx-Prod',    service:'alteryx',         expires:'May 15, 2026', days:24,  level:'warn'});
+    certs.push({name:'alteryx-staging.contoso.com', server:'ST0602-11001-00', service:'alteryx',         expires:'May 15, 2026', days:24,  level:'warn'});
+    certs.push({name:'alteryx-staging.contoso.com', server:'Alteryx-Staging', service:'alteryx',         expires:'May 15, 2026', days:24,  level:'warn'});
     // Fill with OK certs
     const services = ['exchange_online','citrix','webmethods','active_directory','api-gateway','ldap','mail','portal','cache','metrics'];
-    const suffixes = ['hiscox.com','hiscox.co.uk','hiscox.de','internal.hiscox.com','corp.hiscox.com'];
+    const suffixes = ['contoso.com','contoso.co.uk','contoso.de','internal.contoso.com','corp.contoso.com'];
     let ok = 0;
     while (ok < 192) {
       const block = String(Math.floor(rng()*90000) + 10000).slice(0,5);
@@ -1022,17 +1022,17 @@
   // Demo defaults. op-boot.js overwrites window.EXCLUSIONS with real data.
   // Render-time reads always go through window.EXCLUSIONS so they pick up updates.
   window.EXCLUSIONS = window.EXCLUSIONS || [
-    {id:'EX-0412', server:'PR0604-26002-00', fqdn:'kandr_sanctions.hiscox.com', group:'2A', reason:'Vendor advisory \u2014 pending hotfix', until:'Apr 22, 2026', requester:'a.naidu',   requested:'Mar 28, 2026', state:'expiring-soon'},
-    {id:'EX-0411', server:'PR0702-11102-01', fqdn:'alteryx.hiscox.com',         group:'7A', reason:'Application change-freeze',            until:'Apr 20, 2026', requester:'m.kowalski',requested:'Apr 02, 2026', state:'expiring-soon'},
-    {id:'EX-0410', server:'PR0605-14001-00', fqdn:'signal.hiscox.de',           group:'5A', reason:'Regulatory window',                     until:'Apr 30, 2026', requester:'j.evans',   requested:'Apr 01, 2026', state:'active'},
-    {id:'EX-0406', server:'PR0308-22034-00', fqdn:'app.hiscox.com',             group:'3A', reason:'Customer-facing release period',        until:'Apr 17, 2026', requester:'s.chen',    requested:'Mar 30, 2026', state:'overdue'},
-    {id:'EX-0405', server:'PR0308-22035-00', fqdn:'app.hiscox.com',             group:'3A', reason:'Customer-facing release period',        until:'Apr 17, 2026', requester:'s.chen',    requested:'Mar 30, 2026', state:'overdue'},
-    {id:'EX-0403', server:'DV0402-11201-02', fqdn:'dv-db.hiscox.com',           group:'4A', reason:'Database migration in-flight',          until:'May 15, 2026', requester:'p.ramirez', requested:'Apr 04, 2026', state:'active'},
-    {id:'EX-0402', server:'PR0801-14404-00', fqdn:'thunderhead.hiscox.com',     group:'7B', reason:'Hardware refresh in progress',          until:'May 02, 2026', requester:'k.oduya',   requested:'Apr 01, 2026', state:'active'},
-    {id:'EX-0399', server:'PR0604-26003-00', fqdn:'kandr_sanctions.hiscox.com', group:'2A', reason:'Vendor advisory \u2014 pending hotfix', until:'Apr 22, 2026', requester:'a.naidu',   requested:'Mar 28, 2026', state:'expiring-soon'},
-    {id:'EX-0397', server:'PR0605-14002-00', fqdn:'signal.hiscox.de',           group:'5A', reason:'Other',                                  until:'Jun 01, 2026', requester:'t.bennett', requested:'Apr 03, 2026', state:'active'},
-    {id:'EX-0394', server:'DV0402-11201-03', fqdn:'dv-db.hiscox.com',           group:'4A', reason:'Database migration in-flight',          until:'May 15, 2026', requester:'p.ramirez', requested:'Apr 04, 2026', state:'active'},
-    {id:'EX-0388', server:'PR0308-22036-00', fqdn:'app.hiscox.com',             group:'3A', reason:'Customer-facing release period',        until:'Apr 17, 2026', requester:'s.chen',    requested:'Mar 30, 2026', state:'overdue'},
+    {id:'EX-0412', server:'PR0604-26002-00', fqdn:'kandr_sanctions.contoso.com', group:'2A', reason:'Vendor advisory \u2014 pending hotfix', until:'Apr 22, 2026', requester:'r.kapoor',   requested:'Mar 28, 2026', state:'expiring-soon'},
+    {id:'EX-0411', server:'PR0702-11102-01', fqdn:'alteryx.contoso.com',         group:'7A', reason:'Application change-freeze',            until:'Apr 20, 2026', requester:'l.becker',requested:'Apr 02, 2026', state:'expiring-soon'},
+    {id:'EX-0410', server:'PR0605-14001-00', fqdn:'signal.contoso.de',           group:'5A', reason:'Regulatory window',                     until:'Apr 30, 2026', requester:'n.harris',   requested:'Apr 01, 2026', state:'active'},
+    {id:'EX-0406', server:'PR0308-22034-00', fqdn:'app.contoso.com',             group:'3A', reason:'Customer-facing release period',        until:'Apr 17, 2026', requester:'d.zhao',    requested:'Mar 30, 2026', state:'overdue'},
+    {id:'EX-0405', server:'PR0308-22035-00', fqdn:'app.contoso.com',             group:'3A', reason:'Customer-facing release period',        until:'Apr 17, 2026', requester:'d.zhao',    requested:'Mar 30, 2026', state:'overdue'},
+    {id:'EX-0403', server:'DV0402-11201-02', fqdn:'dv-db.contoso.com',           group:'4A', reason:'Database migration in-flight',          until:'May 15, 2026', requester:'o.silva', requested:'Apr 04, 2026', state:'active'},
+    {id:'EX-0402', server:'PR0801-14404-00', fqdn:'thunderhead.contoso.com',     group:'7B', reason:'Hardware refresh in progress',          until:'May 02, 2026', requester:'e.adeyemi',   requested:'Apr 01, 2026', state:'active'},
+    {id:'EX-0399', server:'PR0604-26003-00', fqdn:'kandr_sanctions.contoso.com', group:'2A', reason:'Vendor advisory \u2014 pending hotfix', until:'Apr 22, 2026', requester:'r.kapoor',   requested:'Mar 28, 2026', state:'expiring-soon'},
+    {id:'EX-0397', server:'PR0605-14002-00', fqdn:'signal.contoso.de',           group:'5A', reason:'Other',                                  until:'Jun 01, 2026', requester:'c.fischer', requested:'Apr 03, 2026', state:'active'},
+    {id:'EX-0394', server:'DV0402-11201-03', fqdn:'dv-db.contoso.com',           group:'4A', reason:'Database migration in-flight',          until:'May 15, 2026', requester:'o.silva', requested:'Apr 04, 2026', state:'active'},
+    {id:'EX-0388', server:'PR0308-22036-00', fqdn:'app.contoso.com',             group:'3A', reason:'Customer-facing release period',        until:'Apr 17, 2026', requester:'d.zhao',    requested:'Mar 30, 2026', state:'overdue'},
   ];
   // Live getter — recomputes on each access so it stays in sync with window.EXCLUSIONS.
   Object.defineProperty(window, 'EXCL_COUNTS', {
@@ -2241,11 +2241,11 @@
   function buildDisks() {
     const rng = (() => { let s = 0xD15C00; return () => (s = (s*1103515245 + 12345) >>> 0) / 0x100000000; })();
     const servers = [
-      {name:'PR0603-07012-00', service:'tyme', env:'Production',  owner:'Andy King',     bu:'Hiscox UK'},
-      {name:'PR0603-25002-00', service:'cms',  env:'Production',  owner:'Richard Wykes', bu:'Hiscox London Market'},
-      {name:'PR0603-31002-00', service:'tyche',env:'Production',  owner:'John MacMahon', bu:'Hiscox Re & ILS'},
-      {name:'DV0801-12001-00', service:'tyme', env:'Development', owner:'Andy King',     bu:'Hiscox UK'},
-      {name:'UT0901-04001-00', service:'cms',  env:'UAT',         owner:'Richard Wykes', bu:'Hiscox London Market'},
+      {name:'PR0603-07012-00', service:'tyme', env:'Production',  owner:'Alex Morgan',     bu:'Contoso UK'},
+      {name:'PR0603-25002-00', service:'cms',  env:'Production',  owner:'Jamie Carter', bu:'Contoso London Market'},
+      {name:'PR0603-31002-00', service:'tyche',env:'Production',  owner:'Taylor Reid', bu:'Contoso Re & ILS'},
+      {name:'DV0801-12001-00', service:'tyme', env:'Development', owner:'Alex Morgan',     bu:'Contoso UK'},
+      {name:'UT0901-04001-00', service:'cms',  env:'UAT',         owner:'Jamie Carter', bu:'Contoso London Market'},
     ];
     const labels = ['C:\\', 'D:\\', 'E:\\SQL_RND_01', 'E:\\SQL_RND_04', 'F:\\Logs', 'G:\\Backups'];
     // Spread of statuses: ~70% ok, ~20% warn, ~10% crit.
