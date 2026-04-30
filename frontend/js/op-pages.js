@@ -2312,12 +2312,13 @@
     return { items, total: D.totalCount != null ? D.totalCount : items.length };
   }
 
-  // Filter state — single-select per dimension with '__all' default. Matches
-  // existing pages (Servers/Certs); Tableau's multi-select stays as v2 polish.
+  // Filter state — single-select per dimension. Default env is 'Production'
+  // (not '__all') because non-prod is noise for the ops team; the dropdown
+  // still lets users widen scope to a specific env or all environments.
   const diskState = {
     status: '__all',
     owner:  '__all',
-    env:    '__all',
+    env:    'Production',
     service:'__all',
     sizeBucket:'__all',
     sort:'percentUsed',
@@ -2459,11 +2460,32 @@
     return pts;
   }
 
+  // Resolve KPI counts for the active env from the authoritative summary
+  // endpoint when available, falling back to client-side compute on demo
+  // data. Returns the same {total, ok, warn, crit} shape as diskStatusKpis().
+  function diskKpisForEnv(envName, fallbackItems) {
+    const summary = window.DISK_SUMMARY;
+    if (!summary) return diskStatusKpis(fallbackItems);
+    if (!envName || envName === '__all') {
+      return {
+        total: summary.totalCount,
+        ok:    summary.okCount,
+        warn:  summary.warningCount,
+        crit:  summary.criticalCount,
+      };
+    }
+    const e = (summary.environments || []).find(x => x.environment === envName);
+    if (!e) return { total: 0, ok: 0, warn: 0, crit: 0 };
+    return { total: e.totalCount, ok: e.okCount, warn: e.warningCount, crit: e.criticalCount };
+  }
+
   function renderDiskMonitoringPage(mount) {
     const page = h('div.page');
     const ribbon = demoRibbon('disks'); if (ribbon) page.appendChild(ribbon);
     const allItems = liveDisks().items;
-    const kpis = diskStatusKpis(allItems);
+    // KPI strip uses the env-scoped summary (DB-authoritative); client-side
+    // compute is the fallback for demo mode and pre-summary boots.
+    const kpis = diskKpisForEnv(diskState.env, allItems);
 
     // KPI strip — mirrors the Health page CritStrip vocabulary so the visual
     // language of "current state at a glance" is consistent across surfaces.
@@ -2508,18 +2530,46 @@
       h('option', { value:'__all', selected: diskState[field]==='__all' }, allLabel),
       ...opts.map(([v,l]) => h('option', { value:v, selected: diskState[field]===v }, l))
     );
+
+    // Env dropdown: labels include per-env counts from the summary endpoint
+    // ("Production (466)") to match the Servers page convention. Selecting a
+    // value triggers a server-side refetch via OC_API.fetchDisksByEnv so the
+    // table reflects only that env's disks (and never trips the result cap).
+    const envSummary = (window.DISK_SUMMARY && window.DISK_SUMMARY.environments) || [];
+    const envOpts = envSummary.length
+      ? envSummary.map(e => [e.environment, e.environment + ' (' + e.totalCount + ')'])
+      : diskUniqValues(allItems, 'environment').map(v => [v, v]);
+    const envSel = h('select',
+      { on:{change: async (e) => {
+        diskState.env = e.target.value;
+        diskState.page = 1;
+        const refetched = (window.OC_API && typeof window.OC_API.fetchDisksByEnv === 'function')
+          ? await window.OC_API.fetchDisksByEnv(diskState.env)
+          : null;
+        if (!refetched) window.RERENDER_PAGE(mount);
+      }}},
+      h('option', { value:'__all', selected: diskState.env==='__all' }, 'All environments'),
+      ...envOpts.map(([v,l]) => h('option', { value:v, selected: diskState.env===v }, l))
+    );
+
     page.appendChild(filterBar([
       mkSelect('status', 'All alert levels', [['1','OK'],['2','Warning'],['3','Critical']]),
       mkSelect('owner', 'All technical owners', diskUniqValues(allItems, 'technicalOwner').map(v => [v,v])),
-      mkSelect('env',   'All environments',     diskUniqValues(allItems, 'environment').map(v => [v,v])),
+      envSel,
       mkSelect('service','All services',        diskUniqValues(allItems, 'service').map(v => [v,v])),
       mkSelect('sizeBucket','All volume sizes', [
         ['<100 GB','<100 GB'], ['100–499 GB','100–499 GB'], ['500–999 GB','500–999 GB'],
         ['1–2 TB','1–2 TB'], ['2 TB+','2 TB+'],
       ]),
-      h('button.btn', { on:{click:()=>{
-        diskState.status='__all'; diskState.owner='__all'; diskState.env='__all';
+      h('button.btn', { on:{click: async () => {
+        const wasEnv = diskState.env;
+        diskState.status='__all'; diskState.owner='__all'; diskState.env='Production';
         diskState.service='__all'; diskState.sizeBucket='__all'; diskState.page=1;
+        // Reset returns to Production-focused view; refetch only if env actually changed.
+        if (wasEnv !== 'Production' && window.OC_API && typeof window.OC_API.fetchDisksByEnv === 'function') {
+          const refetched = await window.OC_API.fetchDisksByEnv('Production');
+          if (refetched) return; // refetch triggers its own rerender
+        }
         window.RERENDER_PAGE(mount);
       }}}, 'Reset'),
       h('span.spacer'),

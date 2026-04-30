@@ -6,6 +6,19 @@ public class DiskSummary
     public int OkCount { get; set; }
     public int WarningCount { get; set; }
     public int CriticalCount { get; set; }
+
+    // Per-environment breakdown — drives the env filter's "Production (466)"
+    // labels and lets the KPI strip reflect the active env without re-fetching.
+    public List<DiskEnvCount> Environments { get; set; } = new();
+}
+
+public class DiskEnvCount
+{
+    public string Environment { get; set; } = "";
+    public int TotalCount { get; set; }
+    public int OkCount { get; set; }
+    public int WarningCount { get; set; }
+    public int CriticalCount { get; set; }
 }
 
 public class Disk

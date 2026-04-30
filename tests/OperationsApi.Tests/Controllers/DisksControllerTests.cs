@@ -13,36 +13,61 @@ public class DisksControllerTests
     private DisksController Controller => new(_svc.Object);
 
     [Fact]
-    public async Task List_clamps_limit_at_1000()
+    public async Task List_clamps_limit_at_2000()
     {
-        _svc.Setup(s => s.ListDisksAsync(It.IsAny<int>(), It.IsAny<int>()))
+        _svc.Setup(s => s.ListDisksAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string?>()))
             .ReturnsAsync(new PagedResult<Disk>());
 
         await Controller.List(limit: 5000, offset: 0);
 
-        _svc.Verify(s => s.ListDisksAsync(1000, 0));
+        _svc.Verify(s => s.ListDisksAsync(2000, 0, null));
     }
 
     [Fact]
     public async Task List_clamps_limit_minimum_to_1()
     {
-        _svc.Setup(s => s.ListDisksAsync(It.IsAny<int>(), It.IsAny<int>()))
+        _svc.Setup(s => s.ListDisksAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string?>()))
             .ReturnsAsync(new PagedResult<Disk>());
 
         await Controller.List(limit: -10, offset: 0);
 
-        _svc.Verify(s => s.ListDisksAsync(1, 0));
+        _svc.Verify(s => s.ListDisksAsync(1, 0, null));
     }
 
     [Fact]
     public async Task List_floors_negative_offset_at_zero()
     {
-        _svc.Setup(s => s.ListDisksAsync(It.IsAny<int>(), It.IsAny<int>()))
+        _svc.Setup(s => s.ListDisksAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string?>()))
             .ReturnsAsync(new PagedResult<Disk>());
 
         await Controller.List(limit: 100, offset: -50);
 
-        _svc.Verify(s => s.ListDisksAsync(100, 0));
+        _svc.Verify(s => s.ListDisksAsync(100, 0, null));
+    }
+
+    [Fact]
+    public async Task List_passes_environment_through_when_set()
+    {
+        _svc.Setup(s => s.ListDisksAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string?>()))
+            .ReturnsAsync(new PagedResult<Disk>());
+
+        await Controller.List(limit: 100, offset: 0, environment: "Production");
+
+        _svc.Verify(s => s.ListDisksAsync(100, 0, "Production"));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task List_treats_blank_environment_as_no_filter(string? env)
+    {
+        _svc.Setup(s => s.ListDisksAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string?>()))
+            .ReturnsAsync(new PagedResult<Disk>());
+
+        await Controller.List(limit: 100, offset: 0, environment: env);
+
+        _svc.Verify(s => s.ListDisksAsync(100, 0, null));
     }
 
     [Theory]

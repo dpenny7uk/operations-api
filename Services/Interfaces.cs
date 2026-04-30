@@ -87,6 +87,6 @@ public interface IEolService
 public interface IDiskMonitoringService
 {
     Task<DiskSummary> GetSummaryAsync();
-    Task<PagedResult<Disk>> ListDisksAsync(int limit, int offset);
+    Task<PagedResult<Disk>> ListDisksAsync(int limit, int offset, string? environment = null);
     Task<IEnumerable<DiskHistoryPoint>> GetHistoryAsync(string serverName, string diskLabel, int days);
 }

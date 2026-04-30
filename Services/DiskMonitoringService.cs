@@ -15,21 +15,47 @@ public class DiskMonitoringService : BaseService<DiskMonitoringService>, IDiskMo
     public DiskMonitoringService(IDbConnection db, ILogger<DiskMonitoringService> logger)
         : base(db, logger) { }
 
-    public Task<DiskSummary> GetSummaryAsync() => RunDbAsync(() =>
-        Db.QueryFirstAsync<DiskSummary>($@"
-            SELECT
-                COUNT(*) AS TotalCount,
-                COUNT(*) FILTER (WHERE alert_status = 1) AS OkCount,
-                COUNT(*) FILTER (WHERE alert_status = 2) AS WarningCount,
-                COUNT(*) FILTER (WHERE alert_status = 3) AS CriticalCount
-            FROM {Sql.Tables.DiskCurrent}
-        ")
-    );
-
-    public Task<PagedResult<Disk>> ListDisksAsync(int limit, int offset) => RunDbAsync(async () =>
+    public Task<DiskSummary> GetSummaryAsync() => RunDbAsync(async () =>
     {
+        // Per-environment breakdown drives both the dropdown labels
+        // ("Production (466)") and the KPI strip's env-aware counts. The
+        // overall totals are summed in app code rather than a second query.
+        var envs = (await Db.QueryAsync<DiskEnvCount>($@"
+            SELECT
+                COALESCE(environment, '') AS Environment,
+                COUNT(*)::int                                       AS TotalCount,
+                (COUNT(*) FILTER (WHERE alert_status = 1))::int     AS OkCount,
+                (COUNT(*) FILTER (WHERE alert_status = 2))::int     AS WarningCount,
+                (COUNT(*) FILTER (WHERE alert_status = 3))::int     AS CriticalCount
+            FROM {Sql.Tables.DiskCurrent}
+            GROUP BY environment
+            ORDER BY environment
+        ")).ToList();
+
+        return new DiskSummary
+        {
+            TotalCount = envs.Sum(e => e.TotalCount),
+            OkCount = envs.Sum(e => e.OkCount),
+            WarningCount = envs.Sum(e => e.WarningCount),
+            CriticalCount = envs.Sum(e => e.CriticalCount),
+            Environments = envs,
+        };
+    });
+
+    public Task<PagedResult<Disk>> ListDisksAsync(int limit, int offset, string? environment = null) => RunDbAsync(async () =>
+    {
+        // Optional environment filter — applied via parameterised SQL. Empty/null
+        // means no filter (caller wants all envs). Casing matches the canonical
+        // values written by the sync (`_canonicalize_env` in sync_solarwinds_disks.py).
+        var hasEnv = !string.IsNullOrWhiteSpace(environment);
+        var envClause = hasEnv ? "WHERE environment = @Environment" : "";
+        var args = new DynamicParameters();
+        args.Add("Limit", limit);
+        args.Add("Offset", offset);
+        if (hasEnv) args.Add("Environment", environment);
+
         var totalCount = await Db.QueryFirstAsync<int>(
-            $"SELECT COUNT(*) FROM {Sql.Tables.DiskCurrent}");
+            $"SELECT COUNT(*) FROM {Sql.Tables.DiskCurrent} {envClause}", args);
 
         var disks = (await Db.QueryAsync<Disk>($@"
             SELECT
@@ -50,9 +76,10 @@ public class DiskMonitoringService : BaseService<DiskMonitoringService>, IDiskMo
                 threshold_crit_pct AS ThresholdCritPct,
                 captured_at        AS CapturedAt
             FROM {Sql.Tables.DiskCurrent}
+            {envClause}
             ORDER BY alert_status DESC, percent_used DESC, server_name, disk_label
             LIMIT @Limit OFFSET @Offset
-        ", new { Limit = limit, Offset = offset })).ToList();
+        ", args)).ToList();
 
         // Batch-fetch the projection-window history for the disks on this page,
         // then compute slopes in C# to avoid an N+1 round-trip.

@@ -276,6 +276,27 @@ function mapAlerts(items) {
   }));
 }
 
+// Disk summary — total/ok/warn/crit + per-environment breakdown. Drives the
+// KPI strip (counts always reflect DB totals, not the loaded page) and the
+// env dropdown labels ("Production (466)").
+function mapDiskSummary(s) {
+  if (!s || typeof s !== 'object') return null;
+  const envs = Array.isArray(s.environments) ? s.environments : [];
+  return {
+    totalCount:    Number(s.totalCount) || 0,
+    okCount:       Number(s.okCount) || 0,
+    warningCount:  Number(s.warningCount) || 0,
+    criticalCount: Number(s.criticalCount) || 0,
+    environments: envs.map(e => ({
+      environment:   e.environment || '',
+      totalCount:    Number(e.totalCount) || 0,
+      okCount:       Number(e.okCount) || 0,
+      warningCount:  Number(e.warningCount) || 0,
+      criticalCount: Number(e.criticalCount) || 0,
+    })),
+  };
+}
+
 // Disk monitoring rows from /api/disks. The renderer reads camelCase fields
 // directly, so this is essentially a passthrough that hardens nullables.
 function mapDisks(items) {
@@ -465,12 +486,22 @@ async function boot() {
       window.CURRENT_USER = v; // { username, fullName }
       rerender();
     }),
-    api('/disks?limit=1000').then(r => {
+    // Default to Production-only on initial load — non-prod is noise for the
+    // ops team. The dropdown lets users widen scope; OC_API.fetchDisksByEnv
+    // handles the refetch.
+    api('/disks?environment=Production&limit=2000').then(r => {
       if (!r || !Array.isArray(r.items)) { markDemo('disks'); return; }
       window.DISKS_DATA = Object.assign({}, window.DISKS_DATA, {
         items: mapDisks(r.items),
         totalCount: r.totalCount != null ? r.totalCount : r.items.length,
+        currentEnv: 'Production',
       });
+      rerender();
+    }),
+    api('/disks/summary').then(s => {
+      const summary = mapDiskSummary(s);
+      if (!summary) { markDemo('disks'); return; }
+      window.DISK_SUMMARY = summary;
       rerender();
     }),
   ];
@@ -494,6 +525,28 @@ window.OC_API = {
   // Returns EolSoftwareDetail with .assets[] (machine names) or null on error.
   getEolDetail: (product, version) =>
     api('/eol/' + encodeURIComponent(product) + '/' + encodeURIComponent(version)),
+
+  // Refetch /api/disks scoped to a specific environment (or all envs when
+  // envName is falsy / '__all'). Updates window.DISKS_DATA and triggers a
+  // rerender so the page reflects the new server-side selection.
+  fetchDisksByEnv: async (envName) => {
+    const isAll = !envName || envName === '__all';
+    const qs = isAll
+      ? '?limit=2000'
+      : '?environment=' + encodeURIComponent(envName) + '&limit=2000';
+    const r = await api('/disks' + qs);
+    if (!r || !Array.isArray(r.items)) return null;
+    window.DISKS_DATA = Object.assign({}, window.DISKS_DATA, {
+      items: mapDisks(r.items),
+      totalCount: r.totalCount != null ? r.totalCount : r.items.length,
+      currentEnv: isAll ? '__all' : envName,
+    });
+    if (typeof window.RERENDER_PAGE === 'function') {
+      const m = document.querySelector('.page-mount');
+      if (m) window.RERENDER_PAGE(m);
+    }
+    return r;
+  },
 };
 
 // ── OC_ACTIONS: wizard submit hooks (op-pages.js calls these) ─────

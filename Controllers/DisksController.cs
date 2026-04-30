@@ -23,17 +23,23 @@ public class DisksController : ControllerBase
         => Ok(await _svc.GetSummaryAsync());
 
     /// <summary>List current-state disks with paged response.</summary>
-    /// <param name="limit">Maximum results (1-1000, default 500).</param>
+    /// <param name="limit">Maximum results (1-2000, default 1000).</param>
     /// <param name="offset">Skip the first N results (default 0).</param>
+    /// <param name="environment">Optional canonical environment filter (e.g. "Production").</param>
     [HttpGet]
     [ProducesResponseType(200)]
     public async Task<IActionResult> List(
-        [FromQuery] int limit = 500,
-        [FromQuery] int offset = 0)
+        [FromQuery] int limit = 1000,
+        [FromQuery] int offset = 0,
+        [FromQuery] string? environment = null)
     {
-        var clampedLimit = Math.Clamp(limit, 1, 1000);
+        // Cap raised to 2000 (was 1000) so an unfiltered fetch returns the full
+        // SolarWinds population (~1,231 disks) without truncation. Per-env fetches
+        // are well under the cap; the filter shrinks the working set on the SPA.
+        var clampedLimit = Math.Clamp(limit, 1, 2000);
         var clampedOffset = Math.Max(offset, 0);
-        return Ok(await _svc.ListDisksAsync(clampedLimit, clampedOffset));
+        var envFilter = string.IsNullOrWhiteSpace(environment) ? null : environment.Trim();
+        return Ok(await _svc.ListDisksAsync(clampedLimit, clampedOffset, envFilter));
     }
 
     /// <summary>Get snapshot history for a single disk (used for sparkline + growth projection).</summary>
