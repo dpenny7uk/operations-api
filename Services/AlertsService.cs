@@ -33,7 +33,11 @@ public class AlertsService : BaseService<AlertsService>, IAlertsService
 
                 UNION ALL
 
-                -- Certificate criticals (expired / ≤14d): one crit per cert
+                -- Certificate criticals (expired / ≤14d): one crit per cert.
+                -- is_active filter excludes superseded rows from the inventory
+                -- (e.g. a cert whose thumbprint changed on renewal — the old
+                -- row stays in the table but is_active goes FALSE on the next
+                -- scan, see sync_certificates.py).
                 SELECT
                     'cert:' || c.certificate_id::text  AS Id,
                     c.valid_to                  AS ""When"",
@@ -44,7 +48,8 @@ public class AlertsService : BaseService<AlertsService>, IAlertsService
                     END AS Detail,
                     CASE WHEN c.valid_to < CURRENT_DATE THEN 'crit' ELSE 'warn' END AS Tone
                 FROM certificates.inventory c
-                WHERE c.valid_to < CURRENT_DATE + INTERVAL '14 days'
+                WHERE c.is_active
+                  AND c.valid_to < CURRENT_DATE + INTERVAL '14 days'
 
                 UNION ALL
 
@@ -77,8 +82,11 @@ public class AlertsService : BaseService<AlertsService>, IAlertsService
                 UNION ALL
 
                 -- Disk threshold breaches (current state from monitoring.disk_current).
-                -- Read-on-demand for the in-app feed; Teams push notifications are
-                -- handled separately by alert_disk_breaches.py with a cooldown.
+                -- Scoped to Group + Production to match the Health page's disk card —
+                -- the in-app alerts feed should reflect what on-call actually pages
+                -- on, not the whole estate. Non-prod and non-Group disks are
+                -- noise here. Read-on-demand for the feed; Teams push notifications
+                -- are handled separately by alert_disk_breaches.py with a cooldown.
                 SELECT
                     'disk:' || d.server_name || ':' || d.disk_label AS Id,
                     d.captured_at               AS ""When"",
@@ -88,6 +96,8 @@ public class AlertsService : BaseService<AlertsService>, IAlertsService
                     CASE WHEN d.alert_status = 3 THEN 'crit' ELSE 'warn' END AS Tone
                 FROM {Sql.Tables.DiskCurrent} d
                 WHERE d.alert_status >= 2
+                  AND d.business_unit = 'Contoso Group Support'
+                  AND d.environment = 'Production'
             )
             SELECT Id, ""When"", Sub, Detail, Tone
             FROM alerts
