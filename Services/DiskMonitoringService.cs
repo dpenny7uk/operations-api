@@ -15,11 +15,25 @@ public class DiskMonitoringService : BaseService<DiskMonitoringService>, IDiskMo
     public DiskMonitoringService(IDbConnection db, ILogger<DiskMonitoringService> logger)
         : base(db, logger) { }
 
-    public Task<DiskSummary> GetSummaryAsync() => RunDbAsync(async () =>
+    public Task<DiskSummary> GetSummaryAsync(string? environment = null, string? businessUnit = null) => RunDbAsync(async () =>
     {
-        // Per-environment breakdown drives both the dropdown labels
-        // ("Production (466)") and the KPI strip's env-aware counts. The
-        // overall totals are summed in app code rather than a second query.
+        // Three queries: top-level totals scoped by the optional filters, and two
+        // unscoped breakdowns (per env + per BU) that drive the dropdown labels.
+        // Keeping the breakdowns unscoped means the dropdowns always show every
+        // option's independent count, so users can switch between filters without
+        // labels jumping around.
+        var (whereClause, scopedArgs) = BuildDiskFilterClause(environment, businessUnit);
+
+        var top = await Db.QueryFirstAsync<DiskSummary>($@"
+            SELECT
+                COUNT(*)::int                                       AS TotalCount,
+                (COUNT(*) FILTER (WHERE alert_status = 1))::int     AS OkCount,
+                (COUNT(*) FILTER (WHERE alert_status = 2))::int     AS WarningCount,
+                (COUNT(*) FILTER (WHERE alert_status = 3))::int     AS CriticalCount
+            FROM {Sql.Tables.DiskCurrent}
+            {whereClause}
+        ", scopedArgs);
+
         var envs = (await Db.QueryAsync<DiskEnvCount>($@"
             SELECT
                 COALESCE(environment, '') AS Environment,
@@ -32,30 +46,34 @@ public class DiskMonitoringService : BaseService<DiskMonitoringService>, IDiskMo
             ORDER BY environment
         ")).ToList();
 
-        return new DiskSummary
-        {
-            TotalCount = envs.Sum(e => e.TotalCount),
-            OkCount = envs.Sum(e => e.OkCount),
-            WarningCount = envs.Sum(e => e.WarningCount),
-            CriticalCount = envs.Sum(e => e.CriticalCount),
-            Environments = envs,
-        };
+        var bus = (await Db.QueryAsync<DiskBuCount>($@"
+            SELECT
+                COALESCE(business_unit, '') AS BusinessUnit,
+                COUNT(*)::int                                       AS TotalCount,
+                (COUNT(*) FILTER (WHERE alert_status = 1))::int     AS OkCount,
+                (COUNT(*) FILTER (WHERE alert_status = 2))::int     AS WarningCount,
+                (COUNT(*) FILTER (WHERE alert_status = 3))::int     AS CriticalCount
+            FROM {Sql.Tables.DiskCurrent}
+            GROUP BY business_unit
+            ORDER BY business_unit
+        ")).ToList();
+
+        top.Environments = envs;
+        top.BusinessUnits = bus;
+        return top;
     });
 
-    public Task<PagedResult<Disk>> ListDisksAsync(int limit, int offset, string? environment = null) => RunDbAsync(async () =>
+    public Task<PagedResult<Disk>> ListDisksAsync(int limit, int offset, string? environment = null, string? businessUnit = null) => RunDbAsync(async () =>
     {
-        // Optional environment filter — applied via parameterised SQL. Empty/null
-        // means no filter (caller wants all envs). Casing matches the canonical
-        // values written by the sync (`_canonicalize_env` in sync_solarwinds_disks.py).
-        var hasEnv = !string.IsNullOrWhiteSpace(environment);
-        var envClause = hasEnv ? "WHERE environment = @Environment" : "";
-        var args = new DynamicParameters();
-        args.Add("Limit", limit);
-        args.Add("Offset", offset);
-        if (hasEnv) args.Add("Environment", environment);
+        // Filter clauses compose with AND. Casing matches the canonical values
+        // written by the sync (_canonicalize_env / _canonicalize_bu in
+        // sync_solarwinds_disks.py); equality match avoids any per-query LOWER().
+        var (whereClause, scopedArgs) = BuildDiskFilterClause(environment, businessUnit);
+        scopedArgs.Add("Limit", limit);
+        scopedArgs.Add("Offset", offset);
 
         var totalCount = await Db.QueryFirstAsync<int>(
-            $"SELECT COUNT(*) FROM {Sql.Tables.DiskCurrent} {envClause}", args);
+            $"SELECT COUNT(*) FROM {Sql.Tables.DiskCurrent} {whereClause}", scopedArgs);
 
         var disks = (await Db.QueryAsync<Disk>($@"
             SELECT
@@ -76,10 +94,10 @@ public class DiskMonitoringService : BaseService<DiskMonitoringService>, IDiskMo
                 threshold_crit_pct AS ThresholdCritPct,
                 captured_at        AS CapturedAt
             FROM {Sql.Tables.DiskCurrent}
-            {envClause}
+            {whereClause}
             ORDER BY alert_status DESC, percent_used DESC, server_name, disk_label
             LIMIT @Limit OFFSET @Offset
-        ", args)).ToList();
+        ", scopedArgs)).ToList();
 
         // Batch-fetch the projection-window history for the disks on this page,
         // then compute slopes in C# to avoid an N+1 round-trip.
@@ -135,6 +153,28 @@ public class DiskMonitoringService : BaseService<DiskMonitoringService>, IDiskMo
             ORDER BY captured_at
         ", new { ServerName = serverName, DiskLabel = diskLabel, Days = days })
     );
+
+    // Build a parameterised WHERE clause from optional environment + businessUnit
+    // filters. Returns the clause text (empty string if no filters) and a
+    // DynamicParameters bag prepopulated with whichever values were set.
+    private static (string clause, DynamicParameters args) BuildDiskFilterClause(
+        string? environment, string? businessUnit)
+    {
+        var clauses = new List<string>();
+        var args = new DynamicParameters();
+        if (!string.IsNullOrWhiteSpace(environment))
+        {
+            clauses.Add("environment = @Environment");
+            args.Add("Environment", environment);
+        }
+        if (!string.IsNullOrWhiteSpace(businessUnit))
+        {
+            clauses.Add("business_unit = @BusinessUnit");
+            args.Add("BusinessUnit", businessUnit);
+        }
+        var clauseText = clauses.Count == 0 ? "" : "WHERE " + string.Join(" AND ", clauses);
+        return (clauseText, args);
+    }
 
     // Cap the projection at one year. Beyond that the linear-regression model
     // is unreliable (capacity decisions over a year out are made from utilisation

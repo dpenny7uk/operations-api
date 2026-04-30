@@ -2313,14 +2313,15 @@
   }
 
   // Filter state — single-select per dimension. Default env is 'Production'
-  // (not '__all') because non-prod is noise for the ops team; the dropdown
-  // still lets users widen scope to a specific env or all environments.
+  // (not '__all') because non-prod is noise for the ops team. BU defaults to
+  // '__all' so the page surfaces the whole estate; pick a specific BU to
+  // narrow both the table and the KPI strip.
   const diskState = {
     status: '__all',
     owner:  '__all',
     env:    'Production',
+    bu:     '__all',
     service:'__all',
-    sizeBucket:'__all',
     sort:'percentUsed',
     sortDir:-1,
     page:1,
@@ -2328,14 +2329,6 @@
   };
 
   // Derived helpers --------------------------------------------------------
-  function diskSizeBucket(gb) {
-    if (gb < 100)   return '<100 GB';
-    if (gb < 500)   return '100–499 GB';
-    if (gb < 1000)  return '500–999 GB';
-    if (gb < 2000)  return '1–2 TB';
-    return '2 TB+';
-  }
-
   function diskUniqValues(items, field) {
     const set = new Set();
     items.forEach(d => { const v = d[field]; if (v) set.add(v); });
@@ -2357,8 +2350,8 @@
     if (diskState.status !== '__all') rows = rows.filter(d => String(d.alertStatus) === diskState.status);
     if (diskState.owner !== '__all')  rows = rows.filter(d => (d.technicalOwner || '') === diskState.owner);
     if (diskState.env !== '__all')    rows = rows.filter(d => (d.environment || '') === diskState.env);
+    if (diskState.bu !== '__all')     rows = rows.filter(d => (d.businessUnit || '') === diskState.bu);
     if (diskState.service !== '__all')rows = rows.filter(d => (d.service || '') === diskState.service);
-    if (diskState.sizeBucket !== '__all') rows = rows.filter(d => diskSizeBucket(d.volumeSizeGb) === diskState.sizeBucket);
     rows.sort((a, b) => {
       const av = a[diskState.sort], bv = b[diskState.sort];
       if (av == null && bv == null) return 0;
@@ -2464,32 +2457,31 @@
     return pts;
   }
 
-  // Resolve KPI counts for the active env from the authoritative summary
-  // endpoint when available, falling back to client-side compute on demo
-  // data. Returns the same {total, ok, warn, crit} shape as diskStatusKpis().
-  function diskKpisForEnv(envName, fallbackItems) {
+  // Resolve KPI counts for the active env+BU intersection. The summary
+  // endpoint is filter-aware: window.DISK_SUMMARY top-level totals reflect
+  // whatever filters were last sent via OC_API.fetchDisks (env + bu compose
+  // with AND server-side). When neither filter is set, top-level totals are
+  // the unfiltered grand totals from the boot fetch. Demo path falls back to
+  // client-side compute over loaded items.
+  function diskKpisForFilter(fallbackItems) {
     const summary = window.DISK_SUMMARY;
     if (!summary) return diskStatusKpis(fallbackItems);
-    if (!envName || envName === '__all') {
-      return {
-        total: summary.totalCount,
-        ok:    summary.okCount,
-        warn:  summary.warningCount,
-        crit:  summary.criticalCount,
-      };
-    }
-    const e = (summary.environments || []).find(x => x.environment === envName);
-    if (!e) return { total: 0, ok: 0, warn: 0, crit: 0 };
-    return { total: e.totalCount, ok: e.okCount, warn: e.warningCount, crit: e.criticalCount };
+    return {
+      total: summary.totalCount,
+      ok:    summary.okCount,
+      warn:  summary.warningCount,
+      crit:  summary.criticalCount,
+    };
   }
 
   function renderDiskMonitoringPage(mount) {
     const page = h('div.page');
     const ribbon = demoRibbon('disks'); if (ribbon) page.appendChild(ribbon);
     const allItems = liveDisks().items;
-    // KPI strip uses the env-scoped summary (DB-authoritative); client-side
-    // compute is the fallback for demo mode and pre-summary boots.
-    const kpis = diskKpisForEnv(diskState.env, allItems);
+    // KPI strip honors the active env + BU filter intersection (server-side
+    // summary keeps the top-level counts in sync). Client-side compute is the
+    // fallback for demo mode and pre-summary boots.
+    const kpis = diskKpisForFilter(allItems);
 
     // KPI strip — mirrors the Health page CritStrip vocabulary so the visual
     // language of "current state at a glance" is consistent across surfaces.
@@ -2520,6 +2512,61 @@
     ));
     page.appendChild(strip);
 
+    // Per-BU overview — stacked horizontal bars showing OK/Warn/Crit split for
+    // every BU in the estate. Mirrors the Servers page's "Servers by environment"
+    // chart so the two surfaces share a visual vocabulary. Clicking a row deep-
+    // links the BU filter and refetches via OC_API.fetchDisks.
+    const buBreakdown = (window.DISK_SUMMARY && window.DISK_SUMMARY.businessUnits) || [];
+    if (buBreakdown.length > 0) {
+      const buActive = diskState.bu && diskState.bu !== '__all';
+      const buMax = Math.max(1, ...buBreakdown.map(b => b.totalCount));
+      const buSection = h('div', { style:{margin:'12px 0 18px'} });
+      buSection.appendChild(sectionLabel(
+        'Disks by business unit',
+        buBreakdown.length,
+        buActive ? h('button.btn.xs', {
+          style:{marginLeft:'auto'},
+          on:{click: async () => {
+            diskState.bu = '__all'; diskState.page = 1;
+            const refetched = (window.OC_API && typeof window.OC_API.fetchDisks === 'function')
+              ? await window.OC_API.fetchDisks({ env: diskState.env, bu: '__all' })
+              : null;
+            if (!refetched) window.RERENDER_PAGE(mount);
+          }},
+        }, 'Clear filter') : null,
+      ));
+      const buBars = h('div.env-bars');
+      buBreakdown.slice().sort((a,b) => b.totalCount - a.totalCount).forEach(b => {
+        const isActive = diskState.bu === b.businessUnit;
+        const totalW = Math.max(2, Math.round(b.totalCount / buMax * 100));
+        const okW   = b.totalCount ? (b.okCount   / b.totalCount * totalW) : 0;
+        const warnW = b.totalCount ? (b.warningCount / b.totalCount * totalW) : 0;
+        const critW = b.totalCount ? (b.criticalCount / b.totalCount * totalW) : 0;
+        const row = h('div.env-row' + (isActive ? '.is-active' : ''),
+          { role:'button', 'aria-pressed':String(isActive), tabindex:'0',
+            on:{click: async () => {
+              const nextBu = isActive ? '__all' : b.businessUnit;
+              diskState.bu = nextBu; diskState.page = 1;
+              const refetched = (window.OC_API && typeof window.OC_API.fetchDisks === 'function')
+                ? await window.OC_API.fetchDisks({ env: diskState.env, bu: nextBu })
+                : null;
+              if (!refetched) window.RERENDER_PAGE(mount);
+            }} },
+          h('div.name', null, b.businessUnit || 'Unknown'),
+          h('div.bar', { style:{display:'flex', overflow:'hidden'} },
+            h('div', { style:{width: okW + '%',   background:'var(--ok)'} }),
+            h('div', { style:{width: warnW + '%', background:'var(--warn)'} }),
+            h('div', { style:{width: critW + '%', background:'var(--crit)'} }),
+          ),
+          h('div.count', null, b.totalCount.toLocaleString()
+            + (b.criticalCount ? ' (' + b.criticalCount + ' crit)' : '')),
+        );
+        buBars.appendChild(row);
+      });
+      buSection.appendChild(buBars);
+      page.appendChild(buSection);
+    }
+
     // Compute filtered rows once so the count display, table, and CSV export
     // all share the same view.
     const filtered = applyDiskFilters();
@@ -2527,18 +2574,17 @@
     const slice = filtered.slice(pg.start, pg.end);
 
     // Filters — plain <select>s styled by `.filters select`. First option per
-    // dropdown is the "All ..." reset. Single-select for v1 (Tableau parity
-    // multi-select is v2 polish).
+    // dropdown is the "All ..." reset. Single-select for v3.
     const mkSelect = (field, allLabel, opts) => h('select',
       { on:{change:(e)=>{ diskState[field]=e.target.value; diskState.page=1; window.RERENDER_PAGE(mount); }}},
       h('option', { value:'__all', selected: diskState[field]==='__all' }, allLabel),
       ...opts.map(([v,l]) => h('option', { value:v, selected: diskState[field]===v }, l))
     );
 
-    // Env dropdown: labels include per-env counts from the summary endpoint
-    // ("Production (466)") to match the Servers page convention. Selecting a
-    // value triggers a server-side refetch via OC_API.fetchDisksByEnv so the
-    // table reflects only that env's disks (and never trips the result cap).
+    // Env + BU dropdowns: labels include per-X counts from the summary endpoint
+    // ("Production (466)", "Contoso UK (140)") to match the Servers page
+    // convention. Changing either triggers a server-side refetch via
+    // OC_API.fetchDisks so the table + KPI strip reflect the new intersection.
     const envSummary = (window.DISK_SUMMARY && window.DISK_SUMMARY.environments) || [];
     const envOpts = envSummary.length
       ? envSummary.map(e => [e.environment, e.environment + ' (' + e.totalCount + ')'])
@@ -2547,8 +2593,8 @@
       { on:{change: async (e) => {
         diskState.env = e.target.value;
         diskState.page = 1;
-        const refetched = (window.OC_API && typeof window.OC_API.fetchDisksByEnv === 'function')
-          ? await window.OC_API.fetchDisksByEnv(diskState.env)
+        const refetched = (window.OC_API && typeof window.OC_API.fetchDisks === 'function')
+          ? await window.OC_API.fetchDisks({ env: diskState.env, bu: diskState.bu })
           : null;
         if (!refetched) window.RERENDER_PAGE(mount);
       }}},
@@ -2556,22 +2602,38 @@
       ...envOpts.map(([v,l]) => h('option', { value:v, selected: diskState.env===v }, l))
     );
 
+    const buOpts = buBreakdown.length
+      ? buBreakdown.map(b => [b.businessUnit, b.businessUnit + ' (' + b.totalCount + ')'])
+      : diskUniqValues(allItems, 'businessUnit').map(v => [v, v]);
+    const buSel = h('select',
+      { on:{change: async (e) => {
+        diskState.bu = e.target.value;
+        diskState.page = 1;
+        const refetched = (window.OC_API && typeof window.OC_API.fetchDisks === 'function')
+          ? await window.OC_API.fetchDisks({ env: diskState.env, bu: diskState.bu })
+          : null;
+        if (!refetched) window.RERENDER_PAGE(mount);
+      }}},
+      h('option', { value:'__all', selected: diskState.bu==='__all' }, 'All business units'),
+      ...buOpts.map(([v,l]) => h('option', { value:v, selected: diskState.bu===v }, l))
+    );
+
     page.appendChild(filterBar([
       mkSelect('status', 'All alert levels', [['1','OK'],['2','Warning'],['3','Critical']]),
       mkSelect('owner', 'All technical owners', diskUniqValues(allItems, 'technicalOwner').map(v => [v,v])),
       envSel,
       mkSelect('service','All services',        diskUniqValues(allItems, 'service').map(v => [v,v])),
-      mkSelect('sizeBucket','All volume sizes', [
-        ['<100 GB','<100 GB'], ['100–499 GB','100–499 GB'], ['500–999 GB','500–999 GB'],
-        ['1–2 TB','1–2 TB'], ['2 TB+','2 TB+'],
-      ]),
+      buSel,
       h('button.btn', { on:{click: async () => {
         const wasEnv = diskState.env;
-        diskState.status='__all'; diskState.owner='__all'; diskState.env='Production';
-        diskState.service='__all'; diskState.sizeBucket='__all'; diskState.page=1;
-        // Reset returns to Production-focused view; refetch only if env actually changed.
-        if (wasEnv !== 'Production' && window.OC_API && typeof window.OC_API.fetchDisksByEnv === 'function') {
-          const refetched = await window.OC_API.fetchDisksByEnv('Production');
+        const wasBu  = diskState.bu;
+        diskState.status='__all'; diskState.owner='__all';
+        diskState.env='Production'; diskState.bu='__all';
+        diskState.service='__all'; diskState.page=1;
+        // Reset to the canonical "Production / All BUs" landing view.
+        // Refetch only if the server-side filters actually changed.
+        if ((wasEnv !== 'Production' || wasBu !== '__all') && window.OC_API && typeof window.OC_API.fetchDisks === 'function') {
+          const refetched = await window.OC_API.fetchDisks({ env: 'Production', bu: '__all' });
           if (refetched) return; // refetch triggers its own rerender
         }
         window.RERENDER_PAGE(mount);
@@ -2579,7 +2641,7 @@
       h('span.spacer'),
       h('span.ct', null, 'Showing ' + (pg.start+1) + '–' + pg.end + ' of ' + filtered.length),
       h('button.btn', { on:{click:()=>exportCsv('disks', filtered,
-        ['serverName','diskLabel','service','environment','technicalOwner',
+        ['serverName','diskLabel','service','environment','businessUnit','technicalOwner',
          'volumeSizeGb','usedGb','percentUsed','thresholdCritPct',
          'alertStatus','daysUntilCritical'])}}, 'Export CSV'),
     ]));
@@ -2601,6 +2663,7 @@
     const table = h('table.op');
     table.appendChild(h('thead', null, h('tr', null,
       sortableTh('serverName',   'Server'),
+      sortableTh('businessUnit', 'BU'),
       sortableTh('service',      'Service'),
       sortableTh('diskLabel',    'Disk'),
       h('th', null, 'Usage'),
@@ -2620,6 +2683,7 @@
     slice.forEach(d => {
       const tr = h('tr'+rowCls(d.alertStatus), null,
         h('td.host', null, d.serverName),
+        h('td.muted', null, d.businessUnit || '—'),
         h('td.muted', null, d.service || '—'),
         h('td.mono', null, d.diskLabel),
         h('td', null, diskUsageBar(d)),
@@ -2655,7 +2719,7 @@
       tbody.appendChild(tr);
     });
     if (slice.length === 0) {
-      tbody.appendChild(h('tr', null, h('td', { colspan: 10 },
+      tbody.appendChild(h('tr', null, h('td', { colspan: 11 },
         h('div.no-hits', null, 'No disks match filter'))));
     }
     table.appendChild(tbody);

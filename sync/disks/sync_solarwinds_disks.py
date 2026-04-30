@@ -9,10 +9,12 @@ Alert thresholds replicate Tableau's calculated fields exactly:
   crit (status=3): percent_used >= COALESCE(Volumes.ALERT_VOL, DISK_CRIT_PCT_DEFAULT)
   ok   (status=1): otherwise
 
-Source scoping also mirrors the Tableau dashboard exactly:
-  - Group servers (Caption chars 3-4 = '06') plus two BU Risklink SQL hosts.
+Source scoping covers the entire SolarWinds-managed estate:
   - Excludes nodes SolarWinds has marked UNMANAGED, OS (C:) drives, and volumes
     with VolumeTypeID outside (4, 100).
+  - BU is derived per-row from the server-name convention (chars 3-4 -> code
+    -> canonical label) by `_canonicalize_bu`, with the SolarWinds field as
+    fallback for non-conformant captions.
 
 If thresholds are changed via env vars, also update DiskMonitoring:WarnThresholdPct
 and DiskMonitoring:CritThresholdPct in appsettings.json so the in-app alerts
@@ -38,12 +40,6 @@ logger = setup_logging('sync_solarwinds_disks')
 
 WARN_PCT = float(os.environ.get('DISK_WARN_PCT', '80.0'))
 CRIT_PCT_DEFAULT = float(os.environ.get('DISK_CRIT_PCT_DEFAULT', '90.0'))
-
-# Group servers are identified by characters 3-4 of the SolarWinds Caption being '06'.
-# Two BU Risklink SQL hosts don't follow this pattern but must still be monitored —
-# replicating the Tableau dashboard's hardcoded inclusion list.
-_GROUP_CAPTION_OPCO_DIGITS = '06'
-_BU_RISKLINK_CAPTIONS = ('pr0503-14002-00', 'pr0703-03002-00')
 
 # Canonical environment labels — match the Servers page so the two surfaces feel
 # like one product. Keys are lowercase-with-underscores so both 'Production' and
@@ -76,6 +72,70 @@ def _canonicalize_env(raw):
         logger.warning("Unmapped SolarWinds environment value: %r", raw)
         return raw.strip()
     return canonical
+
+
+# Server naming convention: characters 3-4 of the caption encode the Business
+# Unit. Labels match `BU_VALUES` in frontend/js/op-pages.js (which mirrors
+# derive_business_unit() in sync/servers/sync_server_list.py) so the Disks and
+# Servers pages share a single BU vocabulary. Code '00' is reserved as
+# "Do NOT Use"; codes 08+ are "Future expansion".
+_BU_BY_CAPTION_CODE = {
+    '01': 'ITS',
+    '02': 'Contoso US',
+    '03': 'Contoso UK',
+    '04': 'Contoso Europe',
+    '05': 'Contoso London Market',
+    '06': 'Contoso Group Support',
+    '07': 'Contoso Re & ILS',
+}
+
+# Mirrors BU_CANONICAL_MAP in sync/servers/sync_server_list.py. Kept local
+# (rather than imported) so the disk sync stays self-contained and so changes
+# don't ripple across modules; if a third sync needs this, lift to common.py.
+_BU_FALLBACK_MAP = {
+    'uk': 'Contoso UK',
+    'contoso uk': 'Contoso UK',
+    'uk&i': 'UK & I',
+    'us': 'Contoso US',
+    'contoso us': 'Contoso US',
+    'europe': 'Contoso Europe',
+    'contoso europe': 'Contoso Europe',
+    'london_market': 'Contoso London Market',
+    'contoso london market': 'Contoso London Market',
+    'contoso_re': 'Contoso Re & ILS',
+    'contoso re and ils': 'Contoso Re & ILS',
+    'group': 'Contoso Group Support',
+    'contoso group support': 'Contoso Group Support',
+    'contoso special risks': 'Contoso Special Risks',
+    'it_services': 'ITS',
+    'infosec': 'Infosec',
+    'no bu found': 'Unknown',
+}
+
+
+def _canonicalize_bu(server_caption, raw_solarwinds_bu):
+    """Derive canonical BU. Primary path: characters 3-4 of the server caption
+    map directly to a BU code (e.g. 'PR0613-...' -> '06' -> 'Contoso Group Support').
+
+    Fallback for servers that don't follow the convention: normalize the
+    SolarWinds Nodes.BusinessUnit field via the same canonical map the Servers
+    sync uses. Returns 'Unknown' when both paths fail, with a warning so new
+    SolarWinds BU strings get surfaced.
+    """
+    if server_caption and len(server_caption) >= 4:
+        code = server_caption[2:4]
+        canonical = _BU_BY_CAPTION_CODE.get(code)
+        if canonical:
+            return canonical
+        if code == '00':
+            logger.warning("Server using reserved BU code '00': %r", server_caption)
+    if raw_solarwinds_bu and str(raw_solarwinds_bu).strip():
+        key = str(raw_solarwinds_bu).strip().lower()
+        canonical = _BU_FALLBACK_MAP.get(key)
+        if canonical:
+            return canonical
+        logger.warning("Unknown SolarWinds business_unit value: %r — mapping to 'Unknown'", raw_solarwinds_bu)
+    return 'Unknown'
 
 
 # Whitelist matcher for SolarWinds queries: optional leading whitespace, line
@@ -136,9 +196,10 @@ class _ReadOnlyConnection:
 BYTES_PER_GB = 1073741824  # 1024**3
 
 # Source query — joins per-disk Volumes with per-server Nodes for owner/env context.
-# WHERE clause mirrors the Tableau dashboard exactly so the new operations-api Disks
-# page shows the same population the team has been reading for years.
-SOURCE_QUERY = f"""
+# Scoping mirrors the Tableau workbook minus the Group-only caption filter, which
+# we deliberately drop so the dashboard surfaces the entire estate. BU is then
+# derived per-row from the server caption (see _canonicalize_bu).
+SOURCE_QUERY = """
 SELECT
     n.NodeID,
     n.Caption        AS server_name,
@@ -164,12 +225,6 @@ WHERE 1=1
   AND v.VolumeSpaceAvailable > 1
   -- Skip nodes SolarWinds has marked unmanaged (typically offline/decommissioned).
   AND n.Status <> 'UNMANAGED'
-  -- Group servers (caption chars 3-4 = '{_GROUP_CAPTION_OPCO_DIGITS}') plus the two BU Risklink
-  -- SQL hosts that don't follow the Group caption pattern.
-  AND (
-      RIGHT(LEFT(n.Caption, 4), 2) = '{_GROUP_CAPTION_OPCO_DIGITS}'
-      OR n.Caption IN ('{_BU_RISKLINK_CAPTIONS[0]}', '{_BU_RISKLINK_CAPTIONS[1]}')
-  )
   -- Skip OS drives — capacity planning is about data volumes.
   AND v.VolumeDescription NOT LIKE 'C:%'
   -- Trial-and-error from the Tableau workbook: 4 = Fixed Disk, 100 = a custom type
@@ -262,7 +317,7 @@ def transform_row(row: dict) -> Optional[dict]:
         'environment': _canonicalize_env(row.get('environment')),
         'technical_owner': row.get('technical_owner'),
         'business_owner': row.get('business_owner'),
-        'business_unit': row.get('business_unit'),
+        'business_unit': _canonicalize_bu(row.get('server_name'), row.get('business_unit')),
         'tier': row.get('tier'),
         'disk_label': row['disk_label'],
         'volume_size_gb': volume_size_gb,

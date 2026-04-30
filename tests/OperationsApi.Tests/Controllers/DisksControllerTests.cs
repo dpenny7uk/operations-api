@@ -13,61 +13,105 @@ public class DisksControllerTests
     private DisksController Controller => new(_svc.Object);
 
     [Fact]
-    public async Task List_clamps_limit_at_2000()
+    public async Task List_clamps_limit_at_5000()
     {
-        _svc.Setup(s => s.ListDisksAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string?>()))
+        _svc.Setup(s => s.ListDisksAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<string?>()))
             .ReturnsAsync(new PagedResult<Disk>());
 
-        await Controller.List(limit: 5000, offset: 0);
+        await Controller.List(limit: 9999, offset: 0);
 
-        _svc.Verify(s => s.ListDisksAsync(2000, 0, null));
+        _svc.Verify(s => s.ListDisksAsync(5000, 0, null, null));
     }
 
     [Fact]
     public async Task List_clamps_limit_minimum_to_1()
     {
-        _svc.Setup(s => s.ListDisksAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string?>()))
+        _svc.Setup(s => s.ListDisksAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<string?>()))
             .ReturnsAsync(new PagedResult<Disk>());
 
         await Controller.List(limit: -10, offset: 0);
 
-        _svc.Verify(s => s.ListDisksAsync(1, 0, null));
+        _svc.Verify(s => s.ListDisksAsync(1, 0, null, null));
     }
 
     [Fact]
     public async Task List_floors_negative_offset_at_zero()
     {
-        _svc.Setup(s => s.ListDisksAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string?>()))
+        _svc.Setup(s => s.ListDisksAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<string?>()))
             .ReturnsAsync(new PagedResult<Disk>());
 
         await Controller.List(limit: 100, offset: -50);
 
-        _svc.Verify(s => s.ListDisksAsync(100, 0, null));
+        _svc.Verify(s => s.ListDisksAsync(100, 0, null, null));
     }
 
     [Fact]
     public async Task List_passes_environment_through_when_set()
     {
-        _svc.Setup(s => s.ListDisksAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string?>()))
+        _svc.Setup(s => s.ListDisksAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<string?>()))
             .ReturnsAsync(new PagedResult<Disk>());
 
         await Controller.List(limit: 100, offset: 0, environment: "Production");
 
-        _svc.Verify(s => s.ListDisksAsync(100, 0, "Production"));
+        _svc.Verify(s => s.ListDisksAsync(100, 0, "Production", null));
+    }
+
+    [Fact]
+    public async Task List_passes_business_unit_through_when_set()
+    {
+        _svc.Setup(s => s.ListDisksAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<string?>()))
+            .ReturnsAsync(new PagedResult<Disk>());
+
+        await Controller.List(limit: 100, offset: 0, businessUnit: "Contoso Group Support");
+
+        _svc.Verify(s => s.ListDisksAsync(100, 0, null, "Contoso Group Support"));
+    }
+
+    [Fact]
+    public async Task List_composes_environment_and_business_unit()
+    {
+        _svc.Setup(s => s.ListDisksAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<string?>()))
+            .ReturnsAsync(new PagedResult<Disk>());
+
+        await Controller.List(limit: 100, offset: 0, environment: "Production", businessUnit: "Contoso UK");
+
+        _svc.Verify(s => s.ListDisksAsync(100, 0, "Production", "Contoso UK"));
     }
 
     [Theory]
     [InlineData(null)]
     [InlineData("")]
     [InlineData("   ")]
-    public async Task List_treats_blank_environment_as_no_filter(string? env)
+    public async Task List_treats_blank_filters_as_no_filter(string? blank)
     {
-        _svc.Setup(s => s.ListDisksAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string?>()))
+        _svc.Setup(s => s.ListDisksAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<string?>()))
             .ReturnsAsync(new PagedResult<Disk>());
 
-        await Controller.List(limit: 100, offset: 0, environment: env);
+        await Controller.List(limit: 100, offset: 0, environment: blank, businessUnit: blank);
 
-        _svc.Verify(s => s.ListDisksAsync(100, 0, null));
+        _svc.Verify(s => s.ListDisksAsync(100, 0, null, null));
+    }
+
+    [Fact]
+    public async Task GetSummary_passes_filters_through()
+    {
+        _svc.Setup(s => s.GetSummaryAsync(It.IsAny<string?>(), It.IsAny<string?>()))
+            .ReturnsAsync(new DiskSummary());
+
+        await Controller.GetSummary(environment: "Production", businessUnit: "Contoso Group Support");
+
+        _svc.Verify(s => s.GetSummaryAsync("Production", "Contoso Group Support"));
+    }
+
+    [Fact]
+    public async Task GetSummary_treats_blank_filters_as_no_filter()
+    {
+        _svc.Setup(s => s.GetSummaryAsync(It.IsAny<string?>(), It.IsAny<string?>()))
+            .ReturnsAsync(new DiskSummary());
+
+        await Controller.GetSummary(environment: "  ", businessUnit: "");
+
+        _svc.Verify(s => s.GetSummaryAsync(null, null));
     }
 
     [Theory]

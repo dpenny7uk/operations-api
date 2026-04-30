@@ -276,12 +276,15 @@ function mapAlerts(items) {
   }));
 }
 
-// Disk summary — total/ok/warn/crit + per-environment breakdown. Drives the
-// KPI strip (counts always reflect DB totals, not the loaded page) and the
-// env dropdown labels ("Production (466)").
+// Disk summary — total/ok/warn/crit + per-environment + per-BU breakdowns.
+// Drives the KPI strip (DB-authoritative counts, not loaded-items counts) and
+// the env/BU dropdown labels ("Production (466)", "Contoso UK (140)"). The
+// top-level totals reflect any filters passed via the query string; the
+// breakdown lists are always unscoped so dropdown counts stay stable.
 function mapDiskSummary(s) {
   if (!s || typeof s !== 'object') return null;
   const envs = Array.isArray(s.environments) ? s.environments : [];
+  const bus  = Array.isArray(s.businessUnits) ? s.businessUnits : [];
   return {
     totalCount:    Number(s.totalCount) || 0,
     okCount:       Number(s.okCount) || 0,
@@ -293,6 +296,13 @@ function mapDiskSummary(s) {
       okCount:       Number(e.okCount) || 0,
       warningCount:  Number(e.warningCount) || 0,
       criticalCount: Number(e.criticalCount) || 0,
+    })),
+    businessUnits: bus.map(b => ({
+      businessUnit:  b.businessUnit || '',
+      totalCount:    Number(b.totalCount) || 0,
+      okCount:       Number(b.okCount) || 0,
+      warningCount:  Number(b.warningCount) || 0,
+      criticalCount: Number(b.criticalCount) || 0,
     })),
   };
 }
@@ -487,21 +497,34 @@ async function boot() {
       rerender();
     }),
     // Default to Production-only on initial load — non-prod is noise for the
-    // ops team. The dropdown lets users widen scope; OC_API.fetchDisksByEnv
+    // ops team. The dropdown lets users widen scope (BU + env); OC_API.fetchDisks
     // handles the refetch.
-    api('/disks?environment=Production&limit=2000').then(r => {
+    api('/disks?environment=Production&limit=5000').then(r => {
       if (!r || !Array.isArray(r.items)) { markDemo('disks'); return; }
       window.DISKS_DATA = Object.assign({}, window.DISKS_DATA, {
         items: mapDisks(r.items),
         totalCount: r.totalCount != null ? r.totalCount : r.items.length,
         currentEnv: 'Production',
+        currentBu:  '__all',
       });
       rerender();
     }),
+    // Top-level summary stays unscoped on boot — the breakdowns drive both
+    // dropdowns, and the top-level totals get overwritten when the user
+    // changes filters via OC_API.fetchDisks.
     api('/disks/summary').then(s => {
       const summary = mapDiskSummary(s);
       if (!summary) { markDemo('disks'); return; }
       window.DISK_SUMMARY = summary;
+      rerender();
+    }),
+    // Health page disk card pins to Group + Production regardless of what the
+    // Disks page is currently filtered to. Separate dedicated fetch so the
+    // Health card can't be perturbed by user navigation.
+    api('/disks/summary?environment=Production&businessUnit=' + encodeURIComponent('Contoso Group Support')).then(s => {
+      const summary = mapDiskSummary(s);
+      if (!summary) return; // demo fallback handled by op-app.js disks card path
+      window.DISK_SUMMARY_GROUP_PROD = summary;
       rerender();
     }),
   ];
@@ -526,26 +549,52 @@ window.OC_API = {
   getEolDetail: (product, version) =>
     api('/eol/' + encodeURIComponent(product) + '/' + encodeURIComponent(version)),
 
-  // Refetch /api/disks scoped to a specific environment (or all envs when
-  // envName is falsy / '__all'). Updates window.DISKS_DATA and triggers a
-  // rerender so the page reflects the new server-side selection.
-  fetchDisksByEnv: async (envName) => {
-    const isAll = !envName || envName === '__all';
-    const qs = isAll
-      ? '?limit=2000'
-      : '?environment=' + encodeURIComponent(envName) + '&limit=2000';
-    const r = await api('/disks' + qs);
-    if (!r || !Array.isArray(r.items)) return null;
-    window.DISKS_DATA = Object.assign({}, window.DISKS_DATA, {
-      items: mapDisks(r.items),
-      totalCount: r.totalCount != null ? r.totalCount : r.items.length,
-      currentEnv: isAll ? '__all' : envName,
-    });
+  // Refetch /api/disks + /api/disks/summary scoped to the given env+BU
+  // intersection. Either filter can be falsy / '__all' to mean unfiltered.
+  // Updates window.DISKS_DATA + window.DISK_SUMMARY (top-level totals reflect
+  // the intersection; breakdown lists stay stable for dropdown labels) and
+  // triggers a rerender so the KPI strip + table reflect the new selection.
+  fetchDisks: async ({ env, bu } = {}) => {
+    const envSet = env && env !== '__all';
+    const buSet  = bu && bu !== '__all';
+    const params = ['limit=5000'];
+    if (envSet) params.push('environment=' + encodeURIComponent(env));
+    if (buSet)  params.push('businessUnit=' + encodeURIComponent(bu));
+    const qs = '?' + params.join('&');
+
+    // Fire both requests in parallel — the table and the strip update together.
+    const summaryParams = [];
+    if (envSet) summaryParams.push('environment=' + encodeURIComponent(env));
+    if (buSet)  summaryParams.push('businessUnit=' + encodeURIComponent(bu));
+    const summaryQs = summaryParams.length ? '?' + summaryParams.join('&') : '';
+
+    const [listResult, summaryResult] = await Promise.all([
+      api('/disks' + qs),
+      api('/disks/summary' + summaryQs),
+    ]);
+
+    if (listResult && Array.isArray(listResult.items)) {
+      window.DISKS_DATA = Object.assign({}, window.DISKS_DATA, {
+        items: mapDisks(listResult.items),
+        totalCount: listResult.totalCount != null ? listResult.totalCount : listResult.items.length,
+        currentEnv: envSet ? env : '__all',
+        currentBu:  buSet  ? bu  : '__all',
+      });
+    }
+    const mappedSummary = mapDiskSummary(summaryResult);
+    if (mappedSummary) {
+      window.DISK_SUMMARY = mappedSummary;
+    }
     if (typeof window.RERENDER_PAGE === 'function') {
       const m = document.querySelector('.page-mount');
       if (m) window.RERENDER_PAGE(m);
     }
-    return r;
+    return listResult;
+  },
+
+  // Back-compat shim: existing callers pass an env string directly.
+  fetchDisksByEnv: function(envName) {
+    return this.fetchDisks({ env: envName });
   },
 };
 

@@ -16,30 +16,41 @@ public class DisksController : ControllerBase
     public DisksController(IDiskMonitoringService svc) => _svc = svc;
 
     /// <summary>Get disk summary with counts by alert status.</summary>
+    /// <param name="environment">Optional canonical environment filter (e.g. "Production").</param>
+    /// <param name="businessUnit">Optional canonical business-unit filter (e.g. "Contoso Group Support").</param>
     [HttpGet("summary")]
     [ResponseCache(Duration = 60, Location = ResponseCacheLocation.Client)]
     [ProducesResponseType(200)]
-    public async Task<IActionResult> GetSummary()
-        => Ok(await _svc.GetSummaryAsync());
+    public async Task<IActionResult> GetSummary(
+        [FromQuery] string? environment = null,
+        [FromQuery] string? businessUnit = null)
+    {
+        var envFilter = string.IsNullOrWhiteSpace(environment) ? null : environment.Trim();
+        var buFilter = string.IsNullOrWhiteSpace(businessUnit) ? null : businessUnit.Trim();
+        return Ok(await _svc.GetSummaryAsync(envFilter, buFilter));
+    }
 
     /// <summary>List current-state disks with paged response.</summary>
-    /// <param name="limit">Maximum results (1-2000, default 1000).</param>
+    /// <param name="limit">Maximum results (1-5000, default 2000).</param>
     /// <param name="offset">Skip the first N results (default 0).</param>
     /// <param name="environment">Optional canonical environment filter (e.g. "Production").</param>
+    /// <param name="businessUnit">Optional canonical business-unit filter (e.g. "Contoso Group Support").</param>
     [HttpGet]
     [ProducesResponseType(200)]
     public async Task<IActionResult> List(
-        [FromQuery] int limit = 1000,
+        [FromQuery] int limit = 2000,
         [FromQuery] int offset = 0,
-        [FromQuery] string? environment = null)
+        [FromQuery] string? environment = null,
+        [FromQuery] string? businessUnit = null)
     {
-        // Cap raised to 2000 (was 1000) so an unfiltered fetch returns the full
-        // SolarWinds population (~1,231 disks) without truncation. Per-env fetches
-        // are well under the cap; the filter shrinks the working set on the SPA.
-        var clampedLimit = Math.Clamp(limit, 1, 2000);
+        // Cap raised to 5000 (was 2000) so an unfiltered all-BU fetch returns the
+        // full estate without truncation. Per-filter fetches stay well under the
+        // cap; the filters shrink the working set on the SPA.
+        var clampedLimit = Math.Clamp(limit, 1, 5000);
         var clampedOffset = Math.Max(offset, 0);
         var envFilter = string.IsNullOrWhiteSpace(environment) ? null : environment.Trim();
-        return Ok(await _svc.ListDisksAsync(clampedLimit, clampedOffset, envFilter));
+        var buFilter = string.IsNullOrWhiteSpace(businessUnit) ? null : businessUnit.Trim();
+        return Ok(await _svc.ListDisksAsync(clampedLimit, clampedOffset, envFilter, buFilter));
     }
 
     /// <summary>Get snapshot history for a single disk (used for sparkline + growth projection).</summary>

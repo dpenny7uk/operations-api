@@ -2,19 +2,30 @@ namespace OperationsApi.Models;
 
 public class DiskSummary
 {
+    // Top-level counts respect the optional environment + businessUnit filters
+    // on the query string. The breakdown lists below stay unscoped so the
+    // dropdown labels always show every option's independent count.
     public int TotalCount { get; set; }
     public int OkCount { get; set; }
     public int WarningCount { get; set; }
     public int CriticalCount { get; set; }
 
-    // Per-environment breakdown — drives the env filter's "Production (466)"
-    // labels and lets the KPI strip reflect the active env without re-fetching.
     public List<DiskEnvCount> Environments { get; set; } = new();
+    public List<DiskBuCount> BusinessUnits { get; set; } = new();
 }
 
 public class DiskEnvCount
 {
     public string Environment { get; set; } = "";
+    public int TotalCount { get; set; }
+    public int OkCount { get; set; }
+    public int WarningCount { get; set; }
+    public int CriticalCount { get; set; }
+}
+
+public class DiskBuCount
+{
+    public string BusinessUnit { get; set; } = "";
     public int TotalCount { get; set; }
     public int OkCount { get; set; }
     public int WarningCount { get; set; }

@@ -542,15 +542,24 @@
       h('div.cs-sub', null, failing ? (failing === 1 ? '1 sync failing' : failing + ' syncs failing') : 'all syncs healthy'),
       h('div.cs-link', null, 'View sync status')));
 
-    // Disk capacity — count crit/warn disks from window.DISKS_DATA
-    const disks = (window.DISKS_DATA && Array.isArray(window.DISKS_DATA.items)) ? window.DISKS_DATA.items : [];
-    const dCrit = disks.filter(d => d.alertStatus === 3).length;
-    const dWarn = disks.filter(d => d.alertStatus === 2).length;
+    // Disk capacity — pinned to Group + Production via the dedicated summary
+    // fetch in op-boot.js. Demo path (DISK_SUMMARY_GROUP_PROD absent) falls back
+    // to counting the loaded items array.
+    const dGP = window.DISK_SUMMARY_GROUP_PROD;
+    let dCrit, dWarn, dTotal;
+    if (dGP) {
+      dCrit = dGP.criticalCount;
+      dWarn = dGP.warningCount;
+      dTotal = dGP.totalCount;
+    } else {
+      const disks = (window.DISKS_DATA && Array.isArray(window.DISKS_DATA.items)) ? window.DISKS_DATA.items : [];
+      dCrit = disks.filter(d => d.alertStatus === 3).length;
+      dWarn = disks.filter(d => d.alertStatus === 2).length;
+      dTotal = disks.length;
+    }
     const dTone = dCrit ? 'crit' : dWarn ? 'warn' : 'ok';
-    const dValue = String(dCrit || dWarn || disks.length);
-    const dUnit  = dCrit ? (dCrit === 1 ? 'critical' : 'critical')
-                 : dWarn ? (dWarn === 1 ? 'warning' : 'warning')
-                 : 'tracked';
+    const dValue = String(dCrit || dWarn || dTotal);
+    const dUnit  = dCrit ? 'critical' : dWarn ? 'warning' : 'tracked';
     strip.appendChild(h('div.cs-cell.'+dTone, {
       on: { click: () => { if (window.ROUTER) window.ROUTER.goto('disks'); } },
       role: 'button', tabindex: '0',
@@ -558,10 +567,9 @@
       h('div.cs-label', null, 'Disk capacity'),
       h('div.cs-value', null, dValue, h('span.cs-unit', null, dUnit)),
       h('div.cs-sub', null,
-        dCrit && dWarn ? (dWarn + ' warning · ' + disks.length + ' tracked')
-        : dCrit ? (disks.length + ' tracked')
-        : dWarn ? (disks.length + ' tracked')
-        : 'all under threshold'),
+        dCrit && dWarn ? (dWarn + ' warning · ' + dTotal + ' tracked (Group prod)')
+        : dCrit || dWarn ? (dTotal + ' tracked (Group prod)')
+        : 'all under threshold (Group prod)'),
       (dCrit || dWarn) ? h('div.cs-link', null, 'Open Disk Monitoring') : null,
     ));
 
