@@ -136,10 +136,16 @@ public class DiskMonitoringService : BaseService<DiskMonitoringService>, IDiskMo
         ", new { ServerName = serverName, DiskLabel = diskLabel, Days = days })
     );
 
+    // Cap the projection at one year. Beyond that the linear-regression model
+    // is unreliable (capacity decisions over a year out are made from utilisation
+    // trends, not point projections), and producing values like "4 billion days"
+    // for near-zero slopes is operationally noise.
+    private const double ProjectionCapDays = 365;
+
     // Simple linear-regression projection. Computes growth rate (GB/day) over
     // the supplied history and projects how many days remain before used_gb
-    // reaches the critical threshold. Returns null when slope <= 0 (the disk
-    // is stable or shrinking — projecting infinity isn't useful).
+    // reaches the critical threshold. Returns null when slope <= 0 (stable or
+    // shrinking) or when the projection exceeds ProjectionCapDays.
     private static double? ProjectDaysUntilCritical(
         Disk disk,
         List<(string ServerName, string DiskLabel, DateTime CapturedAt, decimal UsedGb)> history)
@@ -166,6 +172,7 @@ public class DiskMonitoringService : BaseService<DiskMonitoringService>, IDiskMo
         var remainingGb = critGb - (double)disk.UsedGb;
         if (remainingGb <= 0) return 0;
 
-        return remainingGb / slope;
+        var days = remainingGb / slope;
+        return days > ProjectionCapDays ? null : days;
     }
 }

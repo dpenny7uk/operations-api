@@ -2432,14 +2432,18 @@
 
   // Days-until-critical badge. Reuses the .affected-chip vocabulary which only
   // ships crit/warn/ok tones — we render a muted plain-text "stable" instead of
-  // inventing a non-existent .info tone.
+  // inventing a non-existent .info tone. Projections beyond 90d switch to
+  // months so the chip stays compact and reads as "plenty of time" rather than
+  // a noisy day count. The service caps anything > 365d as null upstream.
   function diskDaysBadge(days) {
     if (days == null) return h('span.muted', null, 'stable');
     if (days <= 0)    return stamp('crit', 'over');
     const rounded = Math.round(days);
     if (rounded < 7)  return stamp('crit', rounded + 'd');
     if (rounded < 30) return stamp('warn', rounded + 'd');
-    return stamp('ok', rounded + 'd');
+    if (rounded < 90) return stamp('ok', rounded + 'd');
+    const months = Math.round(rounded / 30);
+    return stamp('ok', months + 'mo');
   }
 
   // History cache for sparklines — populated lazily by op-boot.js if available.
@@ -2576,7 +2580,8 @@
       h('span.ct', null, 'Showing ' + (pg.start+1) + '–' + pg.end + ' of ' + filtered.length),
       h('button.btn', { on:{click:()=>exportCsv('disks', filtered,
         ['serverName','diskLabel','service','environment','technicalOwner',
-         'volumeSizeGb','usedGb','percentUsed','alertStatus','daysUntilCritical'])}}, 'Export CSV'),
+         'volumeSizeGb','usedGb','percentUsed','thresholdCritPct',
+         'alertStatus','daysUntilCritical'])}}, 'Export CSV'),
     ]));
 
     // Table — `table.op` inside a `.table-wrap` for the dark/light card surface.
@@ -2600,6 +2605,7 @@
       sortableTh('diskLabel',    'Disk'),
       h('th', null, 'Usage'),
       sortableTh('percentUsed',  'Used %', 'num'),
+      sortableTh('thresholdCritPct', 'Crit @', 'num'),
       h('th.num', null, 'Used / Total'),
       sortableTh('daysUntilCritical', 'Days to crit', 'num'),
       h('th', null, 'Alert'),
@@ -2622,6 +2628,13 @@
                  : d.alertStatus===2 ? {color:'var(--warn)',fontWeight:'600'}
                  : null },
           Number(d.percentUsed).toFixed(1) + '%'),
+        // Per-disk crit threshold from SolarWinds Volumes.ALERT_VOL (default 90).
+        // Showing it inline makes "97.9% is only Warning?" answer itself.
+        h('td.num.muted',
+          { title: Number(d.thresholdCritPct) === 90
+              ? 'Default crit threshold (90%)'
+              : 'Custom crit threshold from SolarWinds (Volumes.ALERT_VOL)' },
+          Number(d.thresholdCritPct).toFixed(0) + '%'),
         h('td.num.muted', null, Math.round(d.usedGb).toLocaleString() + ' / ' + Math.round(d.volumeSizeGb).toLocaleString() + ' GB'),
         h('td.num', null, diskDaysBadge(d.daysUntilCritical)),
         h('td', null, statusChip(d.alertStatus)),
@@ -2642,7 +2655,7 @@
       tbody.appendChild(tr);
     });
     if (slice.length === 0) {
-      tbody.appendChild(h('tr', null, h('td', { colspan: 9 },
+      tbody.appendChild(h('tr', null, h('td', { colspan: 10 },
         h('div.no-hits', null, 'No disks match filter'))));
     }
     table.appendChild(tbody);
