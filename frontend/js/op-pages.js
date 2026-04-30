@@ -2538,24 +2538,37 @@
         style:{
           display: 'grid',
           gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-          columnGap: '24px',
-          rowGap: '0',
+          columnGap: '32px',
+          rowGap: '2px',
           border: '1px solid var(--rule)',
           background: 'var(--card)',
-          padding: '6px 14px',
+          padding: '8px 14px',
         }
       });
+      // Hand-rolled row layout (intentionally not .env-row) so we control the
+      // column widths cleanly and skip the SELECTED pill / dashed-divider
+      // chrome. Single-line per BU, mirrors the Servers page's "by env" feel.
       buBreakdown.slice().sort((a,b) => b.totalCount - a.totalCount).forEach(b => {
         const isActive = diskState.bu === b.businessUnit;
         const totalW = Math.max(2, Math.round(b.totalCount / buMax * 100));
         const okW   = b.totalCount ? (b.okCount   / b.totalCount * totalW) : 0;
         const warnW = b.totalCount ? (b.warningCount / b.totalCount * totalW) : 0;
         const critW = b.totalCount ? (b.criticalCount / b.totalCount * totalW) : 0;
-        const row = h('div.env-row' + (isActive ? '.is-active' : ''),
+        const row = h('div',
           { role:'button', 'aria-pressed':String(isActive), tabindex:'0',
-            // Inline overrides: tighter rows (4px vs default ~8px) and remove
-            // the dashed sibling border which doesn't make sense in a 2-col grid.
-            style:{ padding:'4px 0', borderTop:'none' },
+            style:{
+              display: 'grid',
+              // Generous name column to avoid wrap on 'HISCOX GROUP SUPPORT' /
+              // 'HISCOX LONDON MARKET' / 'CONTINUOUS INTEGRATION'.
+              gridTemplateColumns: '170px minmax(0, 1fr) 48px',
+              gap: '10px',
+              alignItems: 'center',
+              padding: '3px 6px',
+              cursor: 'pointer',
+              borderRadius: '2px',
+              background: isActive ? 'var(--signal-wash, rgba(99,179,237,0.14))' : 'transparent',
+              boxShadow: isActive ? 'inset 0 0 0 1px var(--signal, #63b3ed)' : 'none',
+            },
             on:{click: async () => {
               const nextBu = isActive ? '__all' : b.businessUnit;
               diskState.bu = nextBu; diskState.page = 1;
@@ -2564,14 +2577,41 @@
                 : null;
               if (!refetched) window.RERENDER_PAGE(mount);
             }} },
-          h('div.name', null, b.businessUnit || 'Unknown'),
-          h('div.bar', { style:{display:'flex', overflow:'hidden', height:'8px'} },
+          h('div', {
+            style:{
+              fontFamily: 'var(--mono)',
+              fontSize: '10.5px',
+              textTransform: 'uppercase',
+              letterSpacing: '0.04em',
+              color: isActive ? 'var(--ink)' : 'var(--ink-2)',
+              fontWeight: isActive ? '600' : '400',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }
+          }, b.businessUnit || 'Unknown'),
+          // Bar capped at 280px so it doesn't stretch the full column —
+          // visually compact and consistent across BUs of different counts.
+          h('div', {
+            style:{
+              display:'flex', overflow:'hidden', height:'7px',
+              background:'var(--paper-2)', borderRadius:'1px',
+              maxWidth: '280px',
+            }
+          },
             h('div', { style:{width: okW + '%',   background:'var(--ok)'} }),
             h('div', { style:{width: warnW + '%', background:'var(--warn)'} }),
             h('div', { style:{width: critW + '%', background:'var(--crit)'} }),
           ),
-          h('div.count', null, b.totalCount.toLocaleString()
-            + (b.criticalCount ? ' (' + b.criticalCount + ' crit)' : '')),
+          h('div', {
+            style:{
+              fontFamily: 'var(--mono)',
+              fontVariantNumeric: 'tabular-nums',
+              fontSize: '10.5px',
+              textAlign: 'right',
+              color: 'var(--ink-2)',
+            }
+          }, b.totalCount.toLocaleString()),
         );
         buBars.appendChild(row);
       });
