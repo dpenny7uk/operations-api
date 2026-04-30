@@ -45,6 +45,38 @@ CRIT_PCT_DEFAULT = float(os.environ.get('DISK_CRIT_PCT_DEFAULT', '90.0'))
 _GROUP_CAPTION_OPCO_DIGITS = '06'
 _BU_RISKLINK_CAPTIONS = ('pr0503-14002-00', 'pr0703-03002-00')
 
+# Canonical environment labels — match the Servers page so the two surfaces feel
+# like one product. Keys are lowercase-with-underscores so both 'Production' and
+# 'production' from SolarWinds collapse to a single bucket.
+_ENV_CANONICAL_MAP = {
+    'production':              'Production',
+    'development':             'Development',
+    'staging':                 'Staging',
+    'shared_services':         'Shared Services',
+    'live_support':            'Live Support',
+    'system_testing':          'Systest',
+    'user_acceptance_testing': 'UAT',
+    'continuous_integration':  'Continuous Integration',
+    'proof_of_concept':        'Proof of Concept',
+    'training':                'Training',
+}
+
+
+def _canonicalize_env(raw):
+    """Map SolarWinds Nodes.Environment to the canonical label used by the SPA.
+
+    Pass-through with a warning for unmapped values so new SolarWinds env strings
+    surface in sync logs rather than silently splitting the dropdown.
+    """
+    if not raw:
+        return None
+    key = raw.strip().lower().replace(' ', '_').replace('-', '_')
+    canonical = _ENV_CANONICAL_MAP.get(key)
+    if canonical is None:
+        logger.warning("Unmapped SolarWinds environment value: %r", raw)
+        return raw.strip()
+    return canonical
+
 
 # Whitelist matcher for SolarWinds queries: optional leading whitespace, line
 # comments (-- ...) and block comments (/* ... */), then a SELECT. Anything
@@ -227,7 +259,7 @@ def transform_row(row: dict) -> Optional[dict]:
     return {
         'server_name': row['server_name'],
         'service': row.get('service'),
-        'environment': row.get('environment'),
+        'environment': _canonicalize_env(row.get('environment')),
         'technical_owner': row.get('technical_owner'),
         'business_owner': row.get('business_owner'),
         'business_unit': row.get('business_unit'),
