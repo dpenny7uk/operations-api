@@ -2512,15 +2512,14 @@
     ));
     page.appendChild(strip);
 
-    // Per-BU overview — stacked horizontal bars showing OK/Warn/Crit split for
-    // every BU in the estate. Mirrors the Servers page's "Servers by environment"
-    // chart so the two surfaces share a visual vocabulary. Clicking a row deep-
-    // links the BU filter and refetches via OC_API.fetchDisks.
+    // Per-BU overview — compact 2-column grid of OK/Warn/Crit stacked bars.
+    // Halves the vertical footprint vs. a single-column list while staying
+    // legible. Clicking a row deep-links the BU filter via OC_API.fetchDisks.
     const buBreakdown = (window.DISK_SUMMARY && window.DISK_SUMMARY.businessUnits) || [];
     if (buBreakdown.length > 0) {
       const buActive = diskState.bu && diskState.bu !== '__all';
       const buMax = Math.max(1, ...buBreakdown.map(b => b.totalCount));
-      const buSection = h('div', { style:{margin:'12px 0 18px'} });
+      const buSection = h('div', { style:{margin:'8px 0 14px'} });
       buSection.appendChild(sectionLabel(
         'Disks by business unit',
         buBreakdown.length,
@@ -2535,7 +2534,17 @@
           }},
         }, 'Clear filter') : null,
       ));
-      const buBars = h('div.env-bars');
+      const buBars = h('div', {
+        style:{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+          columnGap: '24px',
+          rowGap: '0',
+          border: '1px solid var(--rule)',
+          background: 'var(--card)',
+          padding: '6px 14px',
+        }
+      });
       buBreakdown.slice().sort((a,b) => b.totalCount - a.totalCount).forEach(b => {
         const isActive = diskState.bu === b.businessUnit;
         const totalW = Math.max(2, Math.round(b.totalCount / buMax * 100));
@@ -2544,6 +2553,9 @@
         const critW = b.totalCount ? (b.criticalCount / b.totalCount * totalW) : 0;
         const row = h('div.env-row' + (isActive ? '.is-active' : ''),
           { role:'button', 'aria-pressed':String(isActive), tabindex:'0',
+            // Inline overrides: tighter rows (4px vs default ~8px) and remove
+            // the dashed sibling border which doesn't make sense in a 2-col grid.
+            style:{ padding:'4px 0', borderTop:'none' },
             on:{click: async () => {
               const nextBu = isActive ? '__all' : b.businessUnit;
               diskState.bu = nextBu; diskState.page = 1;
@@ -2553,7 +2565,7 @@
               if (!refetched) window.RERENDER_PAGE(mount);
             }} },
           h('div.name', null, b.businessUnit || 'Unknown'),
-          h('div.bar', { style:{display:'flex', overflow:'hidden'} },
+          h('div.bar', { style:{display:'flex', overflow:'hidden', height:'8px'} },
             h('div', { style:{width: okW + '%',   background:'var(--ok)'} }),
             h('div', { style:{width: warnW + '%', background:'var(--warn)'} }),
             h('div', { style:{width: critW + '%', background:'var(--crit)'} }),

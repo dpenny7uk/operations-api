@@ -55,6 +55,10 @@ _ENV_CANONICAL_MAP = {
     'continuous_integration':  'Continuous Integration',
     'proof_of_concept':        'Proof of Concept',
     'training':                'Training',
+    # 'Infrastructure' is technically a Core Service in the naming convention,
+    # not an environment — but it shows up in SolarWinds Nodes.Environment for
+    # some servers. Pass it through cleanly rather than warn-flood.
+    'infrastructure':          'Infrastructure',
 }
 
 
@@ -69,7 +73,7 @@ def _canonicalize_env(raw):
     key = raw.strip().lower().replace(' ', '_').replace('-', '_')
     canonical = _ENV_CANONICAL_MAP.get(key)
     if canonical is None:
-        logger.warning("Unmapped SolarWinds environment value: %r", raw)
+        logger.warning("Unmapped SolarWinds environment value: %r - passing through", raw)
         return raw.strip()
     return canonical
 
@@ -92,24 +96,27 @@ _BU_BY_CAPTION_CODE = {
 # Mirrors BU_CANONICAL_MAP in sync/servers/sync_server_list.py. Kept local
 # (rather than imported) so the disk sync stays self-contained and so changes
 # don't ripple across modules; if a third sync needs this, lift to common.py.
+# Keys are lowercase with spaces/hyphens normalized to underscores so the
+# lookup is case- and separator-insensitive ('IT Services', 'it-services',
+# 'it_services' all collapse to the same canonical 'ITS').
 _BU_FALLBACK_MAP = {
-    'uk': 'Contoso UK',
-    'contoso uk': 'Contoso UK',
-    'uk&i': 'UK & I',
-    'us': 'Contoso US',
-    'contoso us': 'Contoso US',
-    'europe': 'Contoso Europe',
-    'contoso europe': 'Contoso Europe',
-    'london_market': 'Contoso London Market',
-    'contoso london market': 'Contoso London Market',
-    'contoso_re': 'Contoso Re & ILS',
-    'contoso re and ils': 'Contoso Re & ILS',
-    'group': 'Contoso Group Support',
-    'contoso group support': 'Contoso Group Support',
-    'contoso special risks': 'Contoso Special Risks',
-    'it_services': 'ITS',
-    'infosec': 'Infosec',
-    'no bu found': 'Unknown',
+    'uk':                    'Contoso UK',
+    'contoso_uk':            'Contoso UK',
+    'uk&i':                  'UK & I',
+    'us':                    'Contoso US',
+    'contoso_us':            'Contoso US',
+    'europe':                'Contoso Europe',
+    'contoso_europe':        'Contoso Europe',
+    'london_market':         'Contoso London Market',
+    'contoso_london_market': 'Contoso London Market',
+    'contoso_re':            'Contoso Re & ILS',
+    'contoso_re_and_ils':    'Contoso Re & ILS',
+    'group':                 'Contoso Group Support',
+    'contoso_group_support': 'Contoso Group Support',
+    'contoso_special_risks': 'Contoso Special Risks',
+    'it_services':           'ITS',
+    'infosec':               'Infosec',
+    'no_bu_found':           'Unknown',
 }
 
 
@@ -130,11 +137,13 @@ def _canonicalize_bu(server_caption, raw_solarwinds_bu):
         if code == '00':
             logger.warning("Server using reserved BU code '00': %r", server_caption)
     if raw_solarwinds_bu and str(raw_solarwinds_bu).strip():
-        key = str(raw_solarwinds_bu).strip().lower()
+        # Normalize spaces and hyphens to underscores so 'IT Services' matches
+        # 'it_services' in the map (mirrors _canonicalize_env's key handling).
+        key = str(raw_solarwinds_bu).strip().lower().replace(' ', '_').replace('-', '_')
         canonical = _BU_FALLBACK_MAP.get(key)
         if canonical:
             return canonical
-        logger.warning("Unknown SolarWinds business_unit value: %r — mapping to 'Unknown'", raw_solarwinds_bu)
+        logger.warning("Unknown SolarWinds business_unit value: %r - mapping to 'Unknown'", raw_solarwinds_bu)
     return 'Unknown'
 
 
