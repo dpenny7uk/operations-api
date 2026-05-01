@@ -58,12 +58,18 @@ public class ServersController : ControllerBase
         return Ok(new { items = servers, totalCount });
     }
 
-    /// <summary>Get server inventory summary with counts by environment.</summary>
+    /// <summary>Get server inventory summary with cross-facet counts by environment + business unit.</summary>
+    /// <param name="environment">Optional canonical environment filter (e.g. "Production").</param>
+    /// <param name="businessUnit">Optional canonical business-unit filter (e.g. "Hiscox UK").</param>
     [HttpGet("summary")]
     [ProducesResponseType(200)]
-    public async Task<IActionResult> Summary()
+    public async Task<IActionResult> Summary(
+        [FromQuery] string? environment = null,
+        [FromQuery] string? businessUnit = null)
     {
-        var summary = await _svc.GetServerSummaryAsync();
+        var envFilter = string.IsNullOrWhiteSpace(environment) ? null : environment.Trim();
+        var buFilter = string.IsNullOrWhiteSpace(businessUnit) ? null : businessUnit.Trim();
+        var summary = await _svc.GetServerSummaryAsync(envFilter, buFilter);
         return Ok(summary);
     }
 

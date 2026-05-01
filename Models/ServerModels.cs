@@ -32,12 +32,23 @@ public class ServerMatch
 
 public class ServerSummary
 {
+    // Top-level counts respect the optional environment + businessUnit filters
+    // on the query string. The breakdown lists are cross-facet scoped — env
+    // counts reflect the current BU filter (excluding env from its own scope),
+    // and BU counts reflect the current env filter (excluding BU).
     public int TotalCount { get; set; }
     public int ActiveCount { get; set; }
     public Dictionary<string, EnvironmentCount> EnvironmentCounts { get; set; } = new();
+    public Dictionary<string, BusinessUnitCount> BusinessUnitCounts { get; set; } = new();
 }
 
 public class EnvironmentCount
+{
+    public int Total { get; set; }
+    public int Active { get; set; }
+}
+
+public class BusinessUnitCount
 {
     public int Total { get; set; }
     public int Active { get; set; }

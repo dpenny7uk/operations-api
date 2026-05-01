@@ -2,10 +2,29 @@ namespace OperationsApi.Models;
 
 public class CertificateSummary
 {
+    // Top-level counts respect the optional businessUnit + level filters on the
+    // query string. The breakdown lists below are cross-facet scoped — Levels
+    // counts reflect the active BU filter (excluding level), and BusinessUnits
+    // counts reflect the active level filter (excluding BU).
     public int CriticalCount { get; set; }
     public int WarningCount { get; set; }
     public int OkCount { get; set; }
     public int ExpiredCount { get; set; }
+    public int TotalCount { get; set; }
+
+    public List<CertificateLevelCount> Levels { get; set; } = new();
+    public List<CertificateBuCount> BusinessUnits { get; set; } = new();
+}
+
+public class CertificateLevelCount
+{
+    public string Level { get; set; } = ""; // 'expired' | 'crit' | 'warn' | 'ok'
+    public int TotalCount { get; set; }
+}
+
+public class CertificateBuCount
+{
+    public string BusinessUnit { get; set; } = "";
     public int TotalCount { get; set; }
 }
 

@@ -15,14 +15,17 @@ public class DiskMonitoringService : BaseService<DiskMonitoringService>, IDiskMo
     public DiskMonitoringService(IDbConnection db, ILogger<DiskMonitoringService> logger)
         : base(db, logger) { }
 
-    public Task<DiskSummary> GetSummaryAsync(string? environment = null, string? businessUnit = null) => RunDbAsync(async () =>
+    public Task<DiskSummary> GetSummaryAsync(string? environment = null, string? businessUnit = null, int? alertStatus = null) => RunDbAsync(async () =>
     {
-        // Three queries: top-level totals scoped by the optional filters, and two
-        // unscoped breakdowns (per env + per BU) that drive the dropdown labels.
-        // Keeping the breakdowns unscoped means the dropdowns always show every
-        // option's independent count, so users can switch between filters without
-        // labels jumping around.
-        var (whereClause, scopedArgs) = BuildDiskFilterClause(environment, businessUnit);
+        // Four queries implement the cross-facet rule: each breakdown is
+        // computed with all OTHER active filters, EXCLUDING its own dimension.
+        // This means picking BU rescopes env + status counts, picking env
+        // rescopes BU + status counts, etc. — but a dropdown's own labels stay
+        // stable when you re-pick from it. Top-level totals are scoped by all.
+        var (topWhere, topArgs) = BuildDiskFilterClause(environment, businessUnit, alertStatus);
+        var (envBreakdownWhere, envBreakdownArgs) = BuildDiskFilterClause(environment, businessUnit, alertStatus, exclude: "environment");
+        var (buBreakdownWhere, buBreakdownArgs) = BuildDiskFilterClause(environment, businessUnit, alertStatus, exclude: "businessUnit");
+        var (statusBreakdownWhere, statusBreakdownArgs) = BuildDiskFilterClause(environment, businessUnit, alertStatus, exclude: "alertStatus");
 
         var top = await Db.QueryFirstAsync<DiskSummary>($@"
             SELECT
@@ -31,8 +34,8 @@ public class DiskMonitoringService : BaseService<DiskMonitoringService>, IDiskMo
                 (COUNT(*) FILTER (WHERE alert_status = 2))::int     AS WarningCount,
                 (COUNT(*) FILTER (WHERE alert_status = 3))::int     AS CriticalCount
             FROM {Sql.Tables.DiskCurrent}
-            {whereClause}
-        ", scopedArgs);
+            {topWhere}
+        ", topArgs);
 
         var envs = (await Db.QueryAsync<DiskEnvCount>($@"
             SELECT
@@ -42,9 +45,10 @@ public class DiskMonitoringService : BaseService<DiskMonitoringService>, IDiskMo
                 (COUNT(*) FILTER (WHERE alert_status = 2))::int     AS WarningCount,
                 (COUNT(*) FILTER (WHERE alert_status = 3))::int     AS CriticalCount
             FROM {Sql.Tables.DiskCurrent}
+            {envBreakdownWhere}
             GROUP BY environment
             ORDER BY environment
-        ")).ToList();
+        ", envBreakdownArgs)).ToList();
 
         var bus = (await Db.QueryAsync<DiskBuCount>($@"
             SELECT
@@ -54,21 +58,33 @@ public class DiskMonitoringService : BaseService<DiskMonitoringService>, IDiskMo
                 (COUNT(*) FILTER (WHERE alert_status = 2))::int     AS WarningCount,
                 (COUNT(*) FILTER (WHERE alert_status = 3))::int     AS CriticalCount
             FROM {Sql.Tables.DiskCurrent}
+            {buBreakdownWhere}
             GROUP BY business_unit
             ORDER BY business_unit
-        ")).ToList();
+        ", buBreakdownArgs)).ToList();
+
+        var statuses = (await Db.QueryAsync<DiskAlertStatusCount>($@"
+            SELECT
+                alert_status::smallint AS AlertStatus,
+                COUNT(*)::int          AS TotalCount
+            FROM {Sql.Tables.DiskCurrent}
+            {statusBreakdownWhere}
+            GROUP BY alert_status
+            ORDER BY alert_status
+        ", statusBreakdownArgs)).ToList();
 
         top.Environments = envs;
         top.BusinessUnits = bus;
+        top.AlertStatuses = statuses;
         return top;
     });
 
-    public Task<PagedResult<Disk>> ListDisksAsync(int limit, int offset, string? environment = null, string? businessUnit = null) => RunDbAsync(async () =>
+    public Task<PagedResult<Disk>> ListDisksAsync(int limit, int offset, string? environment = null, string? businessUnit = null, int? alertStatus = null) => RunDbAsync(async () =>
     {
         // Filter clauses compose with AND. Casing matches the canonical values
         // written by the sync (_canonicalize_env / _canonicalize_bu in
         // sync_solarwinds_disks.py); equality match avoids any per-query LOWER().
-        var (whereClause, scopedArgs) = BuildDiskFilterClause(environment, businessUnit);
+        var (whereClause, scopedArgs) = BuildDiskFilterClause(environment, businessUnit, alertStatus);
         scopedArgs.Add("Limit", limit);
         scopedArgs.Add("Offset", offset);
 
@@ -154,23 +170,30 @@ public class DiskMonitoringService : BaseService<DiskMonitoringService>, IDiskMo
         ", new { ServerName = serverName, DiskLabel = diskLabel, Days = days })
     );
 
-    // Build a parameterised WHERE clause from optional environment + businessUnit
-    // filters. Returns the clause text (empty string if no filters) and a
-    // DynamicParameters bag prepopulated with whichever values were set.
+    // Build a parameterised WHERE clause from the optional filters, optionally
+    // excluding a specific dimension (used for cross-facet breakdown queries
+    // where each breakdown excludes its own dimension from the WHERE so the
+    // dropdown's own labels stay stable when the user picks from it).
+    // exclude values: "environment" | "businessUnit" | "alertStatus" | null.
     private static (string clause, DynamicParameters args) BuildDiskFilterClause(
-        string? environment, string? businessUnit)
+        string? environment, string? businessUnit, int? alertStatus, string? exclude = null)
     {
         var clauses = new List<string>();
         var args = new DynamicParameters();
-        if (!string.IsNullOrWhiteSpace(environment))
+        if (!string.IsNullOrWhiteSpace(environment) && exclude != "environment")
         {
             clauses.Add("environment = @Environment");
             args.Add("Environment", environment);
         }
-        if (!string.IsNullOrWhiteSpace(businessUnit))
+        if (!string.IsNullOrWhiteSpace(businessUnit) && exclude != "businessUnit")
         {
             clauses.Add("business_unit = @BusinessUnit");
             args.Add("BusinessUnit", businessUnit);
+        }
+        if (alertStatus.HasValue && exclude != "alertStatus")
+        {
+            clauses.Add("alert_status = @AlertStatus");
+            args.Add("AlertStatus", alertStatus.Value);
         }
         var clauseText = clauses.Count == 0 ? "" : "WHERE " + string.Join(" AND ", clauses);
         return (clauseText, args);

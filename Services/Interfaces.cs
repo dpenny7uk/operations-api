@@ -27,7 +27,7 @@ public interface IServerService
         string? patchGroup,
         string? businessUnit,
         string? search);
-    Task<ServerSummary> GetServerSummaryAsync();
+    Task<ServerSummary> GetServerSummaryAsync(string? environment = null, string? businessUnit = null);
     Task<ServerDetail?> GetServerByIdAsync(int id);
     Task<ServerMatch?> ResolveServerNameAsync(string name);
     Task<IEnumerable<UnmatchedServer>> GetUnmatchedServersAsync(string? source, int limit);
@@ -51,16 +51,16 @@ public interface IPatchingService
 
 public interface ICertificateService
 {
-    Task<CertificateSummary> GetSummaryAsync();
-    Task<IEnumerable<Certificate>> ListCertificatesAsync(string? alertLevel, string? server, int? daysUntil, int limit);
+    Task<CertificateSummary> GetSummaryAsync(string? businessUnit = null, string? level = null);
+    Task<IEnumerable<Certificate>> ListCertificatesAsync(string? alertLevel, string? server, int? daysUntil, int limit, string? businessUnit = null);
     Task<CertificateDetail?> GetByIdAsync(int id);
     Task<IEnumerable<Certificate>> GetByServerAsync(string server, int limit = 500);
 }
 
 public interface IPatchExclusionService
 {
-    Task<PatchExclusionSummary> GetExclusionSummaryAsync();
-    Task<PagedResult<PatchExclusion>> ListExclusionsAsync(string? search, int limit, int offset);
+    Task<PatchExclusionSummary> GetExclusionSummaryAsync(string? businessUnit = null, string? state = null);
+    Task<PagedResult<PatchExclusion>> ListExclusionsAsync(string? search, int limit, int offset, string? businessUnit = null, string? state = null);
     Task<PagedResult<PatchServerItem>> SearchPatchServersAsync(string? search, int limit, int offset);
     Task<int> ExcludeServersAsync(List<int> serverIds, string reason, DateOnly heldUntil, string excludedBy,
         string? ticket = null, string? reasonSlug = null, string? notes = null);
@@ -86,7 +86,7 @@ public interface IEolService
 
 public interface IDiskMonitoringService
 {
-    Task<DiskSummary> GetSummaryAsync(string? environment = null, string? businessUnit = null);
-    Task<PagedResult<Disk>> ListDisksAsync(int limit, int offset, string? environment = null, string? businessUnit = null);
+    Task<DiskSummary> GetSummaryAsync(string? environment = null, string? businessUnit = null, int? alertStatus = null);
+    Task<PagedResult<Disk>> ListDisksAsync(int limit, int offset, string? environment = null, string? businessUnit = null, int? alertStatus = null);
     Task<IEnumerable<DiskHistoryPoint>> GetHistoryAsync(string serverName, string diskLabel, int days);
 }

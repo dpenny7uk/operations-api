@@ -156,11 +156,13 @@
   function liveSrv() {
     const D = window.SERVERS_DATA || {};
     const env = Array.isArray(D.SRV_ENV) && D.SRV_ENV.length ? D.SRV_ENV : SRV_ENV;
+    const bu  = Array.isArray(D.SRV_BU) ? D.SRV_BU : [];
     return {
       servers:     Array.isArray(D.servers)     && D.servers.length     ? D.servers     : SRV.servers,
       unreachable: Array.isArray(D.unreachable)                         ? D.unreachable : SRV.unreachable,
       unmatched:   Array.isArray(D.unmatched)                           ? D.unmatched   : SRV.unmatched,
       env,
+      bu,
       total: (D.SRV_TOTAL != null) ? D.SRV_TOTAL : SRV_TOTAL,
       envMax: env.length ? Math.max(...env.map(e => e.count)) : SRV_ENV_MAX,
     };
@@ -453,18 +455,41 @@
 
     page.appendChild(sectionLabel('Server inventory', rows.length.toLocaleString()));
 
+    // Env + BU dropdowns: cross-facet-scoped counts via /api/servers/summary.
+    // Picking either triggers a server-side refetch through OC_API.fetchServers
+    // so the table, the env bar chart at the top, and the dropdown counts all
+    // reflect the new intersection.
+    const refetchServers = async () => {
+      const refetched = (window.OC_API && typeof window.OC_API.fetchServers === 'function')
+        ? await window.OC_API.fetchServers({ env: srvState.env, bu: srvState.bu })
+        : null;
+      if (!refetched) window.RERENDER_PAGE(mount);
+    };
     const envOpts = [['__all','All environments']].concat(live.env.map(e => [e.name, e.name + ' ('+e.count+')']));
-    const search = h('input', {'data-fk':'servers-search', 
+    const search = h('input', {'data-fk':'servers-search',
       type:'text', placeholder:'Search name, FQDN, application, patch group…',
       value: srvState.q,
       on:{input:(e)=>{ srvState.q = e.target.value; srvState.page = 1; window.RERENDER_PAGE(mount); }},
     });
-    const envSel = h('select', { on:{change:(e)=>{ srvState.env = e.target.value; srvState.page = 1; window.RERENDER_PAGE(mount); }}},
+    const envSel = h('select', { on:{change: async (e)=>{ srvState.env = e.target.value; srvState.page = 1; await refetchServers(); }}},
       envOpts.map(([v,l]) => h('option'+(srvState.env===v?'.on':''), {value:v, selected: srvState.env===v}, l)));
-    const buOpts = [['__all','All business units']].concat(BU_VALUES.map(b => [b, b]));
-    const buSel = h('select', { on:{change:(e)=>{ srvState.bu = e.target.value; srvState.page = 1; window.RERENDER_PAGE(mount); }}},
+    // BU options: prefer the API-driven cross-facet-scoped breakdown with counts;
+    // fall back to the static BU_VALUES list when the summary hasn't loaded
+    // (demo path or pre-API render).
+    const buOpts = live.bu && live.bu.length
+      ? [['__all','All business units']].concat(live.bu.map(b => [b.name, b.name + ' (' + b.count + ')']))
+      : [['__all','All business units']].concat(BU_VALUES.map(b => [b, b]));
+    const buSel = h('select', { on:{change: async (e)=>{ srvState.bu = e.target.value; srvState.page = 1; await refetchServers(); }}},
       buOpts.map(([v,l]) => h('option', {value:v, selected: srvState.bu===v}, l)));
-    const clearBtn = h('button.btn', { on:{click:()=>{ srvState.q=''; srvState.env='__all'; srvState.bu='__all'; srvState.page=1; window.RERENDER_PAGE(mount); }}}, 'Reset');
+    const clearBtn = h('button.btn', { on:{click: async ()=>{
+      const wasEnv = srvState.env, wasBu = srvState.bu;
+      srvState.q=''; srvState.env='__all'; srvState.bu='__all'; srvState.page=1;
+      if (wasEnv !== '__all' || wasBu !== '__all') {
+        await refetchServers();
+      } else {
+        window.RERENDER_PAGE(mount);
+      }
+    }}}, 'Reset');
     const exportBtn = h('button.btn', { on:{click:()=>exportCsv('servers', rows, ['name','fqdn','env','bu','app','pg','active'])}}, 'Export CSV');
     const count = h('span.ct', null, 'Showing ' + (pag.start+1) + '–' + pag.end + ' of ' + rows.length.toLocaleString());
     page.appendChild(filterBar([search, envSel, buSel, clearBtn, h('span.spacer'), count, exportBtn]));
@@ -688,27 +713,60 @@
     );
     page.appendChild(propRow);
 
-    // Filter row
+    // Filter row — cross-facet scoped counts when API breakdown is loaded.
+    // Level options use the API per-level counts (scoped by current BU);
+    // BU options use the API per-BU counts (scoped by current level).
+    // Falls back to client-side derived counts (CERT_COUNTS) and the static
+    // BU_VALUES list when the breakdown isn't loaded (demo path).
+    const breakdown = (window.CERTS_DATA && window.CERTS_DATA.CERT_BREAKDOWN) || { levels: [], businessUnits: [] };
+    const levelByCode = {};
+    breakdown.levels.forEach(l => { levelByCode[l.level] = l.totalCount; });
+    const levelTotal = breakdown.levels.length
+      ? breakdown.levels.reduce((sum, l) => sum + l.totalCount, 0)
+      : CERTS.length;
+    const lvCount = (code) => breakdown.levels.length ? (levelByCode[code] || 0) : (CERT_COUNTS[code] || 0);
     const levelOpts = [
-      ['__all','All levels ('+CERTS.length+')'],
-      ['expired','Expired ('+(CERT_COUNTS.expired||0)+')'],
-      ['crit','Critical ('+(CERT_COUNTS.crit||0)+')'],
-      ['warn','Warning ('+(CERT_COUNTS.warn||0)+')'],
-      ['ok','OK ('+(CERT_COUNTS.ok||0)+')'],
+      ['__all','All levels ('+levelTotal+')'],
+      ['expired','Expired ('+lvCount('expired')+')'],
+      ['crit','Critical ('+lvCount('crit')+')'],
+      ['warn','Warning ('+lvCount('warn')+')'],
+      ['ok','OK ('+lvCount('ok')+')'],
     ];
     const rows = applyCertFilters();
     const pag = paginate(rows.length, certState.page, certState.per);
     certState.page = pag.cur;
     const paged = rows.slice(pag.start, pag.end);
 
-    const levelSel = h('select', { on:{change:(e)=>{ certState.level=e.target.value; certState.page=1; window.RERENDER_PAGE(mount); }}},
+    const refetchCerts = async () => {
+      const refetched = (window.OC_API && typeof window.OC_API.fetchCerts === 'function')
+        ? await window.OC_API.fetchCerts({ bu: certState.bu, level: certState.level })
+        : null;
+      if (!refetched) window.RERENDER_PAGE(mount);
+    };
+
+    const levelSel = h('select', { on:{change: async (e)=>{
+      certState.level=e.target.value; certState.page=1; await refetchCerts();
+    }}},
       levelOpts.map(([v,l]) => h('option', {value:v, selected: certState.level===v}, l)));
-    const buOpts = [['__all','All business units']].concat(BU_VALUES.map(b => [b, b]));
-    const buSel = h('select', { on:{change:(e)=>{ certState.bu=e.target.value; certState.page=1; window.RERENDER_PAGE(mount); }}},
+    // BU options: prefer API breakdown with counts; fall back to static list.
+    const buOpts = breakdown.businessUnits.length
+      ? [['__all','All business units']].concat(breakdown.businessUnits.map(b => [b.businessUnit, b.businessUnit + ' (' + b.totalCount + ')']))
+      : [['__all','All business units']].concat(BU_VALUES.map(b => [b, b]));
+    const buSel = h('select', { on:{change: async (e)=>{
+      certState.bu=e.target.value; certState.page=1; await refetchCerts();
+    }}},
       buOpts.map(([v,l]) => h('option', {value:v, selected: certState.bu===v}, l)));
     const q = h('input', {'data-fk':'certs-search', type:'text', placeholder:'Filter by server or service…', value: certState.q,
       on:{input:(e)=>{ certState.q=e.target.value; certState.page=1; window.RERENDER_PAGE(mount); }}});
-    const reset = h('button.btn', { on:{click:()=>{ certState.q=''; certState.level='__all'; certState.bu='__all'; certState.page=1; window.RERENDER_PAGE(mount); }}}, 'Reset');
+    const reset = h('button.btn', { on:{click: async ()=>{
+      const wasLevel = certState.level, wasBu = certState.bu;
+      certState.q=''; certState.level='__all'; certState.bu='__all'; certState.page=1;
+      if (wasLevel !== '__all' || wasBu !== '__all') {
+        await refetchCerts();
+      } else {
+        window.RERENDER_PAGE(mount);
+      }
+    }}}, 'Reset');
     const exportBtn = h('button.btn', { on:{click:()=>exportCsv('certificates', rows, ['name','server','service','bu','expires','days','level'])}}, 'Export CSV');
     const count = h('span.ct', null, 'Showing ' + (pag.start+1) + '–' + pag.end + ' of ' + rows.length);
     page.appendChild(filterBar([levelSel, buSel, q, reset, h('span.spacer'), count, exportBtn]));
@@ -1542,20 +1600,50 @@
     pmState.page = pag.cur;
     const paged = rows.slice(pag.start, pag.end);
 
+    // Cross-facet scoped state + BU dropdowns when API breakdown is loaded.
+    // Falls back to the client-side EXCL_COUNTS getter and static BU_VALUES on
+    // demo/no-API path.
+    const exBreakdown = (window.EXCL_BREAKDOWN) || { states: [], businessUnits: [], totalExcluded: window.EXCLUSIONS.length };
+    const stByCode = {};
+    exBreakdown.states.forEach(s => { stByCode[s.state] = s.totalCount; });
+    const stCount = (code) => exBreakdown.states.length ? (stByCode[code] || 0) : ((window.EXCL_COUNTS && window.EXCL_COUNTS[code]) || 0);
     const stateOpts = [
-      ['__all','All states ('+window.EXCLUSIONS.length+')'],
-      ['overdue','Overdue ('+(window.EXCL_COUNTS.overdue||0)+')'],
-      ['expiring-soon','Expiring soon ('+(window.EXCL_COUNTS['expiring-soon']||0)+')'],
-      ['active','Active ('+(window.EXCL_COUNTS.active||0)+')'],
+      ['__all','All states (' + (exBreakdown.totalExcluded != null ? exBreakdown.totalExcluded : window.EXCLUSIONS.length) + ')'],
+      ['overdue','Overdue ('+stCount('overdue')+')'],
+      ['expiring-soon','Expiring soon ('+stCount('expiring-soon')+')'],
+      ['active','Active ('+stCount('active')+')'],
     ];
+
+    const refetchExclusions = async () => {
+      const refetched = (window.OC_API && typeof window.OC_API.fetchExclusions === 'function')
+        ? await window.OC_API.fetchExclusions({ state: pmState.stateFilter, bu: pmState.bu })
+        : null;
+      if (!refetched) window.RERENDER_PAGE(mount);
+    };
+
     const q = h('input', {'data-fk':'patchmgmt-search', type:'text', placeholder:'Filter by server, FQDN, reason, requester…', value: pmState.q,
       on:{input:(e)=>{ pmState.q=e.target.value; pmState.page=1; window.RERENDER_PAGE(mount); }}});
-    const stateSel = h('select', { on:{change:(e)=>{ pmState.stateFilter=e.target.value; pmState.page=1; window.RERENDER_PAGE(mount); }}},
+    const stateSel = h('select', { on:{change: async (e)=>{
+      pmState.stateFilter=e.target.value; pmState.page=1; await refetchExclusions();
+    }}},
       stateOpts.map(([v,l]) => h('option', {value:v, selected: pmState.stateFilter===v}, l)));
-    const buOpts = [['__all','All business units']].concat(BU_VALUES.map(b => [b, b]));
-    const buSel = h('select', { on:{change:(e)=>{ pmState.bu=e.target.value; pmState.page=1; window.RERENDER_PAGE(mount); }}},
+    // BU options: prefer API breakdown with counts; fall back to static list.
+    const buOpts = exBreakdown.businessUnits.length
+      ? [['__all','All business units']].concat(exBreakdown.businessUnits.map(b => [b.businessUnit, b.businessUnit + ' (' + b.totalCount + ')']))
+      : [['__all','All business units']].concat(BU_VALUES.map(b => [b, b]));
+    const buSel = h('select', { on:{change: async (e)=>{
+      pmState.bu=e.target.value; pmState.page=1; await refetchExclusions();
+    }}},
       buOpts.map(([v,l]) => h('option', {value:v, selected: pmState.bu===v}, l)));
-    const reset = h('button.btn', { on:{click:()=>{ pmState.q=''; pmState.stateFilter='__all'; pmState.bu='__all'; pmState.page=1; window.RERENDER_PAGE(mount); }}}, 'Reset');
+    const reset = h('button.btn', { on:{click: async ()=>{
+      const wasState = pmState.stateFilter, wasBu = pmState.bu;
+      pmState.q=''; pmState.stateFilter='__all'; pmState.bu='__all'; pmState.page=1;
+      if (wasState !== '__all' || wasBu !== '__all') {
+        await refetchExclusions();
+      } else {
+        window.RERENDER_PAGE(mount);
+      }
+    }}}, 'Reset');
     const addBtn = h('button.btn.primary', { on:{click:()=>{ pmState.tab='add'; window.RERENDER_PAGE(mount); }}}, '+ Add exclusion');
     const count = h('span.ct', null, 'Showing '+(pag.start+1)+'–'+pag.end+' of '+rows.length);
     wrap.appendChild(filterBar([stateSel, buSel, q, reset, h('span.spacer'), count, addBtn]));
@@ -2633,10 +2721,18 @@
       ...opts.map(([v,l]) => h('option', { value:v, selected: diskState[field]===v }, l))
     );
 
-    // Env + BU dropdowns: labels include per-X counts from the summary endpoint
-    // ("Production (466)", "Contoso UK (140)") to match the Servers page
-    // convention. Changing either triggers a server-side refetch via
-    // OC_API.fetchDisks so the table + KPI strip reflect the new intersection.
+    // Env / BU / Status dropdowns: labels include cross-facet-scoped counts
+    // from the summary endpoint. Each dropdown's options reflect the active
+    // OTHER filters (so picking BU rescopes env + status counts, etc.) — see
+    // the cross-facet rule in DiskMonitoringService.GetSummaryAsync. Changing
+    // any of them triggers a server-side refetch via OC_API.fetchDisks.
+    const refetchDisks = async () => {
+      const refetched = (window.OC_API && typeof window.OC_API.fetchDisks === 'function')
+        ? await window.OC_API.fetchDisks({ env: diskState.env, bu: diskState.bu, status: diskState.status })
+        : null;
+      if (!refetched) window.RERENDER_PAGE(mount);
+    };
+
     const envSummary = (window.DISK_SUMMARY && window.DISK_SUMMARY.environments) || [];
     const envOpts = envSummary.length
       ? envSummary.map(e => [e.environment, e.environment + ' (' + e.totalCount + ')'])
@@ -2645,10 +2741,7 @@
       { on:{change: async (e) => {
         diskState.env = e.target.value;
         diskState.page = 1;
-        const refetched = (window.OC_API && typeof window.OC_API.fetchDisks === 'function')
-          ? await window.OC_API.fetchDisks({ env: diskState.env, bu: diskState.bu })
-          : null;
-        if (!refetched) window.RERENDER_PAGE(mount);
+        await refetchDisks();
       }}},
       h('option', { value:'__all', selected: diskState.env==='__all' }, 'All environments'),
       ...envOpts.map(([v,l]) => h('option', { value:v, selected: diskState.env===v }, l))
@@ -2661,17 +2754,34 @@
       { on:{change: async (e) => {
         diskState.bu = e.target.value;
         diskState.page = 1;
-        const refetched = (window.OC_API && typeof window.OC_API.fetchDisks === 'function')
-          ? await window.OC_API.fetchDisks({ env: diskState.env, bu: diskState.bu })
-          : null;
-        if (!refetched) window.RERENDER_PAGE(mount);
+        await refetchDisks();
       }}},
       h('option', { value:'__all', selected: diskState.bu==='__all' }, 'All business units'),
       ...buOpts.map(([v,l]) => h('option', { value:v, selected: diskState.bu===v }, l))
     );
 
+    // Status dropdown: API-driven counts (was hardcoded with no counts before).
+    // Falls back to the static list when summary hasn't loaded (demo path).
+    const statusBreakdown = (window.DISK_SUMMARY && window.DISK_SUMMARY.alertStatuses) || [];
+    const statusLabel = { 1: 'OK', 2: 'Warning', 3: 'Critical' };
+    const statusByCode = {};
+    statusBreakdown.forEach(s => { statusByCode[String(s.alertStatus)] = s.totalCount; });
+    const statusOpts = statusBreakdown.length
+      ? [1, 2, 3].map(code => [String(code),
+          statusLabel[code] + ' (' + (statusByCode[String(code)] || 0) + ')'])
+      : [['1','OK'],['2','Warning'],['3','Critical']];
+    const statusSel = h('select',
+      { on:{change: async (e) => {
+        diskState.status = e.target.value;
+        diskState.page = 1;
+        await refetchDisks();
+      }}},
+      h('option', { value:'__all', selected: diskState.status==='__all' }, 'All alert levels'),
+      ...statusOpts.map(([v,l]) => h('option', { value:v, selected: diskState.status===v }, l))
+    );
+
     page.appendChild(filterBar([
-      mkSelect('status', 'All alert levels', [['1','OK'],['2','Warning'],['3','Critical']]),
+      statusSel,
       mkSelect('owner', 'All technical owners', diskUniqValues(allItems, 'technicalOwner').map(v => [v,v])),
       envSel,
       mkSelect('service','All services',        diskUniqValues(allItems, 'service').map(v => [v,v])),
@@ -2679,13 +2789,14 @@
       h('button.btn', { on:{click: async () => {
         const wasEnv = diskState.env;
         const wasBu  = diskState.bu;
+        const wasStatus = diskState.status;
         diskState.status='__all'; diskState.owner='__all';
         diskState.env='Production'; diskState.bu='__all';
         diskState.service='__all'; diskState.page=1;
-        // Reset to the canonical "Production / All BUs" landing view.
+        // Reset to the canonical "Production / All BUs / All statuses" landing.
         // Refetch only if the server-side filters actually changed.
-        if ((wasEnv !== 'Production' || wasBu !== '__all') && window.OC_API && typeof window.OC_API.fetchDisks === 'function') {
-          const refetched = await window.OC_API.fetchDisks({ env: 'Production', bu: '__all' });
+        if ((wasEnv !== 'Production' || wasBu !== '__all' || wasStatus !== '__all') && window.OC_API && typeof window.OC_API.fetchDisks === 'function') {
+          const refetched = await window.OC_API.fetchDisks({ env: 'Production', bu: '__all', status: '__all' });
           if (refetched) return; // refetch triggers its own rerender
         }
         window.RERENDER_PAGE(mount);

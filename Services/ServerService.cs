@@ -101,25 +101,79 @@ public class ServerService : BaseService<ServerService>, IServerService
         return await Db.ExecuteScalarAsync<int>(sql, p);
     });
 
-    public Task<ServerSummary> GetServerSummaryAsync() => RunDbAsync(async () =>
+    public Task<ServerSummary> GetServerSummaryAsync(string? environment = null, string? businessUnit = null) => RunDbAsync(async () =>
     {
-        var rows = await Db.QueryAsync<(string? Environment, int Total, int Active)>($@"
+        // Cross-facet rule: top-level scoped by both filters; env breakdown
+        // scoped by BU only (so each env's count reflects the active BU);
+        // BU breakdown scoped by env only (so each BU's count reflects the
+        // active env). Same shape used by Disks and Certs.
+        var topArgs = new DynamicParameters();
+        var topClauses = new List<string> { "s.is_active = TRUE" };
+        if (!string.IsNullOrWhiteSpace(environment))
+        {
+            topClauses.Add("s.environment = @Environment");
+            topArgs.Add("Environment", environment);
+        }
+        if (!string.IsNullOrWhiteSpace(businessUnit))
+        {
+            topClauses.Add("s.business_unit = @BusinessUnit");
+            topArgs.Add("BusinessUnit", businessUnit);
+        }
+        var topWhere = "WHERE " + string.Join(" AND ", topClauses);
+
+        var topCount = await Db.ExecuteScalarAsync<int>(
+            $"SELECT COUNT(*) FROM {Sql.Tables.Servers} s {topWhere}", topArgs);
+
+        // Env breakdown: scoped by BU only.
+        var envArgs = new DynamicParameters();
+        var envClauses = new List<string> { "s.is_active = TRUE" };
+        if (!string.IsNullOrWhiteSpace(businessUnit))
+        {
+            envClauses.Add("s.business_unit = @BusinessUnit");
+            envArgs.Add("BusinessUnit", businessUnit);
+        }
+        var envWhere = "WHERE " + string.Join(" AND ", envClauses);
+        var envRows = await Db.QueryAsync<(string? Environment, int Total)>($@"
             SELECT
                 s.environment AS Environment,
-                COUNT(*) AS Total,
-                COUNT(*) AS Active
+                COUNT(*) AS Total
             FROM {Sql.Tables.Servers} s
-            WHERE s.is_active = TRUE
+            {envWhere}
             GROUP BY s.environment
-            ORDER BY COUNT(*) DESC");
+            ORDER BY COUNT(*) DESC", envArgs);
 
-        var summary = new ServerSummary();
-        foreach (var row in rows)
+        // BU breakdown: scoped by env only.
+        var buArgs = new DynamicParameters();
+        var buClauses = new List<string> { "s.is_active = TRUE" };
+        if (!string.IsNullOrWhiteSpace(environment))
+        {
+            buClauses.Add("s.environment = @Environment");
+            buArgs.Add("Environment", environment);
+        }
+        var buWhere = "WHERE " + string.Join(" AND ", buClauses);
+        var buRows = await Db.QueryAsync<(string? BusinessUnit, int Total)>($@"
+            SELECT
+                s.business_unit AS BusinessUnit,
+                COUNT(*) AS Total
+            FROM {Sql.Tables.Servers} s
+            {buWhere}
+            GROUP BY s.business_unit
+            ORDER BY COUNT(*) DESC", buArgs);
+
+        var summary = new ServerSummary
+        {
+            TotalCount = topCount,
+            ActiveCount = topCount, // Only active rows in scope, so Total == Active
+        };
+        foreach (var row in envRows)
         {
             var env = row.Environment ?? "Unknown";
-            summary.TotalCount += row.Total;
-            summary.ActiveCount += row.Active;
-            summary.EnvironmentCounts[env] = new EnvironmentCount { Total = row.Total, Active = row.Active };
+            summary.EnvironmentCounts[env] = new EnvironmentCount { Total = row.Total, Active = row.Total };
+        }
+        foreach (var row in buRows)
+        {
+            var bu = row.BusinessUnit ?? "Unknown";
+            summary.BusinessUnitCounts[bu] = new BusinessUnitCount { Total = row.Total, Active = row.Total };
         }
         return summary;
     });

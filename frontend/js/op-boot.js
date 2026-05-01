@@ -41,6 +41,14 @@ function mapEnvBreakdown(summary) {
   })).sort((a, b) => b.count - a.count);
 }
 
+function mapBuBreakdown(summary) {
+  if (!summary || !summary.businessUnitCounts) return [];
+  return Object.entries(summary.businessUnitCounts).map(([name, v]) => ({
+    name,
+    count: (v && v.active != null) ? v.active : (v && v.total) || 0,
+  })).sort((a, b) => b.count - a.count);
+}
+
 function mapUnreachable(items) {
   return (items || []).map(u => ({
     name: u.serverName || '—',
@@ -90,6 +98,25 @@ function mapCertCounts(summary) {
   const warn = summary.warningCount || 0;
   const ok = summary.okCount || 0;
   return { expired, crit, warn, ok, within7d: crit, within30d: warn, within90d: 0, healthy: ok };
+}
+
+// Cross-facet breakdowns from /api/certificates/summary — drives the level
+// and BU dropdown counts on the certs page (per-level scoped by BU, per-BU
+// scoped by level).
+function mapCertBreakdown(summary) {
+  if (!summary) return { levels: [], businessUnits: [] };
+  const levels = Array.isArray(summary.levels) ? summary.levels : [];
+  const bus = Array.isArray(summary.businessUnits) ? summary.businessUnits : [];
+  return {
+    levels: levels.map(l => ({
+      level: String(l.level || ''),
+      totalCount: Number(l.totalCount) || 0,
+    })),
+    businessUnits: bus.map(b => ({
+      businessUnit: String(b.businessUnit || ''),
+      totalCount: Number(b.totalCount) || 0,
+    })),
+  };
 }
 
 function mapEolProducts(items) {
@@ -285,6 +312,7 @@ function mapDiskSummary(s) {
   if (!s || typeof s !== 'object') return null;
   const envs = Array.isArray(s.environments) ? s.environments : [];
   const bus  = Array.isArray(s.businessUnits) ? s.businessUnits : [];
+  const sts  = Array.isArray(s.alertStatuses) ? s.alertStatuses : [];
   return {
     totalCount:    Number(s.totalCount) || 0,
     okCount:       Number(s.okCount) || 0,
@@ -303,6 +331,12 @@ function mapDiskSummary(s) {
       okCount:       Number(b.okCount) || 0,
       warningCount:  Number(b.warningCount) || 0,
       criticalCount: Number(b.criticalCount) || 0,
+    })),
+    // Cross-facet status breakdown (1=OK, 2=Warning, 3=Critical) — drives the
+    // alert-levels dropdown counts on the Disks page.
+    alertStatuses: sts.map(a => ({
+      alertStatus:   Number(a.alertStatus) || 0,
+      totalCount:    Number(a.totalCount) || 0,
     })),
   };
 }
@@ -329,6 +363,20 @@ function mapDisks(items) {
     thresholdCritPct: Number(d.thresholdCritPct) || 90,
     daysUntilCritical: d.daysUntilCritical != null ? Number(d.daysUntilCritical) : null,
   }));
+}
+
+// Cross-facet breakdowns from /api/patching/exclusions/summary — drives the
+// state and BU dropdown counts on the Patch Management page.
+function mapExclusionSummary(s) {
+  if (!s) return null;
+  const states = Array.isArray(s.states) ? s.states : [];
+  const bus = Array.isArray(s.businessUnits) ? s.businessUnits : [];
+  return {
+    totalExcluded: Number(s.totalExcluded) || 0,
+    holdExpiredCount: Number(s.holdExpiredCount) || 0,
+    states: states.map(x => ({ state: String(x.state || ''), totalCount: Number(x.totalCount) || 0 })),
+    businessUnits: bus.map(x => ({ businessUnit: String(x.businessUnit || ''), totalCount: Number(x.totalCount) || 0 })),
+  };
 }
 
 function mapExclusions(items) {
@@ -420,9 +468,11 @@ async function boot() {
     api('/servers/summary').then(s => {
       if (!s) { markDemo('servers'); return; }
       const envBreakdown = mapEnvBreakdown(s);
+      const buBreakdown = mapBuBreakdown(s);
       window.SERVERS_DATA = Object.assign({}, window.SERVERS_DATA, {
         envBreakdown,
         SRV_ENV: envBreakdown,
+        SRV_BU:  buBreakdown,
         SRV_ENV_MAX: envBreakdown.length ? Math.max(...envBreakdown.map(e => e.count)) : 0,
         SRV_TOTAL: s.totalCount,
       });
@@ -445,7 +495,10 @@ async function boot() {
     }),
     api('/certificates/summary').then(s => {
       if (!s) { markDemo('certs'); return; }
-      window.CERTS_DATA = Object.assign({}, window.CERTS_DATA, { CERT_COUNTS: mapCertCounts(s) });
+      window.CERTS_DATA = Object.assign({}, window.CERTS_DATA, {
+        CERT_COUNTS: mapCertCounts(s),
+        CERT_BREAKDOWN: mapCertBreakdown(s),
+      });
       rerender();
     }),
     api('/eol?limit=500&hasServers=true').then(v => {
@@ -489,6 +542,12 @@ async function boot() {
     api('/patching/exclusions?limit=500').then(v => {
       if (!v) { markDemo('exclusions'); return; }
       window.EXCLUSIONS = mapExclusions(v);
+      rerender();
+    }),
+    api('/patching/exclusions/summary').then(s => {
+      const summary = mapExclusionSummary(s);
+      if (!summary) return;
+      window.EXCL_BREAKDOWN = summary;
       rerender();
     }),
     api('/me').then(v => {
@@ -549,23 +608,24 @@ window.OC_API = {
   getEolDetail: (product, version) =>
     api('/eol/' + encodeURIComponent(product) + '/' + encodeURIComponent(version)),
 
-  // Refetch /api/disks + /api/disks/summary scoped to the given env+BU
-  // intersection. Either filter can be falsy / '__all' to mean unfiltered.
-  // Updates window.DISKS_DATA + window.DISK_SUMMARY (top-level totals reflect
-  // the intersection; breakdown lists stay stable for dropdown labels) and
-  // triggers a rerender so the KPI strip + table reflect the new selection.
-  fetchDisks: async ({ env, bu } = {}) => {
+  // Refetch /api/disks + /api/disks/summary scoped to the given filters.
+  // Any filter can be falsy / '__all' to mean unfiltered. Status is the
+  // alert-status filter (1=OK, 2=Warning, 3=Critical). Updates
+  // window.DISKS_DATA + window.DISK_SUMMARY and triggers a rerender so the
+  // KPI strip, dropdown counts, and table all reflect the new selection.
+  fetchDisks: async ({ env, bu, status } = {}) => {
     const envSet = env && env !== '__all';
     const buSet  = bu && bu !== '__all';
-    const params = ['limit=5000'];
-    if (envSet) params.push('environment=' + encodeURIComponent(env));
-    if (buSet)  params.push('businessUnit=' + encodeURIComponent(bu));
-    const qs = '?' + params.join('&');
-
-    // Fire both requests in parallel — the table and the strip update together.
-    const summaryParams = [];
-    if (envSet) summaryParams.push('environment=' + encodeURIComponent(env));
-    if (buSet)  summaryParams.push('businessUnit=' + encodeURIComponent(bu));
+    const stSet  = status && status !== '__all';
+    const buildParams = (includeLimit) => {
+      const ps = includeLimit ? ['limit=5000'] : [];
+      if (envSet) ps.push('environment=' + encodeURIComponent(env));
+      if (buSet)  ps.push('businessUnit=' + encodeURIComponent(bu));
+      if (stSet)  ps.push('alertStatus=' + encodeURIComponent(status));
+      return ps;
+    };
+    const qs = '?' + buildParams(true).join('&');
+    const summaryParams = buildParams(false);
     const summaryQs = summaryParams.length ? '?' + summaryParams.join('&') : '';
 
     const [listResult, summaryResult] = await Promise.all([
@@ -577,8 +637,9 @@ window.OC_API = {
       window.DISKS_DATA = Object.assign({}, window.DISKS_DATA, {
         items: mapDisks(listResult.items),
         totalCount: listResult.totalCount != null ? listResult.totalCount : listResult.items.length,
-        currentEnv: envSet ? env : '__all',
-        currentBu:  buSet  ? bu  : '__all',
+        currentEnv:    envSet ? env    : '__all',
+        currentBu:     buSet  ? bu     : '__all',
+        currentStatus: stSet  ? status : '__all',
       });
     }
     const mappedSummary = mapDiskSummary(summaryResult);
@@ -595,6 +656,123 @@ window.OC_API = {
   // Back-compat shim: existing callers pass an env string directly.
   fetchDisksByEnv: function(envName) {
     return this.fetchDisks({ env: envName });
+  },
+
+  // Refetch /api/patching/exclusions + /api/patching/exclusions/summary
+  // scoped to state + BU. State values match the frontend dropdown vocabulary:
+  // 'overdue' | 'expiring-soon' | 'active'. Updates window.EXCLUSIONS and
+  // window.EXCL_BREAKDOWN; triggers rerender.
+  fetchExclusions: async ({ state, bu } = {}) => {
+    const stSet = state && state !== '__all';
+    const buSet = bu && bu !== '__all';
+    const listParams = ['limit=500'];
+    if (stSet) listParams.push('state=' + encodeURIComponent(state));
+    if (buSet) listParams.push('businessUnit=' + encodeURIComponent(bu));
+    const summaryParams = [];
+    if (stSet) summaryParams.push('state=' + encodeURIComponent(state));
+    if (buSet) summaryParams.push('businessUnit=' + encodeURIComponent(bu));
+    const summaryQs = summaryParams.length ? '?' + summaryParams.join('&') : '';
+
+    const [listResult, summaryResult] = await Promise.all([
+      api('/patching/exclusions?' + listParams.join('&')),
+      api('/patching/exclusions/summary' + summaryQs),
+    ]);
+
+    if (listResult) {
+      window.EXCLUSIONS = mapExclusions(listResult);
+    }
+    const mappedSummary = mapExclusionSummary(summaryResult);
+    if (mappedSummary) {
+      window.EXCL_BREAKDOWN = mappedSummary;
+    }
+    if (typeof window.RERENDER_PAGE === 'function') {
+      const m = document.querySelector('.page-mount');
+      if (m) window.RERENDER_PAGE(m);
+    }
+    return listResult;
+  },
+
+  // Refetch /api/certificates + /api/certificates/summary scoped to BU+level.
+  // Level values match the frontend dropdown vocabulary: 'expired' | 'crit' |
+  // 'warn' | 'ok'. Updates window.CERTS_DATA and triggers rerender.
+  fetchCerts: async ({ bu, level } = {}) => {
+    const buSet  = bu && bu !== '__all';
+    const lvSet  = level && level !== '__all';
+    // Map the dropdown vocabulary back to the existing /api/certificates
+    // alertLevel param (which expects critical/warning/ok/expired uppercase-ish).
+    const alertLevelFor = { expired: 'expired', crit: 'critical', warn: 'warning', ok: 'ok' };
+    const listParams = ['limit=1000'];
+    if (buSet) listParams.push('businessUnit=' + encodeURIComponent(bu));
+    if (lvSet) listParams.push('alertLevel=' + encodeURIComponent(alertLevelFor[level] || level));
+    const summaryParams = [];
+    if (buSet) summaryParams.push('businessUnit=' + encodeURIComponent(bu));
+    if (lvSet) summaryParams.push('level=' + encodeURIComponent(level));
+    const summaryQs = summaryParams.length ? '?' + summaryParams.join('&') : '';
+
+    const [listResult, summaryResult] = await Promise.all([
+      api('/certificates?' + listParams.join('&')),
+      api('/certificates/summary' + summaryQs),
+    ]);
+
+    if (Array.isArray(listResult)) {
+      window.CERTS_DATA = Object.assign({}, window.CERTS_DATA, { CERTS: mapCerts(listResult) });
+    }
+    if (summaryResult) {
+      window.CERTS_DATA = Object.assign({}, window.CERTS_DATA, {
+        CERT_COUNTS: mapCertCounts(summaryResult),
+        CERT_BREAKDOWN: mapCertBreakdown(summaryResult),
+      });
+    }
+    if (typeof window.RERENDER_PAGE === 'function') {
+      const m = document.querySelector('.page-mount');
+      if (m) window.RERENDER_PAGE(m);
+    }
+    return listResult;
+  },
+
+  // Refetch /api/servers + /api/servers/summary scoped to env+BU. Updates
+  // window.SERVERS_DATA (servers list, env/BU breakdowns) and triggers
+  // rerender so the bar chart, dropdown counts, and table reflect the new
+  // intersection.
+  fetchServers: async ({ env, bu } = {}) => {
+    const envSet = env && env !== '__all';
+    const buSet  = bu && bu !== '__all';
+    const buildParams = (includeLimit) => {
+      const ps = includeLimit ? ['limit=2500'] : [];
+      if (envSet) ps.push('environment=' + encodeURIComponent(env));
+      if (buSet)  ps.push('businessUnit=' + encodeURIComponent(bu));
+      return ps;
+    };
+    const listQs = '?' + buildParams(true).join('&');
+    const summaryParams = buildParams(false);
+    const summaryQs = summaryParams.length ? '?' + summaryParams.join('&') : '';
+
+    const [listResult, summaryResult] = await Promise.all([
+      api('/servers' + listQs),
+      api('/servers/summary' + summaryQs),
+    ]);
+
+    if (listResult && Array.isArray(listResult.items)) {
+      window.SERVERS_DATA = Object.assign({}, window.SERVERS_DATA, {
+        servers: mapServers(listResult.items),
+      });
+    }
+    if (summaryResult) {
+      const envBreakdown = mapEnvBreakdown(summaryResult);
+      const buBreakdown = mapBuBreakdown(summaryResult);
+      window.SERVERS_DATA = Object.assign({}, window.SERVERS_DATA, {
+        envBreakdown,
+        SRV_ENV: envBreakdown,
+        SRV_BU:  buBreakdown,
+        SRV_ENV_MAX: envBreakdown.length ? Math.max(...envBreakdown.map(e => e.count)) : 0,
+        SRV_TOTAL: summaryResult.totalCount,
+      });
+    }
+    if (typeof window.RERENDER_PAGE === 'function') {
+      const m = document.querySelector('.page-mount');
+      if (m) window.RERENDER_PAGE(m);
+    }
+    return listResult;
   },
 };
 

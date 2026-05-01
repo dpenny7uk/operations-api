@@ -18,16 +18,19 @@ public class DisksController : ControllerBase
     /// <summary>Get disk summary with counts by alert status.</summary>
     /// <param name="environment">Optional canonical environment filter (e.g. "Production").</param>
     /// <param name="businessUnit">Optional canonical business-unit filter (e.g. "Contoso Group Support").</param>
+    /// <param name="alertStatus">Optional alert-status filter (1=OK, 2=Warning, 3=Critical).</param>
     [HttpGet("summary")]
     [ResponseCache(Duration = 60, Location = ResponseCacheLocation.Client)]
     [ProducesResponseType(200)]
     public async Task<IActionResult> GetSummary(
         [FromQuery] string? environment = null,
-        [FromQuery] string? businessUnit = null)
+        [FromQuery] string? businessUnit = null,
+        [FromQuery] int? alertStatus = null)
     {
         var envFilter = string.IsNullOrWhiteSpace(environment) ? null : environment.Trim();
         var buFilter = string.IsNullOrWhiteSpace(businessUnit) ? null : businessUnit.Trim();
-        return Ok(await _svc.GetSummaryAsync(envFilter, buFilter));
+        var statusFilter = ValidateAlertStatus(alertStatus);
+        return Ok(await _svc.GetSummaryAsync(envFilter, buFilter, statusFilter));
     }
 
     /// <summary>List current-state disks with paged response.</summary>
@@ -35,13 +38,15 @@ public class DisksController : ControllerBase
     /// <param name="offset">Skip the first N results (default 0).</param>
     /// <param name="environment">Optional canonical environment filter (e.g. "Production").</param>
     /// <param name="businessUnit">Optional canonical business-unit filter (e.g. "Contoso Group Support").</param>
+    /// <param name="alertStatus">Optional alert-status filter (1=OK, 2=Warning, 3=Critical).</param>
     [HttpGet]
     [ProducesResponseType(200)]
     public async Task<IActionResult> List(
         [FromQuery] int limit = 2000,
         [FromQuery] int offset = 0,
         [FromQuery] string? environment = null,
-        [FromQuery] string? businessUnit = null)
+        [FromQuery] string? businessUnit = null,
+        [FromQuery] int? alertStatus = null)
     {
         // Cap raised to 5000 (was 2000) so an unfiltered all-BU fetch returns the
         // full estate without truncation. Per-filter fetches stay well under the
@@ -50,8 +55,14 @@ public class DisksController : ControllerBase
         var clampedOffset = Math.Max(offset, 0);
         var envFilter = string.IsNullOrWhiteSpace(environment) ? null : environment.Trim();
         var buFilter = string.IsNullOrWhiteSpace(businessUnit) ? null : businessUnit.Trim();
-        return Ok(await _svc.ListDisksAsync(clampedLimit, clampedOffset, envFilter, buFilter));
+        var statusFilter = ValidateAlertStatus(alertStatus);
+        return Ok(await _svc.ListDisksAsync(clampedLimit, clampedOffset, envFilter, buFilter, statusFilter));
     }
+
+    // Anything outside {1, 2, 3} is treated as no filter — protects the SQL
+    // from arbitrary integers without throwing on a stray query string.
+    private static int? ValidateAlertStatus(int? alertStatus)
+        => alertStatus is 1 or 2 or 3 ? alertStatus : null;
 
     /// <summary>Get snapshot history for a single disk (used for sparkline + growth projection).</summary>
     [HttpGet("{serverName}/{diskLabel}/history")]

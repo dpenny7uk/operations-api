@@ -10,19 +10,93 @@ public class PatchExclusionService : BaseService<PatchExclusionService>, IPatchE
     public PatchExclusionService(IDbConnection db, ILogger<PatchExclusionService> logger)
         : base(db, logger) { }
 
-    public Task<PatchExclusionSummary> GetExclusionSummaryAsync() => RunDbAsync(async () =>
+    // State vocabulary matches the frontend dropdown values:
+    // 'overdue' = held_until < CURRENT_DATE
+    // 'expiring-soon' = held_until between CURRENT_DATE and CURRENT_DATE + 7 days
+    // 'active' = everything else among active rows
+    private static string StateClauseFor(string? state)
     {
-        const string sql = @"
+        if (string.IsNullOrWhiteSpace(state)) return "";
+        return state.Trim().ToLowerInvariant() switch
+        {
+            "overdue"       => " AND pe.held_until < CURRENT_DATE",
+            "expiring-soon" => " AND pe.held_until >= CURRENT_DATE AND pe.held_until < CURRENT_DATE + INTERVAL '7 days'",
+            "active"        => " AND pe.held_until >= CURRENT_DATE + INTERVAL '7 days'",
+            _ => "",
+        };
+    }
+
+    // Builds the active-exclusions filter extras with optional BU + state.
+    // exclude lets a cross-facet breakdown query skip its own dimension.
+    private static (string extras, DynamicParameters args) BuildExclusionFilterClause(
+        string? businessUnit, string? state, string? exclude = null)
+    {
+        var sql = "";
+        var args = new DynamicParameters();
+        if (!string.IsNullOrWhiteSpace(businessUnit) && exclude != "businessUnit")
+        {
+            sql += " AND s.business_unit = @BusinessUnit";
+            args.Add("BusinessUnit", businessUnit);
+        }
+        if (exclude != "state")
+        {
+            sql += StateClauseFor(state);
+        }
+        return (sql, args);
+    }
+
+    public Task<PatchExclusionSummary> GetExclusionSummaryAsync(string? businessUnit = null, string? state = null) => RunDbAsync(async () =>
+    {
+        // Cross-facet rule: top-level scoped by both filters; States[] scoped
+        // by BU only; BusinessUnits[] scoped by state only.
+        var (topExtra, topArgs) = BuildExclusionFilterClause(businessUnit, state);
+        var (stExtra,  stArgs)  = BuildExclusionFilterClause(businessUnit, state, exclude: "state");
+        var (buExtra,  buArgs)  = BuildExclusionFilterClause(businessUnit, state, exclude: "businessUnit");
+
+        var top = await Db.QuerySingleAsync<PatchExclusionSummary>($@"
             SELECT
                 COUNT(*)::INT AS TotalExcluded,
-                COUNT(*) FILTER (WHERE held_until <= CURRENT_DATE)::INT AS HoldExpiredCount
-            FROM patching.patch_exclusions
-            WHERE is_active";
+                COUNT(*) FILTER (WHERE pe.held_until <= CURRENT_DATE)::INT AS HoldExpiredCount
+            FROM patching.patch_exclusions pe
+            LEFT JOIN shared.servers s ON pe.server_id = s.server_id
+            WHERE pe.is_active
+            {topExtra}", topArgs);
 
-        return await Db.QuerySingleAsync<PatchExclusionSummary>(sql);
+        // States[] — single-row counts, then unpivot.
+        var stRow = await Db.QueryFirstAsync($@"
+            SELECT
+                COUNT(*) FILTER (WHERE pe.held_until < CURRENT_DATE)::INT AS OverdueCount,
+                COUNT(*) FILTER (WHERE pe.held_until >= CURRENT_DATE
+                                  AND pe.held_until < CURRENT_DATE + INTERVAL '7 days')::INT AS ExpiringCount,
+                COUNT(*) FILTER (WHERE pe.held_until >= CURRENT_DATE + INTERVAL '7 days')::INT AS ActiveCount
+            FROM patching.patch_exclusions pe
+            LEFT JOIN shared.servers s ON pe.server_id = s.server_id
+            WHERE pe.is_active
+            {stExtra}", stArgs);
+        top.States = new List<ExclusionStateCount>
+        {
+            new() { State = "overdue",       TotalCount = (int)stRow.overduecount },
+            new() { State = "expiring-soon", TotalCount = (int)stRow.expiringcount },
+            new() { State = "active",        TotalCount = (int)stRow.activecount },
+        };
+
+        // BusinessUnits[] — GROUP BY business_unit under state-scoped (BU-excluded).
+        var buRows = await Db.QueryAsync<ExclusionBuCount>($@"
+            SELECT
+                COALESCE(s.business_unit, 'Unknown') AS BusinessUnit,
+                COUNT(*)::INT AS TotalCount
+            FROM patching.patch_exclusions pe
+            LEFT JOIN shared.servers s ON pe.server_id = s.server_id
+            WHERE pe.is_active
+            {buExtra}
+            GROUP BY s.business_unit
+            ORDER BY COUNT(*) DESC", buArgs);
+        top.BusinessUnits = buRows.ToList();
+
+        return top;
     });
 
-    public Task<PagedResult<PatchExclusion>> ListExclusionsAsync(string? search, int limit, int offset) =>
+    public Task<PagedResult<PatchExclusion>> ListExclusionsAsync(string? search, int limit, int offset, string? businessUnit = null, string? state = null) =>
         RunDbAsync(async () =>
     {
         var where = "WHERE pe.is_active";
@@ -33,6 +107,16 @@ public class PatchExclusionService : BaseService<PatchExclusionService>, IPatchE
             where += " AND (pe.server_name ILIKE @Search ESCAPE '\\' OR pe.reason ILIKE @Search ESCAPE '\\')";
             p.Add("Search", $"%{EscapeLike(search)}%");
         }
+
+        if (!string.IsNullOrWhiteSpace(businessUnit))
+        {
+            where += " AND s.business_unit = @BusinessUnit";
+            p.Add("BusinessUnit", businessUnit);
+        }
+
+        // State filter uses the same vocabulary as StateClauseFor but with the
+        // pe-aliased columns from the existing data SQL — append directly.
+        where += StateClauseFor(state);
 
         var countSql = $@"
             SELECT COUNT(*)::INT

@@ -15,30 +15,46 @@ public class PatchExclusionController : ControllerBase
 
     public PatchExclusionController(IPatchExclusionService svc) => _svc = svc;
 
-    /// <summary>Get exclusion summary (total excluded count and expired hold count).</summary>
+    /// <summary>Get exclusion summary with cross-facet counts by state + business unit.</summary>
+    /// <param name="businessUnit">Optional canonical business-unit filter.</param>
+    /// <param name="state">Optional hold-state filter ('overdue' | 'expiring-soon' | 'active').</param>
     [HttpGet("summary")]
     [ResponseCache(Duration = 30, Location = ResponseCacheLocation.Client)]
     [ProducesResponseType(200)]
-    public async Task<IActionResult> GetSummary()
-        => Ok(await _svc.GetExclusionSummaryAsync());
+    public async Task<IActionResult> GetSummary(
+        [FromQuery] string? businessUnit = null,
+        [FromQuery] string? state = null)
+    {
+        var buFilter = string.IsNullOrWhiteSpace(businessUnit) ? null : businessUnit.Trim();
+        var stateFilter = string.IsNullOrWhiteSpace(state) ? null : state.Trim();
+        return Ok(await _svc.GetExclusionSummaryAsync(buFilter, stateFilter));
+    }
 
-    /// <summary>List active patch exclusions with optional search and pagination.</summary>
+    /// <summary>List active patch exclusions with optional search, BU/state filters, and pagination.</summary>
     /// <param name="search">Search term — matches server name or reason.</param>
+    /// <param name="businessUnit">Optional canonical business-unit filter.</param>
+    /// <param name="state">Optional hold-state filter ('overdue' | 'expiring-soon' | 'active').</param>
     /// <param name="limit">Page size (1-500, default 100).</param>
     /// <param name="offset">Pagination offset (default 0).</param>
     [HttpGet]
     [ProducesResponseType(200)]
     public async Task<IActionResult> List(
         [FromQuery] string? search,
+        [FromQuery] string? businessUnit = null,
+        [FromQuery] string? state = null,
         [FromQuery] int limit = 100,
         [FromQuery] int offset = 0)
     {
         if (search?.Length > 255 || InputGuard.ContainsControlChars(search))
             return BadRequest("search parameter is invalid.");
+        var buFilter = string.IsNullOrWhiteSpace(businessUnit) ? null : businessUnit.Trim();
+        var stateFilter = string.IsNullOrWhiteSpace(state) ? null : state.Trim();
 
         return Ok(await _svc.ListExclusionsAsync(search,
             Math.Clamp(limit, 1, 500),
-            Math.Clamp(offset, 0, 100000)));
+            Math.Clamp(offset, 0, 100000),
+            buFilter,
+            stateFilter));
     }
 
     /// <summary>Search servers from patching schedule data for exclusion selection.</summary>

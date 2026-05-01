@@ -12,6 +12,7 @@ public class DiskSummary
 
     public List<DiskEnvCount> Environments { get; set; } = new();
     public List<DiskBuCount> BusinessUnits { get; set; } = new();
+    public List<DiskAlertStatusCount> AlertStatuses { get; set; } = new();
 }
 
 public class DiskEnvCount
@@ -30,6 +31,12 @@ public class DiskBuCount
     public int OkCount { get; set; }
     public int WarningCount { get; set; }
     public int CriticalCount { get; set; }
+}
+
+public class DiskAlertStatusCount
+{
+    public short AlertStatus { get; set; } // 1 = OK, 2 = Warning, 3 = Critical
+    public int TotalCount { get; set; }
 }
 
 public class Disk

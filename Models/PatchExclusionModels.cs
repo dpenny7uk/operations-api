@@ -24,8 +24,28 @@ public class PatchExclusion
 
 public class PatchExclusionSummary
 {
+    // Top-level counts respect the optional state + businessUnit filters on
+    // the query string. The breakdown lists below are cross-facet scoped —
+    // States[] reflects the active BU (excluding state from its own scope),
+    // and BusinessUnits[] reflects the active state (excluding BU).
     public int TotalExcluded { get; set; }
     public int HoldExpiredCount { get; set; }
+
+    public List<ExclusionStateCount> States { get; set; } = new();
+    public List<ExclusionBuCount> BusinessUnits { get; set; } = new();
+}
+
+public class ExclusionStateCount
+{
+    // 'overdue' | 'expiring-soon' | 'active' — matches the frontend dropdown vocabulary.
+    public string State { get; set; } = "";
+    public int TotalCount { get; set; }
+}
+
+public class ExclusionBuCount
+{
+    public string BusinessUnit { get; set; } = "";
+    public int TotalCount { get; set; }
 }
 
 public class PatchServerItem
