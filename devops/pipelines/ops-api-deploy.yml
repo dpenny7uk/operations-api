@@ -318,13 +318,18 @@ stages:
                           }
                       }
 
+                      if ([string]::IsNullOrWhiteSpace($env:OPS_ADMIN_ROLE)) {
+                          Write-Error "OPS_ADMIN_ROLE not set — add it to the operations-api-prod variable group (e.g. 'HISCOX\App_ServiceOps_Admin')"
+                          exit 1
+                      }
+
                       $settings = @{
                           ConnectionStrings = @{
                               OperationsDb = $env:OPS_CONNECTIONSTRING
                           }
                           Authentication = @{
                               Mode = "Windows"
-                              AdminRole = "DOMAIN\!Onshore_Group_App_Support"
+                              AdminRole = $env:OPS_ADMIN_ROLE
                           }
                           Cors = @{
                               AllowedOrigins = $origins
@@ -346,6 +351,7 @@ stages:
                       Write-Host "appsettings.Production.json ACL restricted to SYSTEM, AppPool, Administrators"
                   env:
                     OPS_CONNECTIONSTRING: $(OPS_CONNECTIONSTRING)
+                    OPS_ADMIN_ROLE: $(OPS_ADMIN_ROLE)
 
                 # ── Deploy frontend ──────────────────────────────────────
                 - task: PowerShell@2
