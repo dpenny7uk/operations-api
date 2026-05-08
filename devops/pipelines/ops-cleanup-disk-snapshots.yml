@@ -1,0 +1,51 @@
+# Operations API - Nightly Cleanup of Disk Snapshots
+# Runs daily at 02:00 UTC to delete monitoring.disk_snapshots rows older than
+# the retention window (90 days). Bounds matview refresh time and prevents
+# the append-only history table from growing without limit.
+#
+# 02:00 UTC sits in the quiet window before the 03:00 monthly maintenance
+# and the 04:00+ daily sync chain (see templates/ops-sync-steps.yml schedule).
+
+trigger: none
+
+schedules:
+  - cron: "0 2 * * *"
+    displayName: "Daily disk-snapshot retention cleanup at 02:00"
+    branches:
+      include:
+        - main
+    always: true
+
+pool:
+  name: 'Default'
+
+variables:
+  - group: operations-api-prod
+
+steps:
+  - powershell: |
+      $repoRoot = "$(Build.SourcesDirectory)\operations-api"
+      $workDir = "$(Build.StagingDirectory)\sync_run"
+      New-Item -ItemType Directory -Force -Path $workDir | Out-Null
+      Copy-Item "$repoRoot\sync\common.py" "$workDir\"
+      Copy-Item "$repoRoot\sync\maintenance\run_maintenance.py" "$workDir\"
+      pip install -r "$repoRoot\sync\requirements.txt"
+      if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    displayName: 'Prepare maintenance environment'
+    timeoutInMinutes: 10
+    errorActionPreference: stop
+
+  - powershell: |
+      Set-Location "$(Build.StagingDirectory)\sync_run"
+      python run_maintenance.py cleanup_disk_snapshots --retain-days 90 --verbose
+      if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    displayName: 'Delete disk snapshots older than 90 days'
+    timeoutInMinutes: 15
+    errorActionPreference: stop
+    env:
+      OPS_DB_HOST: $(OPS_DB_HOST)
+      OPS_DB_PORT: $(OPS_DB_PORT)
+      OPS_DB_NAME: $(OPS_DB_NAME)
+      OPS_DB_USER: $(OPS_DB_USER)
+      OPS_DB_PASSWORD: $(OPS_DB_PASSWORD)
+      OPS_DB_SSLMODE: $(OPS_DB_SSLMODE)

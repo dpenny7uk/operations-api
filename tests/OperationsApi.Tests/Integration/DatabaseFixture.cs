@@ -1,4 +1,6 @@
+using Dapper;
 using Npgsql;
+using OperationsApi.Infrastructure;
 using Testcontainers.PostgreSql;
 using Xunit;
 
@@ -17,6 +19,14 @@ public class DatabaseFixture : IAsyncLifetime
     public bool IsAvailable { get; private set; }
     public string? SkipReason { get; private set; }
 
+    // Production registers DateOnly support in Program.cs; tests bypass Main and
+    // instantiate services directly, so re-register here. AddTypeHandler is
+    // process-static and idempotent (later registrations replace).
+    static DatabaseFixture()
+    {
+        SqlMapper.AddTypeHandler(new DateOnlyTypeHandler());
+    }
+
     public async Task InitializeAsync()
     {
         try
@@ -27,8 +37,10 @@ public class DatabaseFixture : IAsyncLifetime
 
             await _container.StartAsync();
             ConnectionString = _container.GetConnectionString();
+            await BootstrapRoles();
             await RunMigrations();
             await SeedTestData();
+            await RefreshDiskCurrent();
             IsAvailable = true;
         }
         catch (Exception ex)
@@ -42,6 +54,30 @@ public class DatabaseFixture : IAsyncLifetime
     {
         if (_container != null)
             await _container.DisposeAsync();
+    }
+
+    // Migrations reference two roles that exist in production but not in the
+    // testcontainers PG instance: ops_migrate (object owner; ALTER ... OWNER TO
+    // targets it) and ops_api (runtime user; GRANT statements target it).
+    // We create them up-front as bare non-login roles so the migration GRANTs
+    // and ownership transfers succeed. Test queries continue to connect as
+    // the testcontainers default superuser.
+    private async Task BootstrapRoles()
+    {
+        const string sql = """
+            DO $$ BEGIN
+                CREATE ROLE ops_migrate;
+            EXCEPTION WHEN duplicate_object THEN NULL;
+            END $$;
+            DO $$ BEGIN
+                CREATE ROLE ops_api;
+            EXCEPTION WHEN duplicate_object THEN NULL;
+            END $$;
+            """;
+        await using var conn = new NpgsqlConnection(ConnectionString);
+        await conn.OpenAsync();
+        await using var cmd = new NpgsqlCommand(sql, conn);
+        await cmd.ExecuteNonQueryAsync();
     }
 
     private async Task RunMigrations()
@@ -61,7 +97,9 @@ public class DatabaseFixture : IAsyncLifetime
             "database/010-patch-exclusions.sql",
             "database/011-patch-exclusion-grants.sql",
             "database/012-design-v2-fields.sql",
-            "database/013-monitoring-schema.sql"
+            "database/013-monitoring-schema.sql",
+            "database/014-disk-monitoring-sync-status.sql",
+            "database/015-disk-current-matview.sql"
         };
 
         // Walk up from bin/Debug/net10.0 to find the project root
@@ -92,6 +130,18 @@ public class DatabaseFixture : IAsyncLifetime
         await cmd.ExecuteNonQueryAsync();
     }
 
+    // monitoring.disk_current is a MATERIALIZED VIEW since 015. Seed inserts
+    // into disk_snapshots are invisible to it until refresh. Non-concurrent
+    // refresh is fine here — fast on tiny seed data, doesn't need the unique
+    // index path that CONCURRENTLY requires.
+    private async Task RefreshDiskCurrent()
+    {
+        await using var conn = new NpgsqlConnection(ConnectionString);
+        await conn.OpenAsync();
+        await using var cmd = new NpgsqlCommand("REFRESH MATERIALIZED VIEW monitoring.disk_current", conn);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
     private const string SeedSql = """
         -- ═══ Applications ═══
         INSERT INTO shared.applications (application_name, source_system, criticality)
@@ -119,7 +169,12 @@ public class DatabaseFixture : IAsyncLifetime
              'Engineering', 1, 'dev@contoso.com', '8a', TRUE, 'test',
              NULL, NULL, NULL),
             ('OLD01', 'old01.contoso.com', '10.0.3.1', 'Windows Server 2019', 'Production', 'DC1',
-             'Engineering', 3, 'ops@contoso.com', '9b', FALSE, 'test',
+             'Engineering', 3, 'ops@contoso.com', '9b', TRUE, 'test',
+             NULL, NULL, NULL),
+            -- Canonical inactive server for "active filter" tests. Distinct from
+            -- OLD01 (which is named for an old OS but is operationally active).
+            ('DECOMM01', 'decomm01.contoso.com', '10.0.4.1', 'Windows Server 2019', 'Production', 'DC1',
+             'Engineering', 1, 'ops@contoso.com', '9b', FALSE, 'test',
              NULL, NULL, NULL);
 
         -- ═══ Certificates ═══
@@ -161,25 +216,46 @@ public class DatabaseFixture : IAsyncLifetime
             (2, 'DEV01', 'onprem', '8a', 'Portal', 'IIS', 4);
 
         -- ═══ Known issues ═══
+        -- affected_apps/affected_services stored lowercase per the case-insensitive
+        -- matching contract (PatchingService joins with LOWER(ps.app/service) =
+        -- ANY(...)). Confluence sync writes lowercase too.
         INSERT INTO patching.known_issues
             (title, application, severity, is_active, applies_to_windows, applies_to_sql,
              applies_to_other, affected_apps, affected_services, fix, trigger_description,
              category, status, confluence_page_id)
         VALUES
             ('IIS pool crash after reboot', 'Portal', 'HIGH', TRUE, TRUE, FALSE, FALSE,
-             ARRAY['Portal'], ARRAY['IIS'], 'Restart IIS app pools', 'Server reboot',
+             ARRAY['portal'], ARRAY['iis'], 'Restart IIS app pools', 'Server reboot',
              'Windows O/S Patching', 'PUBLISHED', 'page-001'),
             ('SQL Agent stops', NULL, 'CRITICAL', TRUE, FALSE, TRUE, FALSE,
-             ARRAY['API Gateway'], ARRAY['SQLAgent'], 'Restart SQL Agent', 'SQL patching',
+             ARRAY['api gateway'], ARRAY['sqlagent'], 'Restart SQL Agent', 'SQL patching',
              'SQL Server Patching', 'PUBLISHED', 'page-002'),
             ('Resolved old issue', 'BackOffice', 'LOW', FALSE, TRUE, FALSE, FALSE,
-             ARRAY['BackOffice'], ARRAY[]::TEXT[], 'N/A', 'N/A',
+             ARRAY['backoffice'], ARRAY[]::TEXT[], 'N/A', 'N/A',
              'Windows O/S Patching', 'WITHDRAWN', 'page-003');
 
         -- ═══ EOL Software ═══
+        -- The EOL queries split rows into two roles by machine_name: definition
+        -- rows (machine_name IS NULL) drive product summaries and listings;
+        -- per-server rows (machine_name IS NOT NULL) join to definitions to
+        -- count affected servers. Both must be present.
         INSERT INTO eol.end_of_life_software
             (eol_product, eol_product_version, eol_end_of_life, eol_end_of_support, machine_name, asset, is_active)
         VALUES
+            -- Definition rows (machine_name IS NULL).
+            -- Summary thresholds expect 5+ active definitions split across the
+            -- four lifecycle buckets — Win2016/2019 EOL, SQL2019 approaching,
+            -- Win2022/2025 supported. Windows Server 2016 has no per-server
+            -- row; affected-server counting comes from the OS mapping view
+            -- against shared.servers, but the seed has no 2016 hosts so its
+            -- AffectedAssets is 0 (definition still counts toward EolCount).
+            ('Windows Server', '2016', NOW() - INTERVAL '1 year',   NOW() - INTERVAL '2 years', NULL, NULL, TRUE),
+            ('Windows Server', '2019', NOW() - INTERVAL '6 months', NOW() - INTERVAL '1 year',  NULL, NULL, TRUE),
+            ('Windows Server', '2022', NOW() + INTERVAL '3 years',  NOW() + INTERVAL '2 years', NULL, NULL, TRUE),
+            ('Windows Server', '2025', NOW() + INTERVAL '5 years',  NOW() + INTERVAL '4 years', NULL, NULL, TRUE),
+            ('SQL Server',     '2019', NOW() + INTERVAL '2 months', NOW() - INTERVAL '6 months', NULL, NULL, TRUE),
+            ('Legacy App',     '1.0',  NOW() - INTERVAL '2 years',  NOW() - INTERVAL '3 years',  NULL, NULL, FALSE),
+            -- Per-server rows
             ('Windows Server', '2019', NOW() - INTERVAL '6 months', NOW() - INTERVAL '1 year', 'OLD01', 'Windows Server 2019 Standard', TRUE),
             ('Windows Server', '2019', NOW() - INTERVAL '6 months', NOW() - INTERVAL '1 year', 'DEV01', 'Windows Server 2019 Standard', TRUE),
             ('Windows Server', '2022', NOW() + INTERVAL '3 years', NOW() + INTERVAL '2 years', 'WEB01', 'Windows Server 2022 Standard', TRUE),

@@ -1,8 +1,10 @@
 """Database maintenance tasks for Operations API.
 
 Calls PostgreSQL maintenance functions:
-  - refresh_expiry: recalculates certificate expiry fields (daily)
-  - purge_sync_history: removes old sync_history rows (monthly)
+  - refresh_expiry:           recalculates certificate expiry fields (daily)
+  - purge_sync_history:       removes old sync_history rows (monthly)
+  - cleanup_disk_snapshots:   removes disk snapshot rows older than retain_days
+                              (nightly; bounds matview refresh time)
 """
 
 import argparse
@@ -23,7 +25,14 @@ TASKS = {
         'sql': 'SELECT system.purge_old_sync_history(%s)',
         'description': 'Purge old sync history records',
     },
+    'cleanup_disk_snapshots': {
+        'sql': 'SELECT monitoring.cleanup_disk_snapshots(%s)',
+        'description': 'Delete disk snapshots older than retention window',
+    },
 }
+
+# Tasks that accept --retain-days as a positional argument.
+RETAIN_DAYS_TASKS = {'purge_sync_history', 'cleanup_disk_snapshots'}
 
 
 def run_task(task_name: str, retain_days: int = 90, dry_run: bool = False) -> int:
@@ -37,7 +46,7 @@ def run_task(task_name: str, retain_days: int = 90, dry_run: bool = False) -> in
 
     with database_connection(app_name=f"ops_maintenance_{task_name}") as conn:
         with conn.cursor() as cur:
-            if task_name == 'purge_sync_history':
+            if task_name in RETAIN_DAYS_TASKS:
                 cur.execute(task['sql'], (retain_days,))
             else:
                 cur.execute(task['sql'])
@@ -61,7 +70,7 @@ def main():
         '--retain-days',
         type=int,
         default=90,
-        help='Days of sync history to retain (purge_sync_history only, default: 90)',
+        help='Retention window in days (used by purge_sync_history and cleanup_disk_snapshots; default: 90)',
     )
     parser.add_argument('--dry-run', action='store_true', help='Log actions without executing')
     parser.add_argument('--verbose', action='store_true', help='Enable debug logging')

@@ -26,6 +26,7 @@ import re
 import sys
 from typing import Optional
 
+import psycopg2
 import pyodbc
 from psycopg2.extras import execute_values
 
@@ -381,6 +382,27 @@ def insert_snapshots(ctx, snapshots: list):
     )
 
 
+def refresh_disk_current(ctx):
+    """Refresh the matview that backs /api/disks reads.
+
+    REFRESH MATERIALIZED VIEW CONCURRENTLY cannot run inside a transaction
+    block, so this fires after insert_snapshots()'s commit. Failures warn
+    and continue — snapshot data is already durable; the next sync's
+    refresh will catch up. Failing the whole sync on a refresh error
+    would mask a successful insert and trip spurious sync-failure alerts.
+    """
+    if ctx.dry_run:
+        return
+    try:
+        with ctx.conn.cursor() as cur:
+            cur.execute("SELECT monitoring.refresh_disk_current()")
+        ctx.conn.commit()
+        logger.info("disk_current matview refreshed")
+    except psycopg2.Error as e:
+        logger.warning("disk_current refresh failed (snapshots already committed): %s", e)
+        ctx.conn.rollback()
+
+
 def main():
     parser = create_argument_parser("Sync disk snapshots from SolarWinds Orion to PostgreSQL")
     args = parser.parse_args()
@@ -404,6 +426,7 @@ def main():
                 ctx.stats.failed += 1
 
         insert_snapshots(ctx, snapshots)
+        refresh_disk_current(ctx)
 
 
 if __name__ == "__main__":

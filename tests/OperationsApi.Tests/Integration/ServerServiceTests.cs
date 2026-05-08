@@ -21,7 +21,7 @@ public class ServerServiceTests : IntegrationTestBase
         var results = (await svc.ListServersAsync(null, null, null, null, null, 100, 0)).ToList();
 
         Assert.All(results, s => Assert.True(s.IsActive));
-        Assert.DoesNotContain(results, s => s.ServerName == "OLD01");
+        Assert.DoesNotContain(results, s => s.ServerName == "DECOMM01");
     }
 
     [DockerFact]
@@ -31,7 +31,7 @@ public class ServerServiceTests : IntegrationTestBase
         var results = (await svc.ListServersAsync("Production", null, null, null, null, 100, 0)).ToList();
 
         Assert.All(results, s => Assert.Equal("Production", s.Environment));
-        Assert.Equal(3, results.Count); // WEB01, WEB02, API01
+        Assert.Equal(4, results.Count); // WEB01, WEB02, API01, OLD01 (DECOMM01 inactive)
     }
 
     [DockerFact]

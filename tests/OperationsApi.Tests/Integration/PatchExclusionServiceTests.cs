@@ -93,7 +93,7 @@ public class PatchExclusionServiceTests : IntegrationTestBase
         await using var conn = new NpgsqlConnection(Db.ConnectionString);
         await conn.OpenAsync();
         // Unique index enforces at most one active row per server_id.
-        var rows = (await conn.QueryAsync<(string reason, string ticket, string reason_slug, string notes, string excluded_by, DateTime held_until)>(
+        var rows = (await conn.QueryAsync<(string reason, string ticket, string reason_slug, string notes, string excluded_by, DateOnly held_until)>(
             "SELECT reason, ticket, reason_slug, notes, excluded_by, held_until FROM patching.patch_exclusions WHERE server_id = 1 AND is_active")).ToList();
         Assert.Single(rows);
         Assert.Equal("updated reason", rows[0].reason);
@@ -101,7 +101,7 @@ public class PatchExclusionServiceTests : IntegrationTestBase
         Assert.Equal("new", rows[0].reason_slug);
         Assert.Equal("second note", rows[0].notes);
         Assert.Equal("bob", rows[0].excluded_by);
-        Assert.Equal(InDays(60), DateOnly.FromDateTime(rows[0].held_until));
+        Assert.Equal(InDays(60), rows[0].held_until);
     }
 
     [DockerFact]
@@ -110,8 +110,8 @@ public class PatchExclusionServiceTests : IntegrationTestBase
         await ResetExclusions();
         var svc = CreateService();
 
-        // OLD01 (id 5) is_active = FALSE in seed data — the service's WHERE clause skips it.
-        var count = await svc.ExcludeServersAsync(new List<int> { 5 }, "try on inactive", InDays(30), "tester");
+        // DECOMM01 (id 6) is_active = FALSE in seed data — the service's WHERE clause skips it.
+        var count = await svc.ExcludeServersAsync(new List<int> { 6 }, "try on inactive", InDays(30), "tester");
 
         Assert.Equal(0, count);
     }
@@ -124,7 +124,7 @@ public class PatchExclusionServiceTests : IntegrationTestBase
         await ResetExclusions();
         var svc = CreateService();
 
-        // Seed: WEB01 (active, 8a) + DEV01 (active, 8a). OLD01 (inactive, 9b) is excluded by is_active filter.
+        // Seed: WEB01 (active, 8a) + DEV01 (active, 8a). DECOMM01 (inactive, 9b) is excluded by is_active filter.
         var count = await svc.BulkExcludeAsync("group", "8a", "group-wide freeze", InDays(21), "tester");
 
         Assert.Equal(2, count);
@@ -142,16 +142,16 @@ public class PatchExclusionServiceTests : IntegrationTestBase
         await ResetExclusions();
         var svc = CreateService();
 
-        // Seed: Production active = WEB01, WEB02, API01.
+        // Seed: Production active = WEB01, WEB02, API01, OLD01 (DECOMM01 inactive).
         var count = await svc.BulkExcludeAsync("env", "Production", "env-wide freeze", InDays(21), "tester");
 
-        Assert.Equal(3, count);
+        Assert.Equal(4, count);
 
         await using var conn = new NpgsqlConnection(Db.ConnectionString);
         await conn.OpenAsync();
         var names = (await conn.QueryAsync<string>(
             "SELECT server_name FROM patching.patch_exclusions WHERE is_active ORDER BY server_name")).ToList();
-        Assert.Equal(new[] { "API01", "WEB01", "WEB02" }, names);
+        Assert.Equal(new[] { "API01", "OLD01", "WEB01", "WEB02" }, names);
     }
 
     [DockerFact]
@@ -182,9 +182,9 @@ public class PatchExclusionServiceTests : IntegrationTestBase
         var ok = await svc.ExtendExclusionAsync(id, InDays(45), "extender");
 
         Assert.True(ok);
-        var held = await conn.QuerySingleAsync<DateTime>(
+        var held = await conn.QuerySingleAsync<DateOnly>(
             "SELECT held_until FROM patching.patch_exclusions WHERE exclusion_id = @id", new { id });
-        Assert.Equal(InDays(45), DateOnly.FromDateTime(held));
+        Assert.Equal(InDays(45), held);
         var by = await conn.QuerySingleAsync<string>(
             "SELECT excluded_by FROM patching.patch_exclusions WHERE exclusion_id = @id", new { id });
         Assert.Equal("extender", by);
@@ -217,9 +217,9 @@ public class PatchExclusionServiceTests : IntegrationTestBase
         var ok = await svc.UpdateExclusionAsync(id, InDays(30), null, "updater");
 
         Assert.True(ok);
-        var row = await conn.QuerySingleAsync<(DateTime held_until, string notes, string excluded_by)>(
+        var row = await conn.QuerySingleAsync<(DateOnly held_until, string notes, string excluded_by)>(
             "SELECT held_until, notes, excluded_by FROM patching.patch_exclusions WHERE exclusion_id = @id", new { id });
-        Assert.Equal(InDays(30), DateOnly.FromDateTime(row.held_until));
+        Assert.Equal(InDays(30), row.held_until);
         Assert.Equal("initial notes", row.notes);  // untouched
         Assert.Equal("updater", row.excluded_by);
     }
@@ -240,9 +240,9 @@ public class PatchExclusionServiceTests : IntegrationTestBase
         var ok = await svc.UpdateExclusionAsync(id, null, "fresh notes", "updater");
 
         Assert.True(ok);
-        var row = await conn.QuerySingleAsync<(DateTime held_until, string notes)>(
+        var row = await conn.QuerySingleAsync<(DateOnly held_until, string notes)>(
             "SELECT held_until, notes FROM patching.patch_exclusions WHERE exclusion_id = @id", new { id });
-        Assert.Equal(InDays(7), DateOnly.FromDateTime(row.held_until));  // untouched
+        Assert.Equal(InDays(7), row.held_until);  // untouched
         Assert.Equal("fresh notes", row.notes);
     }
 
@@ -261,9 +261,9 @@ public class PatchExclusionServiceTests : IntegrationTestBase
         var ok = await svc.UpdateExclusionAsync(id, InDays(14), "both changed", "updater");
 
         Assert.True(ok);
-        var row = await conn.QuerySingleAsync<(DateTime held_until, string notes)>(
+        var row = await conn.QuerySingleAsync<(DateOnly held_until, string notes)>(
             "SELECT held_until, notes FROM patching.patch_exclusions WHERE exclusion_id = @id", new { id });
-        Assert.Equal(InDays(14), DateOnly.FromDateTime(row.held_until));
+        Assert.Equal(InDays(14), row.held_until);
         Assert.Equal("both changed", row.notes);
     }
 

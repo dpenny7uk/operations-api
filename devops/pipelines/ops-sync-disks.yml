@@ -1,16 +1,18 @@
 # Operations API - Disk Monitoring Sync from SolarWinds Orion
 #
-# Runs every 15 minutes — replaces the Tableau disk dashboard with a near-real-time
-# snapshot in monitoring.disk_snapshots. Note this cadence is a deliberate departure
-# from the daily-stagger pattern of other syncs (see comment in templates/ops-sync-steps.yml);
-# alerting is handled separately by ops-alert-disk-breaches.yml so this frequency does
-# not drive Teams noise.
+# Runs hourly — replaces the Tableau disk dashboard with a near-real-time
+# snapshot in monitoring.disk_snapshots. Cadence was originally every 15 min;
+# relaxed to hourly because the breach-alert pipeline (ops-alert-disk-breaches.yml)
+# only runs 3x daily on weekdays, so 15-min syncs were producing ~16x more
+# data than alerting consumed. Hourly is still 3x faster than the alert
+# cadence and keeps the dashboard's situational-awareness role intact.
+# Each run also triggers a REFRESH of the monitoring.disk_current matview.
 
 trigger: none
 
 schedules:
-  - cron: "*/15 * * * *"
-    displayName: "Disk monitoring sync every 15 min"
+  - cron: "0 * * * *"
+    displayName: "Disk monitoring sync hourly"
     branches:
       include:
         - main
