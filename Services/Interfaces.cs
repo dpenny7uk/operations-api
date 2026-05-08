@@ -29,6 +29,7 @@ public interface IServerService
         string? search);
     Task<ServerSummary> GetServerSummaryAsync(string? environment = null, string? businessUnit = null);
     Task<ServerDetail?> GetServerByIdAsync(int id);
+    Task<IEnumerable<ServerPatchHistoryItem>> GetPatchHistoryAsync(int serverId, int limit = 50);
     Task<ServerMatch?> ResolveServerNameAsync(string name);
     Task<IEnumerable<UnmatchedServer>> GetUnmatchedServersAsync(string? source, int limit);
     Task<IEnumerable<UnreachableServer>> GetUnreachableServersAsync(int limit);
@@ -87,6 +88,6 @@ public interface IEolService
 public interface IDiskMonitoringService
 {
     Task<DiskSummary> GetSummaryAsync(string? environment = null, string? businessUnit = null, int? alertStatus = null);
-    Task<PagedResult<Disk>> ListDisksAsync(int limit, int offset, string? environment = null, string? businessUnit = null, int? alertStatus = null);
+    Task<PagedResult<Disk>> ListDisksAsync(int limit, int offset, string? environment = null, string? businessUnit = null, int? alertStatus = null, string? serverName = null);
     Task<IEnumerable<DiskHistoryPoint>> GetHistoryAsync(string serverName, string diskLabel, int days);
 }

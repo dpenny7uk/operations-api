@@ -402,14 +402,15 @@ function mapExclusions(items) {
 }
 
 // ── Paginated /api/servers (backend caps limit at 1000) ──────────────
-async function fetchAllServers() {
+async function fetchAllServers(bu) {
   const PAGE = 1000;
   const MAX_PAGES = 10;
+  const buQs = (bu && bu !== '__all') ? '&businessUnit=' + encodeURIComponent(bu) : '';
   let offset = 0;
   let all = [];
   let total = null;
   for (let i = 0; i < MAX_PAGES; i++) {
-    const r = await api(`/servers?limit=${PAGE}&offset=${offset}`);
+    const r = await api(`/servers?limit=${PAGE}&offset=${offset}${buQs}`);
     if (!r || !Array.isArray(r.items)) return null;
     all = all.concat(r.items);
     if (total === null) total = r.totalCount ?? all.length;
@@ -425,6 +426,19 @@ async function fetchAllServers() {
 // ── Boot ─────────────────────────────────────────────────────────────
 
 async function boot() {
+  // Attach the apiErrors listener exactly once per page load. window.OC_API.retry
+  // re-runs runFetches() without re-attaching — the listener stays wired.
+  setApiErrorsListener(() => {
+    window.API_ERRORS = apiErrors.slice();
+    if (window.RERENDER_SHELL) window.RERENDER_SHELL();
+  });
+  await runFetches();
+}
+
+// The fetch wave — initial boot and retry both call this. Each fetch's
+// failure marks its owning widget as "on demo data" so the page renders
+// a DEMO ribbon on that card only.
+async function runFetches() {
   // Seed globals exist from the design bundle by the time this runs (deferred
   // module script). Overwrite as fetches resolve and re-render.
   const rerender = () => {
@@ -437,21 +451,21 @@ async function boot() {
     if (window.RERENDER_SHELL) window.RERENDER_SHELL();
   };
 
-  // Any error recorded after boot (e.g. from a failed apiPost) also updates
-  // the banner — not just errors that happened during the boot fetch wave.
-  setApiErrorsListener(() => {
-    window.API_ERRORS = apiErrors.slice();
-    if (window.RERENDER_SHELL) window.RERENDER_SHELL();
-  });
-
-  // Fresh demo state on each boot — refresh clears stale markers from a prior
-  // run where a fetch failed then succeeded on reload.
+  // Fresh demo state on each call — clears stale markers from a prior run
+  // where a fetch failed then succeeded.
   clearAllDemo();
+
+  // Global BU scope (set by op-app.js's rail BuScope). Threaded into every
+  // fetch that supports ?businessUnit=. Note: /servers/summary is *not*
+  // threaded — it's the source of truth for the rail's BU dropdown options
+  // and must always return the full BU breakdown.
+  const bu = window.SELECTED_BU;
+  const buQs = (bu && bu !== '__all') ? '&businessUnit=' + encodeURIComponent(bu) : '';
 
   // Fire everything in parallel. Each fetch's failure marks its owning widget
   // as "on demo data" so the page renders a DEMO ribbon on that card only.
   const fetches = [
-    fetchAllServers().then(r => {
+    fetchAllServers(bu).then(r => {
       if (!r) { markDemo('servers'); return; }
       const servers = mapServers(r.items);
       const envCounts = {};
@@ -478,22 +492,22 @@ async function boot() {
       });
       rerender();
     }),
-    api('/servers/unreachable').then(v => {
+    api('/servers/unreachable' + (buQs ? '?' + buQs.slice(1) : '')).then(v => {
       if (!Array.isArray(v)) { markDemo('servers'); return; }
       window.SERVERS_DATA = Object.assign({}, window.SERVERS_DATA, { unreachable: mapUnreachable(v) });
       rerender();
     }),
-    api('/servers/unmatched').then(v => {
+    api('/servers/unmatched' + (buQs ? '?' + buQs.slice(1) : '')).then(v => {
       if (!Array.isArray(v)) { markDemo('servers'); return; }
       window.SERVERS_DATA = Object.assign({}, window.SERVERS_DATA, { unmatched: mapUnmatched(v) });
       rerender();
     }),
-    api('/certificates?limit=1000').then(v => {
+    api('/certificates?limit=1000' + buQs).then(v => {
       if (!Array.isArray(v)) { markDemo('certs'); return; }
       window.CERTS_DATA = Object.assign({}, window.CERTS_DATA, { CERTS: mapCerts(v) });
       rerender();
     }),
-    api('/certificates/summary').then(s => {
+    api('/certificates/summary' + (buQs ? '?' + buQs.slice(1) : '')).then(s => {
       if (!s) { markDemo('certs'); return; }
       window.CERTS_DATA = Object.assign({}, window.CERTS_DATA, {
         CERT_COUNTS: mapCertCounts(s),
@@ -539,12 +553,12 @@ async function boot() {
       window.RECENT_ALERTS_BASE = mapAlerts(v);
       rerender();
     }),
-    api('/patching/exclusions?limit=500').then(v => {
+    api('/patching/exclusions?limit=500' + buQs).then(v => {
       if (!v) { markDemo('exclusions'); return; }
       window.EXCLUSIONS = mapExclusions(v);
       rerender();
     }),
-    api('/patching/exclusions/summary').then(s => {
+    api('/patching/exclusions/summary' + (buQs ? '?' + buQs.slice(1) : '')).then(s => {
       const summary = mapExclusionSummary(s);
       if (!summary) return;
       window.EXCL_BREAKDOWN = summary;
@@ -558,20 +572,20 @@ async function boot() {
     // Default to Production-only on initial load — non-prod is noise for the
     // ops team. The dropdown lets users widen scope (BU + env); OC_API.fetchDisks
     // handles the refetch.
-    api('/disks?environment=Production&limit=5000').then(r => {
+    api('/disks?environment=Production&limit=5000' + buQs).then(r => {
       if (!r || !Array.isArray(r.items)) { markDemo('disks'); return; }
       window.DISKS_DATA = Object.assign({}, window.DISKS_DATA, {
         items: mapDisks(r.items),
         totalCount: r.totalCount != null ? r.totalCount : r.items.length,
         currentEnv: 'Production',
-        currentBu:  '__all',
+        currentBu:  bu || '__all',
       });
       rerender();
     }),
-    // Top-level summary stays unscoped on boot — the breakdowns drive both
-    // dropdowns, and the top-level totals get overwritten when the user
-    // changes filters via OC_API.fetchDisks.
-    api('/disks/summary').then(s => {
+    // Top-level summary tracks the global BU scope so the env dropdown and
+    // KPI cells show counts within the selected BU. Pre-BU-filter behaviour
+    // (no scope) is preserved when bu === '__all'.
+    api('/disks/summary' + (buQs ? '?' + buQs.slice(1) : '')).then(s => {
       const summary = mapDiskSummary(s);
       if (!summary) { markDemo('disks'); return; }
       window.DISK_SUMMARY = summary;
@@ -603,7 +617,124 @@ async function boot() {
 
 // ── OC_API: authenticated GET helpers for IIFE modules (op-pages.js) ──
 
+// Synthesised demo data for the server detail page. Shape mirrors the live
+// API responses so the renderer doesn't branch on demo vs live. Used when
+// the API is unreachable — see OC_API.getServerDetail.
+function _demoServer(id, seed) {
+  // seed is a row from window.SERVERS_DATA.servers (mapServers shape) — has
+  // name/fqdn/env/bu/pg/etc. but no OS/location. Fill the gaps.
+  const name = (seed && seed.name) || ('demo-srv-' + id);
+  const fqdn = (seed && seed.fqdn) || (name + '.example.local');
+  const env = (seed && seed.env) || 'Production';
+  const bu = (seed && seed.bu) || 'Hiscox UK';
+  const pg = (seed && seed.pg && seed.pg !== 'NO PATCH GROUP FOUND') ? seed.pg : 'Group A';
+  const lastSeen = (seed && seed.lastSeen) || new Date(Date.now() - 30 * 60 * 1000).toISOString();
+  return {
+    serverId: id,
+    serverName: name,
+    fqdn,
+    ipAddress: '10.0.0.42',
+    environment: env,
+    applicationName: (seed && seed.app) || 'Demo Application',
+    service: (seed && seed.service) || 'Demo Service',
+    func: (seed && seed.func) || 'Application Server',
+    patchGroup: pg,
+    businessUnit: bu,
+    isActive: !seed || seed.active !== false,
+    lastSeen,
+    operatingSystem: 'Windows Server 2022',
+    location: 'London DC',
+    primaryContact: 'demo@example.com',
+  };
+}
+function _demoDisks() {
+  return [
+    { diskLabel:'C:\\', percentUsed:42.1, volumeSizeGb:240, alertStatus:1 },
+    { diskLabel:'D:\\', percentUsed:45.2, volumeSizeGb:1900, alertStatus:1 },
+    { diskLabel:'E:\\', percentUsed:68.0, volumeSizeGb:512, alertStatus:1 },
+    { diskLabel:'L:\\', percentUsed:12.4, volumeSizeGb:128, alertStatus:1 },
+  ];
+}
+function _demoCerts(host) {
+  const today = new Date();
+  const iso = (d) => d.toISOString();
+  const monthsFromNow = (n) => new Date(today.getFullYear(), today.getMonth() + n, today.getDate());
+  return [
+    { subjectCn: host, validTo: iso(monthsFromNow(9)),  daysUntilExpiry: 246, alertLevel: 'OK',       isExpired: false },
+    { subjectCn: 'int.' + host,  validTo: iso(monthsFromNow(4)),  daysUntilExpiry: 132, alertLevel: 'OK',       isExpired: false },
+    { subjectCn: 'mgmt.' + host, validTo: iso(monthsFromNow(-1)), daysUntilExpiry: -7,  alertLevel: 'expired',  isExpired: true  },
+  ];
+}
+function _demoHistory(patchGroup) {
+  const today = new Date();
+  const isoDate = (n) => {
+    const d = new Date(today.getFullYear(), today.getMonth() - n, 8);
+    return d.toISOString().slice(0, 10);
+  };
+  return [
+    { cycleId: 1001, cycleDate: isoDate(1), patchGroup, status: 'patched' },
+    { cycleId: 1000, cycleDate: isoDate(2), patchGroup, status: 'patched' },
+    { cycleId: 999,  cycleDate: isoDate(3), patchGroup, status: 'held'    },
+  ];
+}
+
 window.OC_API = {
+  // Re-run the boot fetch wave with cleared apiErrors. Used by op-app.js for
+  // the "Retry now" banner button and the top-right Refresh pill.
+  retry: async () => {
+    clearApiErrors();
+    await runFetches();
+  },
+
+  // Server detail page bundle. Hits /api/servers/{id}, /api/disks (server-
+  // scoped), /api/certificates/server/{name}, and /api/servers/{id}/patch-
+  // history. Any failed fetch is replaced with synthesised demo data so
+  // local dev without the API still renders a populated page; markDemo
+  // ('server-detail') flags the substitution so the page can show the
+  // DEMO ribbon. Returns the bundle directly (never null) — the detail
+  // page only shows "Server not found" for the explicit-id case where
+  // /api/servers/{id} returns 404 with a real, reachable API.
+  getServerDetail: async (id) => {
+    let usedDemo = false;
+    let server = await api('/servers/' + encodeURIComponent(id));
+    // Distinguish a 404 (server reachable, id unknown — return null so the
+    // page can render "Server not found") from a connection failure (api.js
+    // already pushed an error and apiErrors is non-empty).
+    if (!server) {
+      const apiUnreachable = (typeof apiErrors !== 'undefined') && apiErrors.length > 0;
+      if (!apiUnreachable) return null;
+      const seed = (window.SERVERS_DATA && Array.isArray(window.SERVERS_DATA.servers))
+        ? window.SERVERS_DATA.servers.find(x => x.id === id) : null;
+      server = _demoServer(id, seed);
+      usedDemo = true;
+    }
+    const name = server.serverName || '';
+    const [disksRes, certsRes, historyRes] = await Promise.all([
+      api('/disks?limit=100&serverName=' + encodeURIComponent(name)),
+      api('/certificates/server/' + encodeURIComponent(name)),
+      api('/servers/' + encodeURIComponent(id) + '/patch-history'),
+    ]);
+
+    let disks = disksRes;
+    if (!disks || (typeof disks === 'object' && !Array.isArray(disks) && !Array.isArray(disks.items))) {
+      disks = { items: _demoDisks() };
+      usedDemo = true;
+    }
+    let certs = certsRes;
+    if (!Array.isArray(certs)) {
+      certs = _demoCerts(server.fqdn || server.serverName || '');
+      usedDemo = true;
+    }
+    let history = historyRes;
+    if (!Array.isArray(history)) {
+      history = _demoHistory(server.patchGroup || 'Group A');
+      usedDemo = true;
+    }
+
+    if (usedDemo) markDemo('server-detail');
+    return { server, disks, certs, history };
+  },
+
   // Returns EolSoftwareDetail with .assets[] (machine names) or null on error.
   getEolDetail: (product, version) =>
     api('/eol/' + encodeURIComponent(product) + '/' + encodeURIComponent(version)),
@@ -614,6 +745,7 @@ window.OC_API = {
   // window.DISKS_DATA + window.DISK_SUMMARY and triggers a rerender so the
   // KPI strip, dropdown counts, and table all reflect the new selection.
   fetchDisks: async ({ env, bu, status } = {}) => {
+    if (bu === undefined) bu = window.SELECTED_BU;
     const envSet = env && env !== '__all';
     const buSet  = bu && bu !== '__all';
     const stSet  = status && status !== '__all';
@@ -663,6 +795,7 @@ window.OC_API = {
   // 'overdue' | 'expiring-soon' | 'active'. Updates window.EXCLUSIONS and
   // window.EXCL_BREAKDOWN; triggers rerender.
   fetchExclusions: async ({ state, bu } = {}) => {
+    if (bu === undefined) bu = window.SELECTED_BU;
     const stSet = state && state !== '__all';
     const buSet = bu && bu !== '__all';
     const listParams = ['limit=500'];
@@ -696,6 +829,7 @@ window.OC_API = {
   // Level values match the frontend dropdown vocabulary: 'expired' | 'crit' |
   // 'warn' | 'ok'. Updates window.CERTS_DATA and triggers rerender.
   fetchCerts: async ({ bu, level } = {}) => {
+    if (bu === undefined) bu = window.SELECTED_BU;
     const buSet  = bu && bu !== '__all';
     const lvSet  = level && level !== '__all';
     // Map the dropdown vocabulary back to the existing /api/certificates
@@ -735,20 +869,23 @@ window.OC_API = {
   // rerender so the bar chart, dropdown counts, and table reflect the new
   // intersection.
   fetchServers: async ({ env, bu } = {}) => {
+    if (bu === undefined) bu = window.SELECTED_BU;
     const envSet = env && env !== '__all';
     const buSet  = bu && bu !== '__all';
-    const buildParams = (includeLimit) => {
-      const ps = includeLimit ? ['limit=2500'] : [];
-      if (envSet) ps.push('environment=' + encodeURIComponent(env));
-      if (buSet)  ps.push('businessUnit=' + encodeURIComponent(bu));
-      return ps;
-    };
-    const listQs = '?' + buildParams(true).join('&');
-    const summaryParams = buildParams(false);
+    // List URL gets the full filter set. Summary URL stays unfiltered by BU
+    // so SERVERS_DATA.SRV_BU remains the full BU breakdown — that's the
+    // source the rail's BuScope reads to build its dropdown options. Env
+    // filter on the summary is fine since the summary returns env counts
+    // cross-faceted with the requested env filter.
+    const listParams = ['limit=2500'];
+    if (envSet) listParams.push('environment=' + encodeURIComponent(env));
+    if (buSet)  listParams.push('businessUnit=' + encodeURIComponent(bu));
+    const summaryParams = [];
+    if (envSet) summaryParams.push('environment=' + encodeURIComponent(env));
     const summaryQs = summaryParams.length ? '?' + summaryParams.join('&') : '';
 
     const [listResult, summaryResult] = await Promise.all([
-      api('/servers' + listQs),
+      api('/servers?' + listParams.join('&')),
       api('/servers/summary' + summaryQs),
     ]);
 

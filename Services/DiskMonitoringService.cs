@@ -79,12 +79,14 @@ public class DiskMonitoringService : BaseService<DiskMonitoringService>, IDiskMo
         return top;
     });
 
-    public Task<PagedResult<Disk>> ListDisksAsync(int limit, int offset, string? environment = null, string? businessUnit = null, int? alertStatus = null) => RunDbAsync(async () =>
+    public Task<PagedResult<Disk>> ListDisksAsync(int limit, int offset, string? environment = null, string? businessUnit = null, int? alertStatus = null, string? serverName = null) => RunDbAsync(async () =>
     {
         // Filter clauses compose with AND. Casing matches the canonical values
         // written by the sync (_canonicalize_env / _canonicalize_bu in
         // sync_solarwinds_disks.py); equality match avoids any per-query LOWER().
-        var (whereClause, scopedArgs) = BuildDiskFilterClause(environment, businessUnit, alertStatus);
+        // serverName uses ILIKE %X% to mirror the certificates partial-match
+        // behaviour — used by the server detail page to fetch one server's disks.
+        var (whereClause, scopedArgs) = BuildDiskFilterClause(environment, businessUnit, alertStatus, serverName: serverName);
         scopedArgs.Add("Limit", limit);
         scopedArgs.Add("Offset", offset);
 
@@ -176,7 +178,7 @@ public class DiskMonitoringService : BaseService<DiskMonitoringService>, IDiskMo
     // dropdown's own labels stay stable when the user picks from it).
     // exclude values: "environment" | "businessUnit" | "alertStatus" | null.
     private static (string clause, DynamicParameters args) BuildDiskFilterClause(
-        string? environment, string? businessUnit, int? alertStatus, string? exclude = null)
+        string? environment, string? businessUnit, int? alertStatus, string? exclude = null, string? serverName = null)
     {
         var clauses = new List<string>();
         var args = new DynamicParameters();
@@ -194,6 +196,11 @@ public class DiskMonitoringService : BaseService<DiskMonitoringService>, IDiskMo
         {
             clauses.Add("alert_status = @AlertStatus");
             args.Add("AlertStatus", alertStatus.Value);
+        }
+        if (!string.IsNullOrWhiteSpace(serverName) && exclude != "serverName")
+        {
+            clauses.Add("server_name ILIKE @ServerName ESCAPE '\\'");
+            args.Add("ServerName", $"%{EscapeLike(serverName)}%");
         }
         var clauseText = clauses.Count == 0 ? "" : "WHERE " + string.Join(" AND ", clauses);
         return (clauseText, args);

@@ -13,12 +13,23 @@
   // ================================================================
   // STATE
   // ================================================================
-  const defaults = { alertStyle:'v2', theme:'light' };
+  const defaults = { alertStyle:'v2', theme:'light', selectedBu:'__all' };
   const STORAGE_KEY = 'op-console-v1';
   try { ['op-proto-v1','op-proto-v2','op-proto-v3','op-proto-v4','op-proto-v5'].forEach(k => localStorage.removeItem(k)); } catch(_) {}
   const state = Object.assign({}, defaults, JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'));
+  // Mirror the BU selection onto window so op-boot.js's runFetches can read it
+  // without needing access to this module's closed-over state.
+  window.SELECTED_BU = state.selectedBu;
   function save() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
-  function setState(p) { Object.assign(state, p); save(); render(); }
+  function setState(p) { Object.assign(state, p); window.SELECTED_BU = state.selectedBu; save(); render(); }
+
+  // Public entrypoint for non-rail surfaces (e.g. the Disks page's BU bar
+  // chart) to update the global BU scope. Persists, re-renders the shell,
+  // and re-runs the boot fetch wave.
+  window.OC_SET_BU = (v) => {
+    setState({ selectedBu: v || '__all' });
+    if (window.OC_API && window.OC_API.retry) window.OC_API.retry();
+  };
 
   // ================================================================
   // REAL DASHBOARD DATA — all sourced from window.* globals populated by
@@ -142,6 +153,15 @@
       };
     }
 
+    // Honour the banner's Dismiss button: suppress the banner only while
+    // the error set is unchanged. Any new error or recovery shifts the
+    // signature and the banner reappears, so a stale dismissal can't mask
+    // a fresh outage.
+    if (banner) {
+      const sig = (window.API_ERRORS || []).join('|');
+      if (window.BANNER_DISMISSED_SIG === sig) banner = null;
+    }
+
     // Label + tagline
     let label, tagline;
     if (apiState === 'off')      { label = 'API unreachable'; tagline = '<b>API unreachable</b> — ' + (usingDemo ? 'showing demo data.' : 'figures below may be stale.'); }
@@ -202,6 +222,34 @@
     return null;
   }
 
+  // Global Business Unit scope. Source preference: live SRV_BU breakdown with
+  // counts from /api/servers/summary. Fallback to the static BU_VALUES list
+  // while the first fetch is in flight or has failed. onChange persists the
+  // selection via setState (localStorage) and re-runs the boot fetch wave so
+  // every page + rail badge reflects the new scope.
+  function BuScope() {
+    const live = (window.SERVERS_DATA && Array.isArray(window.SERVERS_DATA.SRV_BU))
+      ? window.SERVERS_DATA.SRV_BU : null;
+    const fallback = Array.isArray(window.BU_VALUES) ? window.BU_VALUES : [];
+    const opts = [['__all', 'All business units']];
+    if (live && live.length) {
+      for (const b of live) opts.push([b.name, b.count != null ? b.name + ' · ' + b.count : b.name]);
+    } else {
+      for (const n of fallback) opts.push([n, n]);
+    }
+    const cur = state.selectedBu || '__all';
+    const sel = h('select.bu-scope', {
+      on:{change: (e) => {
+        setState({ selectedBu: e.target.value });
+        if (window.OC_API && window.OC_API.retry) window.OC_API.retry();
+      }},
+    }, opts.map(([v,l]) => h('option', { value: v, selected: cur === v }, l)));
+    return h('div.bu-scope-wrap', null,
+      h('div.rail-section-label', null, 'Scope · Business Unit'),
+      sel,
+    );
+  }
+
   function Rail() {
     // Two groups so the rail reads as intent rather than a priority list:
     //   Estate — what you have (Health overview + Servers inventory).
@@ -249,6 +297,7 @@
       h('div.brand', null,
         h('div.mark', null, 'Service Ops'),
         h('div.sub', null, 'operations dashboard')),
+      BuScope(),
       h('div.rail-groups', null,
         ...GROUPS.map(renderGroup)),
       h('div.rail-footer', null,
@@ -283,7 +332,12 @@
         h('div.timestamp', null, 'Last refresh · ' + (() => { const d = new Date(); const p = n => String(n).padStart(2,'0'); return p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds()); })()),
         h('button.theme-toggle', {title:'Toggle theme', on:{click:()=>setState({theme: state.theme==='light'?'dark':'light'})}},
           state.theme === 'light' ? '☾' : '☀'),
-        h('button.refresh', null, h('span.dot'), 'Refresh')),
+        h('button.refresh', { on:{click: async (e) => {
+          const btn = e.currentTarget;
+          btn.disabled = true;
+          try { if (window.OC_API && window.OC_API.retry) await window.OC_API.retry(); }
+          finally { btn.disabled = false; }
+        }} }, h('span.dot'), 'Refresh')),
     );
   }
 
@@ -423,11 +477,24 @@
     el.appendChild(h('div.lead', null, h('span.pulse-dot'), b.lead));
     const msg = h('div.msg'); msg.innerHTML = b.msg + (b.sub?'<small>'+b.sub+'</small>':'');
     el.appendChild(msg);
-    el.appendChild(h('div.bact', null,
-      h('button.primary', null, 'Retry now'),
-      h('button', null, 'Open status'),
-      h('button', null, 'Dismiss'),
-    ));
+    const retryBtn = h('button.primary', { on:{click: async () => {
+      retryBtn.disabled = true;
+      const orig = retryBtn.textContent;
+      retryBtn.textContent = 'Retrying…';
+      try { if (window.OC_API && window.OC_API.retry) await window.OC_API.retry(); }
+      finally { retryBtn.disabled = false; retryBtn.textContent = orig; }
+    }}}, 'Retry now');
+    // Open /healthz (AllowAnonymous, returns the deploy-pipeline health JSON)
+    // in a new tab. Independent of the SPA's view of API state, so it works
+    // even when Negotiate auth is the broken layer.
+    const statusBtn = h('button', { on:{click: () => {
+      window.open('/healthz', '_blank', 'noopener');
+    }}}, 'Open status');
+    const dismissBtn = h('button', { on:{click: () => {
+      window.BANNER_DISMISSED_SIG = (window.API_ERRORS || []).join('|');
+      if (window.RERENDER_SHELL) window.RERENDER_SHELL();
+    }}}, 'Dismiss');
+    el.appendChild(h('div.bact', null, retryBtn, statusBtn, dismissBtn));
     return el;
   }
 
@@ -985,8 +1052,14 @@
     const selEnd   = hadFocus ? active.selectionEnd   : null;
 
     const route = (window.ROUTER && window.ROUTER.currentRoute()) || 'health';
+    const routeParam = (window.ROUTER && window.ROUTER.currentRouteParam) ? window.ROUTER.currentRouteParam() : null;
     switch (route) {
-      case 'servers':   if (window.RENDER_SERVERS)   window.RENDER_SERVERS(mount);   else mountHealth(mount); break;
+      case 'servers':
+        // #servers/{id} → detail view; #servers → inventory.
+        if (routeParam && window.RENDER_SERVER_DETAIL) window.RENDER_SERVER_DETAIL(mount, routeParam);
+        else if (window.RENDER_SERVERS) window.RENDER_SERVERS(mount);
+        else mountHealth(mount);
+        break;
       case 'certs':     if (window.RENDER_CERTS)     window.RENDER_CERTS(mount);     else mountHealth(mount); break;
       case 'eol':       if (window.RENDER_EOL)       window.RENDER_EOL(mount);       else mountHealth(mount); break;
       case 'patching':  if (window.RENDER_PATCHING)  window.RENDER_PATCHING(mount);  else mountHealth(mount); break;

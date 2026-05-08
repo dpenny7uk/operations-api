@@ -39,15 +39,20 @@ public class DisksController : ControllerBase
     /// <param name="environment">Optional canonical environment filter (e.g. "Production").</param>
     /// <param name="businessUnit">Optional canonical business-unit filter (e.g. "Contoso Group Support").</param>
     /// <param name="alertStatus">Optional alert-status filter (1=OK, 2=Warning, 3=Critical).</param>
+    /// <param name="serverName">Optional server-name filter (partial match). Used by the server detail page.</param>
     [HttpGet]
     [ProducesResponseType(200)]
+    [ProducesResponseType(400)]
     public async Task<IActionResult> List(
         [FromQuery] int limit = 2000,
         [FromQuery] int offset = 0,
         [FromQuery] string? environment = null,
         [FromQuery] string? businessUnit = null,
-        [FromQuery] int? alertStatus = null)
+        [FromQuery] int? alertStatus = null,
+        [FromQuery] string? serverName = null)
     {
+        if (serverName?.Length > 255 || InputGuard.ContainsControlChars(serverName))
+            return BadRequest("serverName parameter is invalid.");
         // Cap raised to 5000 (was 2000) so an unfiltered all-BU fetch returns the
         // full estate without truncation. Per-filter fetches stay well under the
         // cap; the filters shrink the working set on the SPA.
@@ -55,8 +60,9 @@ public class DisksController : ControllerBase
         var clampedOffset = Math.Max(offset, 0);
         var envFilter = string.IsNullOrWhiteSpace(environment) ? null : environment.Trim();
         var buFilter = string.IsNullOrWhiteSpace(businessUnit) ? null : businessUnit.Trim();
+        var nameFilter = string.IsNullOrWhiteSpace(serverName) ? null : serverName.Trim();
         var statusFilter = ValidateAlertStatus(alertStatus);
-        return Ok(await _svc.ListDisksAsync(clampedLimit, clampedOffset, envFilter, buFilter, statusFilter));
+        return Ok(await _svc.ListDisksAsync(clampedLimit, clampedOffset, envFilter, buFilter, statusFilter, nameFilter));
     }
 
     // Anything outside {1, 2, 3} is treated as no filter — protects the SQL

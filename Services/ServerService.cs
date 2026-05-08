@@ -220,6 +220,40 @@ public class ServerService : BaseService<ServerService>, IServerService
         ", new { Name = name })
     );
 
+    // Patch history for a single server. Joins patch_schedule (rows are per
+    // server-per-cycle) with patch_cycles for the date, and computes the
+    // cycle-level status from patch_exclusions:
+    //   held      — there's an active exclusion whose window covers cycle_date
+    //   patched   — cycle has passed (optimistic: patch_status itself is
+    //               unpopulated, see CLAUDE.md "patch_status never populated")
+    //   scheduled — cycle is upcoming
+    // When Ivanti reconciliation lands, swap the optimistic 'patched' branch
+    // for the real ps.patch_status value.
+    public Task<IEnumerable<ServerPatchHistoryItem>> GetPatchHistoryAsync(int serverId, int limit = 50) => RunDbAsync(() =>
+        Db.QueryAsync<ServerPatchHistoryItem>($@"
+            SELECT
+                ps.cycle_id AS CycleId,
+                pc.cycle_date AS CycleDate,
+                COALESCE(ps.patch_group, '') AS PatchGroup,
+                CASE
+                    WHEN EXISTS (
+                        SELECT 1 FROM {Sql.Tables.PatchExclusions} px
+                        WHERE px.server_id = @ServerId
+                          AND px.is_active = TRUE
+                          AND px.excluded_at::date <= pc.cycle_date
+                          AND px.held_until >= pc.cycle_date
+                    ) THEN 'held'
+                    WHEN pc.cycle_date < CURRENT_DATE THEN 'patched'
+                    ELSE 'scheduled'
+                END AS Status
+            FROM {Sql.Tables.PatchSchedule} ps
+            JOIN {Sql.Tables.PatchCycles} pc ON pc.cycle_id = ps.cycle_id
+            WHERE ps.server_id = @ServerId
+            ORDER BY pc.cycle_date DESC
+            LIMIT @Limit
+        ", new { ServerId = serverId, Limit = limit })
+    );
+
     public Task<IEnumerable<UnmatchedServer>> GetUnmatchedServersAsync(string? source, int limit) => RunDbAsync(async () =>
     {
         var sql = $@"

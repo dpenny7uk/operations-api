@@ -25,13 +25,26 @@
     {id:'disks',     idx:'07', label:'Disk Monitoring'},
   ];
 
+  // currentRoute returns the base route id (e.g. 'servers' for both '#servers'
+  // and '#servers/42'). currentRouteParam returns the slash-suffix (e.g. '42'
+  // for '#servers/42') or null. Pages dispatch on the base id and look at the
+  // param to decide between inventory and detail views.
   function currentRoute() {
-    const h = (location.hash || '#health').replace(/^#/, '').toLowerCase();
-    return ROUTES.find(r => r.id === h) ? h : 'health';
+    const raw = (location.hash || '#health').replace(/^#/, '').toLowerCase();
+    const base = raw.split('/')[0];
+    return ROUTES.find(r => r.id === base) ? base : 'health';
+  }
+
+  function currentRouteParam() {
+    const raw = (location.hash || '').replace(/^#/, '');
+    const idx = raw.indexOf('/');
+    return idx >= 0 ? raw.slice(idx + 1) : null;
   }
 
   function goto(id) {
-    if (!ROUTES.find(r => r.id === id)) id = 'health';
+    // Accept both bare ids ('servers') and parameterised forms ('servers/42').
+    const base = (id || '').split('/')[0];
+    if (!ROUTES.find(r => r.id === base)) id = 'health';
     if (location.hash !== '#' + id) {
       location.hash = '#' + id;
     } else {
@@ -40,7 +53,7 @@
     }
   }
 
-  window.ROUTER = { ROUTES, currentRoute, goto };
+  window.ROUTER = { ROUTES, currentRoute, currentRouteParam, goto };
 
   // Canonical business-unit values — mirrors derive_business_unit() in
   // sync/servers/sync_server_list.py. Used as the dropdown option list on
@@ -58,6 +71,10 @@
     'Infosec',
     'Unknown',
   ];
+  // Expose the static fallback list so op-app.js's BuScope() in the rail can
+  // render dropdown options before /api/servers/summary resolves (or when it
+  // fails). Once SERVERS_DATA.SRV_BU lands, BuScope prefers the live list.
+  window.BU_VALUES = BU_VALUES;
 
   // ================================================================
   // DATA — SERVERS (modelled on the legacy screenshots)
@@ -359,7 +376,6 @@
   const srvState = {
     q: '',
     env: '__all',
-    bu: '__all',
     sort: 'name',
     sortDir: 1,
     page: 1,
@@ -371,7 +387,9 @@
     const q = srvState.q.trim().toLowerCase();
     let rows = liveSrv().servers;
     if (srvState.env !== '__all') rows = rows.filter(r => r.env === srvState.env);
-    if (srvState.bu !== '__all') rows = rows.filter(r => (r.bu || 'Unknown') === srvState.bu);
+    // BU filter is applied server-side via OC_API.fetchServers (which reads
+    // window.SELECTED_BU), so the rows in liveSrv().servers are already
+    // scoped. No client-side BU filter needed here.
     if (q) rows = rows.filter(r =>
       r.name.toLowerCase().includes(q) ||
       (r.fqdn || '').toLowerCase().includes(q) ||
@@ -455,13 +473,14 @@
 
     page.appendChild(sectionLabel('Server inventory', rows.length.toLocaleString()));
 
-    // Env + BU dropdowns: cross-facet-scoped counts via /api/servers/summary.
-    // Picking either triggers a server-side refetch through OC_API.fetchServers
+    // Env dropdown: cross-facet-scoped counts via /api/servers/summary.
+    // Picking it triggers a server-side refetch through OC_API.fetchServers
     // so the table, the env bar chart at the top, and the dropdown counts all
-    // reflect the new intersection.
+    // reflect the new intersection. BU scope comes from the global rail
+    // selector (window.SELECTED_BU), which fetchServers reads automatically.
     const refetchServers = async () => {
       const refetched = (window.OC_API && typeof window.OC_API.fetchServers === 'function')
-        ? await window.OC_API.fetchServers({ env: srvState.env, bu: srvState.bu })
+        ? await window.OC_API.fetchServers({ env: srvState.env })
         : null;
       if (!refetched) window.RERENDER_PAGE(mount);
     };
@@ -473,18 +492,10 @@
     });
     const envSel = h('select', { on:{change: async (e)=>{ srvState.env = e.target.value; srvState.page = 1; await refetchServers(); }}},
       envOpts.map(([v,l]) => h('option'+(srvState.env===v?'.on':''), {value:v, selected: srvState.env===v}, l)));
-    // BU options: prefer the API-driven cross-facet-scoped breakdown with counts;
-    // fall back to the static BU_VALUES list when the summary hasn't loaded
-    // (demo path or pre-API render).
-    const buOpts = live.bu && live.bu.length
-      ? [['__all','All business units']].concat(live.bu.map(b => [b.name, b.name + ' (' + b.count + ')']))
-      : [['__all','All business units']].concat(BU_VALUES.map(b => [b, b]));
-    const buSel = h('select', { on:{change: async (e)=>{ srvState.bu = e.target.value; srvState.page = 1; await refetchServers(); }}},
-      buOpts.map(([v,l]) => h('option', {value:v, selected: srvState.bu===v}, l)));
     const clearBtn = h('button.btn', { on:{click: async ()=>{
-      const wasEnv = srvState.env, wasBu = srvState.bu;
-      srvState.q=''; srvState.env='__all'; srvState.bu='__all'; srvState.page=1;
-      if (wasEnv !== '__all' || wasBu !== '__all') {
+      const wasEnv = srvState.env;
+      srvState.q=''; srvState.env='__all'; srvState.page=1;
+      if (wasEnv !== '__all') {
         await refetchServers();
       } else {
         window.RERENDER_PAGE(mount);
@@ -492,7 +503,7 @@
     }}}, 'Reset');
     const exportBtn = h('button.btn', { on:{click:()=>exportCsv('servers', rows, ['name','fqdn','env','bu','app','pg','active'])}}, 'Export CSV');
     const count = h('span.ct', null, 'Showing ' + (pag.start+1) + '–' + pag.end + ' of ' + rows.length.toLocaleString());
-    page.appendChild(filterBar([search, envSel, buSel, clearBtn, h('span.spacer'), count, exportBtn]));
+    page.appendChild(filterBar([search, envSel, clearBtn, h('span.spacer'), count, exportBtn]));
 
     const tbl = h('div.table-wrap');
     const table = h('table.op');
@@ -524,7 +535,20 @@
       const activeCell = r.active
         ? h('td', null, h('span.badge.ok', null, h('span.dot'), 'Active'))
         : h('td', null, h('span.badge.crit', null, h('span.dot'), 'Inactive'));
-      tbody.appendChild(h('tr'+(r.active?'':'.sev-crit'), null,
+      // Click anywhere on the row → detail view at #servers/{id}. Keyboard
+      // parity matches the rail nav-items (role=button + tabindex=0). Skipped
+      // when r.id is missing (demo data shape) so the row stays inert.
+      const rowProps = r.id ? {
+        role:'button', tabindex:'0',
+        style:{ cursor:'pointer' },
+        on:{
+          click:()=>{ if (window.ROUTER) window.ROUTER.goto('servers/' + r.id); },
+          keydown:(e)=>{ if ((e.key === 'Enter' || e.key === ' ') && window.ROUTER) {
+            e.preventDefault(); window.ROUTER.goto('servers/' + r.id);
+          }},
+        },
+      } : null;
+      tbody.appendChild(h('tr'+(r.active?'':'.sev-crit'), rowProps,
         h('td.host', null, mark(r.name, q)),
         h('td.muted', null, mark(r.fqdn, q)),
         h('td', null, h('span.env-tag', null, mark(r.env, q))),
@@ -535,7 +559,7 @@
       ));
     });
     if (paged.length === 0) {
-      tbody.appendChild(h('tr', null, h('td', {colspan:7}, h('div.no-hits', null, 'No servers match ', h('b', null, srvState.q || srvState.env || srvState.bu)))));
+      tbody.appendChild(h('tr', null, h('td', {colspan:7}, h('div.no-hits', null, 'No servers match ', h('b', null, srvState.q || srvState.env || (window.SELECTED_BU !== '__all' ? window.SELECTED_BU : ''))))));
     }
     table.appendChild(tbody);
     tbl.appendChild(table);
@@ -621,13 +645,14 @@
   // ================================================================
   // CERTIFICATES PAGE
   // ================================================================
-  const certState = { q:'', level:'__all', bu:'__all', sort:'days', sortDir:1, page:1, per:20 };
+  const certState = { q:'', level:'__all', sort:'days', sortDir:1, page:1, per:20 };
 
   function applyCertFilters() {
     const q = certState.q.trim().toLowerCase();
     let rows = liveCerts().list;
     if (certState.level !== '__all') rows = rows.filter(r => r.level === certState.level);
-    if (certState.bu !== '__all') rows = rows.filter(r => (r.bu || 'Unknown') === certState.bu);
+    // BU filter is applied server-side via OC_API.fetchCerts (which reads
+    // window.SELECTED_BU from the global rail selector).
     if (q) rows = rows.filter(r =>
       (r.name || '').toLowerCase().includes(q) ||
       (r.server || '').toLowerCase().includes(q) ||
@@ -737,9 +762,11 @@
     certState.page = pag.cur;
     const paged = rows.slice(pag.start, pag.end);
 
+    // BU scope comes from the global rail selector. fetchCerts reads
+    // window.SELECTED_BU automatically when no bu is passed.
     const refetchCerts = async () => {
       const refetched = (window.OC_API && typeof window.OC_API.fetchCerts === 'function')
-        ? await window.OC_API.fetchCerts({ bu: certState.bu, level: certState.level })
+        ? await window.OC_API.fetchCerts({ level: certState.level })
         : null;
       if (!refetched) window.RERENDER_PAGE(mount);
     };
@@ -748,20 +775,12 @@
       certState.level=e.target.value; certState.page=1; await refetchCerts();
     }}},
       levelOpts.map(([v,l]) => h('option', {value:v, selected: certState.level===v}, l)));
-    // BU options: prefer API breakdown with counts; fall back to static list.
-    const buOpts = breakdown.businessUnits.length
-      ? [['__all','All business units']].concat(breakdown.businessUnits.map(b => [b.businessUnit, b.businessUnit + ' (' + b.totalCount + ')']))
-      : [['__all','All business units']].concat(BU_VALUES.map(b => [b, b]));
-    const buSel = h('select', { on:{change: async (e)=>{
-      certState.bu=e.target.value; certState.page=1; await refetchCerts();
-    }}},
-      buOpts.map(([v,l]) => h('option', {value:v, selected: certState.bu===v}, l)));
     const q = h('input', {'data-fk':'certs-search', type:'text', placeholder:'Filter by server or service…', value: certState.q,
       on:{input:(e)=>{ certState.q=e.target.value; certState.page=1; window.RERENDER_PAGE(mount); }}});
     const reset = h('button.btn', { on:{click: async ()=>{
-      const wasLevel = certState.level, wasBu = certState.bu;
-      certState.q=''; certState.level='__all'; certState.bu='__all'; certState.page=1;
-      if (wasLevel !== '__all' || wasBu !== '__all') {
+      const wasLevel = certState.level;
+      certState.q=''; certState.level='__all'; certState.page=1;
+      if (wasLevel !== '__all') {
         await refetchCerts();
       } else {
         window.RERENDER_PAGE(mount);
@@ -769,7 +788,7 @@
     }}}, 'Reset');
     const exportBtn = h('button.btn', { on:{click:()=>exportCsv('certificates', rows, ['name','server','service','bu','expires','days','level'])}}, 'Export CSV');
     const count = h('span.ct', null, 'Showing ' + (pag.start+1) + '–' + pag.end + ' of ' + rows.length);
-    page.appendChild(filterBar([levelSel, buSel, q, reset, h('span.spacer'), count, exportBtn]));
+    page.appendChild(filterBar([levelSel, q, reset, h('span.spacer'), count, exportBtn]));
 
     const tbl = h('div.table-wrap');
     const table = h('table.op');
@@ -1495,7 +1514,6 @@
     tab: 'excluded',   // excluded | add | bulk | expiring
     q: '',
     stateFilter: '__all',
-    bu: '__all',
     sort: 'until',
     sortDir: 1,
     page: 1,
@@ -1573,7 +1591,8 @@
     const q = pmState.q.trim().toLowerCase();
     let rows = window.EXCLUSIONS.slice();
     if (pmState.stateFilter !== '__all') rows = rows.filter(r => r.state === pmState.stateFilter);
-    if (pmState.bu !== '__all') rows = rows.filter(r => (r.bu || 'Unknown') === pmState.bu);
+    // BU filter is applied server-side via OC_API.fetchExclusions (which
+    // reads window.SELECTED_BU from the global rail selector).
     if (q) rows = rows.filter(r =>
       r.server.toLowerCase().includes(q) ||
       r.fqdn.toLowerCase().includes(q) ||
@@ -1614,9 +1633,11 @@
       ['active','Active ('+stCount('active')+')'],
     ];
 
+    // BU scope comes from the global rail selector. fetchExclusions reads
+    // window.SELECTED_BU automatically when no bu is passed.
     const refetchExclusions = async () => {
       const refetched = (window.OC_API && typeof window.OC_API.fetchExclusions === 'function')
-        ? await window.OC_API.fetchExclusions({ state: pmState.stateFilter, bu: pmState.bu })
+        ? await window.OC_API.fetchExclusions({ state: pmState.stateFilter })
         : null;
       if (!refetched) window.RERENDER_PAGE(mount);
     };
@@ -1627,18 +1648,10 @@
       pmState.stateFilter=e.target.value; pmState.page=1; await refetchExclusions();
     }}},
       stateOpts.map(([v,l]) => h('option', {value:v, selected: pmState.stateFilter===v}, l)));
-    // BU options: prefer API breakdown with counts; fall back to static list.
-    const buOpts = exBreakdown.businessUnits.length
-      ? [['__all','All business units']].concat(exBreakdown.businessUnits.map(b => [b.businessUnit, b.businessUnit + ' (' + b.totalCount + ')']))
-      : [['__all','All business units']].concat(BU_VALUES.map(b => [b, b]));
-    const buSel = h('select', { on:{change: async (e)=>{
-      pmState.bu=e.target.value; pmState.page=1; await refetchExclusions();
-    }}},
-      buOpts.map(([v,l]) => h('option', {value:v, selected: pmState.bu===v}, l)));
     const reset = h('button.btn', { on:{click: async ()=>{
-      const wasState = pmState.stateFilter, wasBu = pmState.bu;
-      pmState.q=''; pmState.stateFilter='__all'; pmState.bu='__all'; pmState.page=1;
-      if (wasState !== '__all' || wasBu !== '__all') {
+      const wasState = pmState.stateFilter;
+      pmState.q=''; pmState.stateFilter='__all'; pmState.page=1;
+      if (wasState !== '__all') {
         await refetchExclusions();
       } else {
         window.RERENDER_PAGE(mount);
@@ -1646,7 +1659,7 @@
     }}}, 'Reset');
     const addBtn = h('button.btn.primary', { on:{click:()=>{ pmState.tab='add'; window.RERENDER_PAGE(mount); }}}, '+ Add exclusion');
     const count = h('span.ct', null, 'Showing '+(pag.start+1)+'–'+pag.end+' of '+rows.length);
-    wrap.appendChild(filterBar([stateSel, buSel, q, reset, h('span.spacer'), count, addBtn]));
+    wrap.appendChild(filterBar([stateSel, q, reset, h('span.spacer'), count, addBtn]));
 
     const tbl = h('div.table-wrap');
     const table = h('table.op');
@@ -2401,14 +2414,13 @@
   }
 
   // Filter state — single-select per dimension. Default env is 'Production'
-  // (not '__all') because non-prod is noise for the ops team. BU defaults to
-  // '__all' so the page surfaces the whole estate; pick a specific BU to
-  // narrow both the table and the KPI strip.
+  // (not '__all') because non-prod is noise for the ops team. BU is now
+  // controlled globally via the rail BuScope (window.SELECTED_BU); the BU
+  // bar chart on this page deep-links into that global selector.
   const diskState = {
     status: '__all',
     owner:  '__all',
     env:    'Production',
-    bu:     '__all',
     service:'__all',
     sort:'percentUsed',
     sortDir:-1,
@@ -2438,7 +2450,8 @@
     if (diskState.status !== '__all') rows = rows.filter(d => String(d.alertStatus) === diskState.status);
     if (diskState.owner !== '__all')  rows = rows.filter(d => (d.technicalOwner || '') === diskState.owner);
     if (diskState.env !== '__all')    rows = rows.filter(d => (d.environment || '') === diskState.env);
-    if (diskState.bu !== '__all')     rows = rows.filter(d => (d.businessUnit || '') === diskState.bu);
+    // BU filter is applied server-side via OC_API.fetchDisks (which reads
+    // window.SELECTED_BU from the global rail selector).
     if (diskState.service !== '__all')rows = rows.filter(d => (d.service || '') === diskState.service);
     rows.sort((a, b) => {
       const av = a[diskState.sort], bv = b[diskState.sort];
@@ -2602,10 +2615,12 @@
 
     // Per-BU overview — compact 2-column grid of OK/Warn/Crit stacked bars.
     // Halves the vertical footprint vs. a single-column list while staying
-    // legible. Clicking a row deep-links the BU filter via OC_API.fetchDisks.
+    // legible. Clicking a row deep-links the global BU scope via OC_SET_BU,
+    // so all pages refilter to that BU (same effect as picking it in the rail).
     const buBreakdown = (window.DISK_SUMMARY && window.DISK_SUMMARY.businessUnits) || [];
     if (buBreakdown.length > 0) {
-      const buActive = diskState.bu && diskState.bu !== '__all';
+      const globalBu = window.SELECTED_BU;
+      const buActive = globalBu && globalBu !== '__all';
       const buMax = Math.max(1, ...buBreakdown.map(b => b.totalCount));
       const buSection = h('div', { style:{margin:'8px 0 14px'} });
       buSection.appendChild(sectionLabel(
@@ -2613,13 +2628,7 @@
         buBreakdown.length,
         buActive ? h('button.btn.xs', {
           style:{marginLeft:'auto'},
-          on:{click: async () => {
-            diskState.bu = '__all'; diskState.page = 1;
-            const refetched = (window.OC_API && typeof window.OC_API.fetchDisks === 'function')
-              ? await window.OC_API.fetchDisks({ env: diskState.env, bu: '__all' })
-              : null;
-            if (!refetched) window.RERENDER_PAGE(mount);
-          }},
+          on:{click: () => { if (window.OC_SET_BU) window.OC_SET_BU('__all'); }},
         }, 'Clear filter') : null,
       ));
       const buBars = h('div', {
@@ -2637,7 +2646,7 @@
       // column widths cleanly and skip the SELECTED pill / dashed-divider
       // chrome. Single-line per BU, mirrors the Servers page's "by env" feel.
       buBreakdown.slice().sort((a,b) => b.totalCount - a.totalCount).forEach(b => {
-        const isActive = diskState.bu === b.businessUnit;
+        const isActive = globalBu === b.businessUnit;
         const totalW = Math.max(2, Math.round(b.totalCount / buMax * 100));
         const okW   = b.totalCount ? (b.okCount   / b.totalCount * totalW) : 0;
         const warnW = b.totalCount ? (b.warningCount / b.totalCount * totalW) : 0;
@@ -2657,13 +2666,9 @@
               background: isActive ? 'var(--signal-wash, rgba(99,179,237,0.14))' : 'transparent',
               boxShadow: isActive ? 'inset 0 0 0 1px var(--signal, #63b3ed)' : 'none',
             },
-            on:{click: async () => {
+            on:{click: () => {
               const nextBu = isActive ? '__all' : b.businessUnit;
-              diskState.bu = nextBu; diskState.page = 1;
-              const refetched = (window.OC_API && typeof window.OC_API.fetchDisks === 'function')
-                ? await window.OC_API.fetchDisks({ env: diskState.env, bu: nextBu })
-                : null;
-              if (!refetched) window.RERENDER_PAGE(mount);
+              if (window.OC_SET_BU) window.OC_SET_BU(nextBu);
             }} },
           h('div', {
             style:{
@@ -2721,14 +2726,13 @@
       ...opts.map(([v,l]) => h('option', { value:v, selected: diskState[field]===v }, l))
     );
 
-    // Env / BU / Status dropdowns: labels include cross-facet-scoped counts
-    // from the summary endpoint. Each dropdown's options reflect the active
-    // OTHER filters (so picking BU rescopes env + status counts, etc.) — see
-    // the cross-facet rule in DiskMonitoringService.GetSummaryAsync. Changing
-    // any of them triggers a server-side refetch via OC_API.fetchDisks.
+    // Env / Status dropdowns: labels include cross-facet-scoped counts from
+    // the summary endpoint, narrowed by the global BU. Changing either
+    // triggers a server-side refetch via OC_API.fetchDisks (which reads
+    // window.SELECTED_BU automatically).
     const refetchDisks = async () => {
       const refetched = (window.OC_API && typeof window.OC_API.fetchDisks === 'function')
-        ? await window.OC_API.fetchDisks({ env: diskState.env, bu: diskState.bu, status: diskState.status })
+        ? await window.OC_API.fetchDisks({ env: diskState.env, status: diskState.status })
         : null;
       if (!refetched) window.RERENDER_PAGE(mount);
     };
@@ -2747,18 +2751,8 @@
       ...envOpts.map(([v,l]) => h('option', { value:v, selected: diskState.env===v }, l))
     );
 
-    const buOpts = buBreakdown.length
-      ? buBreakdown.map(b => [b.businessUnit, b.businessUnit + ' (' + b.totalCount + ')'])
-      : diskUniqValues(allItems, 'businessUnit').map(v => [v, v]);
-    const buSel = h('select',
-      { on:{change: async (e) => {
-        diskState.bu = e.target.value;
-        diskState.page = 1;
-        await refetchDisks();
-      }}},
-      h('option', { value:'__all', selected: diskState.bu==='__all' }, 'All business units'),
-      ...buOpts.map(([v,l]) => h('option', { value:v, selected: diskState.bu===v }, l))
-    );
+    // BU is controlled globally via the rail BuScope and the BU bar chart
+    // above — no per-page BU dropdown here.
 
     // Status dropdown: API-driven counts (was hardcoded with no counts before).
     // Falls back to the static list when summary hasn't loaded (demo path).
@@ -2785,18 +2779,17 @@
       mkSelect('owner', 'All technical owners', diskUniqValues(allItems, 'technicalOwner').map(v => [v,v])),
       envSel,
       mkSelect('service','All services',        diskUniqValues(allItems, 'service').map(v => [v,v])),
-      buSel,
       h('button.btn', { on:{click: async () => {
         const wasEnv = diskState.env;
-        const wasBu  = diskState.bu;
         const wasStatus = diskState.status;
         diskState.status='__all'; diskState.owner='__all';
-        diskState.env='Production'; diskState.bu='__all';
+        diskState.env='Production';
         diskState.service='__all'; diskState.page=1;
-        // Reset to the canonical "Production / All BUs / All statuses" landing.
+        // Reset to the canonical "Production / All statuses" landing — does
+        // NOT clear the global BU scope (that's controlled from the rail).
         // Refetch only if the server-side filters actually changed.
-        if ((wasEnv !== 'Production' || wasBu !== '__all' || wasStatus !== '__all') && window.OC_API && typeof window.OC_API.fetchDisks === 'function') {
-          const refetched = await window.OC_API.fetchDisks({ env: 'Production', bu: '__all', status: '__all' });
+        if ((wasEnv !== 'Production' || wasStatus !== '__all') && window.OC_API && typeof window.OC_API.fetchDisks === 'function') {
+          const refetched = await window.OC_API.fetchDisks({ env: 'Production', status: '__all' });
           if (refetched) return; // refetch triggers its own rerender
         }
         window.RERENDER_PAGE(mount);
@@ -2895,12 +2888,260 @@
   }
 
   // ================================================================
+  // SERVER DETAIL PAGE — fetched on demand at #servers/{id}.
+  // ================================================================
+  // Cache the latest fetched detail keyed by id so RERENDER_PAGE storms (from
+  // sibling state changes) don't re-fetch on every tick. The cache survives
+  // the lifetime of the module — accept a small staleness window (the
+  // alternative is invalidating on OC_API.retry, which adds plumbing for
+  // little value in v1).
+  let _serverDetailLoaded = null;  // { id, data } — data null on 404/error
+  let _serverDetailLoading = null; // { id }
+
+  function _serverDetailHeader(s) {
+    const name = s.serverName || 'Unknown';
+    const fqdn = s.fqdn || '';
+    const shortName = fqdn && fqdn.startsWith(name) ? name : (name.split('.')[0] || name);
+    const fqdnSuffix = fqdn && fqdn !== shortName ? fqdn.slice(shortName.length) : '';
+    return h('h1', { style:{marginBottom:'6px'} },
+      shortName,
+      fqdnSuffix ? h('span.muted', null, fqdnSuffix) : null,
+    );
+  }
+
+  function _serverDetailChips(s) {
+    const chip = (label, val) => h('span.badge', { style:{marginRight:'8px'} },
+      label + ': ', h('b', null, String(val || '—')));
+    return h('div', { style:{marginBottom:'24px'} },
+      chip('Env', s.environment),
+      chip('BU', s.businessUnit),
+      chip('OS', s.operatingSystem),
+      chip('Patch group', s.patchGroup),
+    );
+  }
+
+  function _serverDetailActions() {
+    return h('div', { style:{display:'flex',gap:'10px',marginBottom:'18px'} },
+      h('button.btn', { on:{click:()=>{ if (window.ROUTER) window.ROUTER.goto('servers'); }}},
+        '← Back to inventory'),
+      // v1: link out to PatchMgmt; pre-selecting this server in the wizard is
+      // a follow-up. The PatchMgmt search includes server-name filter so the
+      // operator can find this row quickly.
+      h('button.btn', { on:{click:()=>{ if (window.ROUTER) window.ROUTER.goto('patchmgmt'); }}},
+        '+ Add patch hold'),
+    );
+  }
+
+  function _serverDetailEmpty(mount, lead, sub) {
+    const page = h('div.page');
+    page.appendChild(_serverDetailActions());
+    page.appendChild(h('div', { style:{padding:'40px 20px', textAlign:'center'} },
+      h('h2', null, lead),
+      sub ? h('p.muted', null, sub) : null,
+    ));
+    mount.innerHTML = '';
+    mount.appendChild(page);
+  }
+
+  function _serverDetailLoadingView(mount) {
+    const page = h('div.page');
+    page.appendChild(_serverDetailActions());
+    page.appendChild(h('div', { style:{padding:'40px 20px', textAlign:'center'} },
+      h('p.muted', null, 'Loading server detail…'),
+    ));
+    mount.innerHTML = '';
+    mount.appendChild(page);
+  }
+
+  function _disksCard(disks) {
+    const card = h('div.metric-card');
+    card.appendChild(sectionLabel('Disks', disks.length));
+    if (disks.length === 0) {
+      card.appendChild(h('div.muted', { style:{padding:'16px'} }, 'No disks reported for this server.'));
+      return card;
+    }
+    const tw = h('div.table-wrap'); const tbl = h('table.op');
+    tbl.appendChild(h('thead', null, h('tr', null,
+      h('th', null, 'Vol'),
+      h('th', null, 'Used'),
+      h('th', null, 'Size'),
+      h('th', null, 'Status'),
+    )));
+    const tb = h('tbody');
+    disks.forEach(d => {
+      const tone = d.alertStatus === 3 ? 'crit' : d.alertStatus === 2 ? 'warn' : 'ok';
+      const label = d.alertStatus === 3 ? 'Critical' : d.alertStatus === 2 ? 'Warning' : 'OK';
+      const used = d.percentUsed != null ? (Math.round(d.percentUsed * 10) / 10) + '%' : '—';
+      const size = d.volumeSizeGb != null ? d.volumeSizeGb + ' GB' : '—';
+      tb.appendChild(h('tr', null,
+        h('td.host', null, d.diskLabel || '—'),
+        h('td', null, used),
+        h('td.muted', null, size),
+        h('td', null, h('span.badge.'+tone, null, h('span.dot'), label)),
+      ));
+    });
+    tbl.appendChild(tb); tw.appendChild(tbl); card.appendChild(tw);
+    return card;
+  }
+
+  function _lifecycleCard(s) {
+    const card = h('div.metric-card');
+    card.appendChild(sectionLabel('Lifecycle & ownership'));
+    const dl = h('div', { style:{padding:'8px 14px', display:'grid',
+      gridTemplateColumns:'150px 1fr', rowGap:'8px', columnGap:'14px'} });
+    const row = (k, v) => {
+      dl.appendChild(h('div.muted', null, k));
+      dl.appendChild(h('div', null, v || '—'));
+    };
+    row('Application', s.applicationName);
+    row('Function', s.func);
+    row('Service', s.service);
+    row('Business unit', s.businessUnit);
+    row('Operating system', s.operatingSystem);
+    row('Patch group', s.patchGroup);
+    row('Environment', s.environment);
+    row('Last seen', s.lastSeen ? new Date(s.lastSeen).toLocaleString() : '—');
+    row('Reachable', s.isActive ? 'Yes' : 'No');
+    card.appendChild(dl);
+    return card;
+  }
+
+  function _certsCard(certs) {
+    const card = h('div.metric-card');
+    card.appendChild(sectionLabel('Certificates', certs.length));
+    if (certs.length === 0) {
+      card.appendChild(h('div.muted', { style:{padding:'16px'} }, 'No certificates bound to this server.'));
+      return card;
+    }
+    const tw = h('div.table-wrap'); const tbl = h('table.op');
+    tbl.appendChild(h('thead', null, h('tr', null,
+      h('th', null, 'Subject'),
+      h('th', null, 'Expires'),
+      h('th', null, 'Days'),
+      h('th', null, 'Status'),
+    )));
+    const tb = h('tbody');
+    certs.forEach(c => {
+      const lvl = (c.alertLevel || '').toLowerCase();
+      const expired = c.isExpired || lvl === 'expired';
+      const tone = expired ? 'crit' : lvl === 'critical' ? 'crit' : lvl === 'warning' ? 'warn' : 'ok';
+      const label = expired ? 'Expired' : lvl ? lvl[0].toUpperCase() + lvl.slice(1) : '—';
+      const expires = c.validTo
+        ? new Date(c.validTo).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'})
+        : '—';
+      tb.appendChild(h('tr', null,
+        h('td.host', null, c.subjectCn || '—'),
+        h('td.muted', null, expires),
+        h('td', null, c.daysUntilExpiry != null ? String(c.daysUntilExpiry) + 'd' : '—'),
+        h('td', null, h('span.badge.'+tone, null, h('span.dot'), label)),
+      ));
+    });
+    tbl.appendChild(tb); tw.appendChild(tbl); card.appendChild(tw);
+    return card;
+  }
+
+  function _patchHistoryCard(history) {
+    const card = h('div.metric-card');
+    card.appendChild(sectionLabel('Patch history', history.length));
+    if (history.length === 0) {
+      card.appendChild(h('div.muted', { style:{padding:'16px'} }, 'No patch history available.'));
+      return card;
+    }
+    const tw = h('div.table-wrap'); const tbl = h('table.op');
+    tbl.appendChild(h('thead', null, h('tr', null,
+      h('th', null, 'Patch group'),
+      h('th', null, 'Date'),
+      h('th', null, 'Outcome'),
+    )));
+    const tb = h('tbody');
+    history.forEach(c => {
+      const tone = c.status === 'held' ? 'warn' : c.status === 'patched' ? 'ok' : '';
+      const label = c.status === 'held' ? 'Held' : c.status === 'patched' ? 'Patched' : 'Scheduled';
+      const date = c.cycleDate
+        ? new Date(c.cycleDate).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'})
+        : '—';
+      tb.appendChild(h('tr', null,
+        h('td.host', null, c.patchGroup || '—'),
+        h('td.muted', null, date),
+        h('td', null, h('span.badge'+(tone?'.'+tone:''), null, h('span.dot'), label)),
+      ));
+    });
+    tbl.appendChild(tb); tw.appendChild(tbl); card.appendChild(tw);
+    return card;
+  }
+
+  function _serverDetailContent(mount, detail) {
+    const s = detail.server;
+    const disksRaw = detail.disks;
+    const disks = Array.isArray(disksRaw) ? disksRaw
+                : (disksRaw && Array.isArray(disksRaw.items) ? disksRaw.items : []);
+    const certs = Array.isArray(detail.certs) ? detail.certs : [];
+    const history = Array.isArray(detail.history) ? detail.history : [];
+
+    const page = h('div.page');
+    const ribbon = demoRibbon('server-detail'); if (ribbon) page.appendChild(ribbon);
+    page.appendChild(_serverDetailActions());
+    page.appendChild(_serverDetailHeader(s));
+    page.appendChild(_serverDetailChips(s));
+
+    const grid = h('div', { style:{display:'grid',
+      gridTemplateColumns:'repeat(2, minmax(0, 1fr))', gap:'18px'} });
+    grid.appendChild(_disksCard(disks));
+    grid.appendChild(_lifecycleCard(s));
+    grid.appendChild(_certsCard(certs));
+    grid.appendChild(_patchHistoryCard(history));
+    page.appendChild(grid);
+
+    mount.innerHTML = '';
+    mount.appendChild(page);
+  }
+
+  function renderServerDetailPage(mount, idStr) {
+    const id = parseInt(idStr, 10);
+    if (!id || Number.isNaN(id) || id <= 0) {
+      _serverDetailEmpty(mount, 'Invalid server id', 'Use the Back to inventory button to return.');
+      return;
+    }
+    if (_serverDetailLoaded && _serverDetailLoaded.id === id) {
+      if (!_serverDetailLoaded.data) {
+        _serverDetailEmpty(mount, 'Server not found', 'Server #' + id + ' is not in the inventory.');
+      } else {
+        _serverDetailContent(mount, _serverDetailLoaded.data);
+      }
+      return;
+    }
+    if (_serverDetailLoading && _serverDetailLoading.id === id) {
+      _serverDetailLoadingView(mount);
+      return;
+    }
+    if (!window.OC_API || !window.OC_API.getServerDetail) {
+      _serverDetailEmpty(mount, 'API not ready', 'Refresh the page to retry.');
+      return;
+    }
+    _serverDetailLoading = { id };
+    _serverDetailLoadingView(mount);
+    const stillOnSamePage = () =>
+      window.ROUTER && window.ROUTER.currentRoute() === 'servers'
+      && window.ROUTER.currentRouteParam() === idStr;
+    window.OC_API.getServerDetail(id).then(data => {
+      _serverDetailLoaded = { id, data };
+      _serverDetailLoading = null;
+      if (stillOnSamePage()) window.RERENDER_PAGE(mount);
+    }).catch(() => {
+      _serverDetailLoaded = { id, data: null };
+      _serverDetailLoading = null;
+      if (stillOnSamePage()) window.RERENDER_PAGE(mount);
+    });
+  }
+
+  // ================================================================
   // Expose
   // ================================================================
-  window.RENDER_SERVERS  = renderServersPage;
-  window.RENDER_CERTS    = renderCertsPage;
-  window.RENDER_EOL      = renderEolPage;
-  window.RENDER_PATCHING = renderPatchingPage;
-  window.RENDER_PATCHMGMT= renderPatchMgmtPage;
-  window.RENDER_DISKS    = renderDiskMonitoringPage;
+  window.RENDER_SERVERS       = renderServersPage;
+  window.RENDER_SERVER_DETAIL = renderServerDetailPage;
+  window.RENDER_CERTS         = renderCertsPage;
+  window.RENDER_EOL           = renderEolPage;
+  window.RENDER_PATCHING      = renderPatchingPage;
+  window.RENDER_PATCHMGMT     = renderPatchMgmtPage;
+  window.RENDER_DISKS         = renderDiskMonitoringPage;
 })();

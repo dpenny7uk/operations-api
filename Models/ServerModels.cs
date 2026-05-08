@@ -23,6 +23,21 @@ public class ServerDetail : Server
     public string? PrimaryContact { get; set; }
 }
 
+/// <summary>
+/// One row of the server's patch cycle history. Status is computed in the
+/// service: 'held' if an active patch_exclusion covers the cycle date,
+/// 'patched' if the cycle date is in the past, otherwise 'scheduled'.
+/// Optimistic until Ivanti reconciliation populates patch_schedule.patch_status —
+/// see CLAUDE.md.
+/// </summary>
+public class ServerPatchHistoryItem
+{
+    public int CycleId { get; set; }
+    public DateOnly CycleDate { get; set; }
+    public string PatchGroup { get; set; } = "";
+    public string Status { get; set; } = "";
+}
+
 public class ServerMatch
 {
     public int ServerId { get; set; }

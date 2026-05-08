@@ -83,6 +83,18 @@ public class ServersController : ControllerBase
         return server == null ? NotFound() : Ok(server);
     }
 
+    /// <summary>Get the patch cycle history for a single server.</summary>
+    [HttpGet("{id}/patch-history")]
+    [ProducesResponseType(200)]
+    [ProducesResponseType(404)]
+    public async Task<IActionResult> GetPatchHistory(int id, [FromQuery] int limit = 50)
+    {
+        var server = await _svc.GetServerByIdAsync(id);
+        if (server == null) return NotFound();
+        var clampedLimit = Math.Clamp(limit, 1, 500);
+        return Ok(await _svc.GetPatchHistoryAsync(id, clampedLimit));
+    }
+
     /// <summary>Resolve a server name (including aliases) to its canonical record.</summary>
     [HttpGet("resolve/{name}")]
     [ProducesResponseType(200)]
