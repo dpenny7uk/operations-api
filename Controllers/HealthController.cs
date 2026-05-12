@@ -4,7 +4,6 @@ using OperationsApi.Services;
 
 namespace OperationsApi.Controllers;
 
-/// <summary>System health and sync monitoring.</summary>
 [Authorize]
 [ApiController]
 [Route("api/[controller]")]
@@ -22,14 +21,12 @@ public class HealthController : ControllerBase
     public async Task<IActionResult> GetSummary()
         => Ok(await _svc.GetHealthSummaryAsync());
 
-    /// <summary>Get status of all data sync jobs.</summary>
     [HttpGet("syncs")]
     [ResponseCache(Duration = 30, Location = ResponseCacheLocation.Client)]
     [ProducesResponseType(200)]
     public async Task<IActionResult> GetSyncStatuses()
         => Ok(await _svc.GetSyncStatusesAsync());
 
-    /// <summary>Get execution history for a specific sync job.</summary>
     /// <param name="syncName">Name of the sync job (e.g. databricks_servers, certificate_scan).</param>
     /// <param name="limit">Maximum number of history records to return (1-100, default 20).</param>
     [HttpGet("syncs/{syncName}/history")]

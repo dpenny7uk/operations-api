@@ -7,7 +7,7 @@
    / SERVERS_DATA / CERTS_DATA / EOL_DATA. We populate those globals after
    parallel fetches and call window.RERENDER_PAGE(mount) to redraw. */
 
-import { api, apiPost, apiErrors, clearApiErrors, setUsingDemo, setApiErrorsListener, markDemo, clearDemo, clearAllDemo } from './api.js';
+import { api, apiPost, apiPatch, apiDelete, apiErrors, clearApiErrors, setUsingDemo, setApiErrorsListener, markDemo, clearDemo, clearAllDemo } from './api.js';
 
 // RERENDER_PAGE expects the inner .page-mount div (NOT the outer #root).
 // Passing #root would wipe the shell (rail + statusline). Passing null lets
@@ -515,22 +515,32 @@ async function runFetches() {
       });
       rerender();
     }),
-    api('/eol?limit=500&hasServers=true').then(v => {
+    api('/eol?limit=500&hasServers=true' + buQs).then(v => {
       if (!Array.isArray(v)) { markDemo('eol'); return; }
       window.EOL_DATA = Object.assign({}, window.EOL_DATA, { EOL_PRODUCTS: mapEolProducts(v) });
       rerender();
     }),
-    api('/eol/summary?hasServers=true').then(s => {
+    api('/eol/summary?hasServers=true' + buQs).then(s => {
       if (!s) { markDemo('eol'); return; }
       window.EOL_DATA = Object.assign({}, window.EOL_DATA, { EOL_TOTALS: mapEolTotals(s) });
       rerender();
     }),
-    Promise.all([api('/patching/cycles'), api('/patching/next')]).then(([cycles, next]) => {
+    api('/eol/unmatched?limit=50').then(v => {
+      // The work-list is global (not BU-scoped) and best-effort — failure here
+      // doesn't taint the EOL page's demo state, just leaves the panel empty.
+      if (!Array.isArray(v)) return;
+      window.EOL_DATA = Object.assign({}, window.EOL_DATA, { EOL_UNMATCHED: v });
+      rerender();
+    }),
+    Promise.all([
+      api('/patching/cycles' + (buQs ? '?' + buQs.slice(1) : '')),
+      api('/patching/next' + (buQs ? '?' + buQs.slice(1) : '')),
+    ]).then(([cycles, next]) => {
       if (!cycles && !next) { markDemo('patching'); return; }
       window.PATCH_GROUPS = mapPatchGroups(cycles, next);
       rerender();
     }),
-    api('/patching/cycles?upcomingOnly=false&limit=24').then(v => {
+    api('/patching/cycles?upcomingOnly=false&limit=24' + buQs).then(v => {
       if (!Array.isArray(v)) { markDemo('patching'); return; }
       window.PATCH_CYCLES = mapPatchCycles(v);
       rerender();
@@ -591,13 +601,15 @@ async function runFetches() {
       window.DISK_SUMMARY = summary;
       rerender();
     }),
-    // Health page disk card pins to Group + Production regardless of what the
-    // Disks page is currently filtered to. Separate dedicated fetch so the
-    // Health card can't be perturbed by user navigation.
-    api('/disks/summary?environment=Production&businessUnit=' + encodeURIComponent('Contoso Group Support')).then(s => {
+    // Health page disk card pins to Production environment only — non-prod
+    // disk capacity is noise for the ops team's at-a-glance view. BU follows
+    // the global rail selection (was previously hardcoded to Group Support;
+    // now redundant with the rail BU filter, which the user can pin once
+    // and have it persist).
+    api('/disks/summary?environment=Production' + buQs).then(s => {
       const summary = mapDiskSummary(s);
       if (!summary) return; // demo fallback handled by op-app.js disks card path
-      window.DISK_SUMMARY_GROUP_PROD = summary;
+      window.DISK_SUMMARY_PROD = summary;
       rerender();
     }),
   ];
@@ -960,9 +972,7 @@ window.OC_ACTIONS = {
     const newDate = new Date();
     newDate.setDate(newDate.getDate() + days);
     const iso = newDate.toISOString().slice(0, 10);
-    const res = await apiPost('/patching/exclusions/' + id + '/extend', { heldUntil: iso });
-    // apiPost uses POST; the design expects PATCH semantics. The /extend route
-    // on the backend is still POST — we keep it that way and reuse here.
+    const res = await apiPatch('/patching/exclusions/' + id, { heldUntil: iso });
     if (!res.ok) { alert('Could not renew (' + res.status + '): ' + (res.error || 'unknown error')); return; }
     await refetchExclusions();
   },
@@ -971,8 +981,7 @@ window.OC_ACTIONS = {
     const id = r.exclusionId;
     if (!id) { alert('Cannot release: no ID on row (demo mode?).'); return; }
     if (!confirm('Release exclusion for ' + (r.server || r.id) + '?')) return;
-    // apiPost only does POST/body; keep using /remove for compatibility.
-    const res = await apiPost('/patching/exclusions/' + id + '/remove', {});
+    const res = await apiDelete('/patching/exclusions/' + id);
     if (!res.ok) { alert('Could not release (' + res.status + '): ' + (res.error || 'unknown error')); return; }
     await refetchExclusions();
   },

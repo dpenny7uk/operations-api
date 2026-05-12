@@ -223,10 +223,10 @@ public class ServerService : BaseService<ServerService>, IServerService
     // Patch history for a single server. Joins patch_schedule (rows are per
     // server-per-cycle) with patch_cycles for the date, and computes the
     // cycle-level status from patch_exclusions:
-    //   held      — there's an active exclusion whose window covers cycle_date
-    //   patched   — cycle has passed (optimistic: patch_status itself is
+    //   held      - there's an active exclusion whose window covers cycle_date
+    //   patched   - cycle has passed (optimistic: patch_status itself is
     //               unpopulated, see CLAUDE.md "patch_status never populated")
-    //   scheduled — cycle is upcoming
+    //   scheduled - cycle is upcoming
     // When Ivanti reconciliation lands, swap the optimistic 'patched' branch
     // for the real ps.patch_status value.
     public Task<IEnumerable<ServerPatchHistoryItem>> GetPatchHistoryAsync(int serverId, int limit = 50) => RunDbAsync(() =>

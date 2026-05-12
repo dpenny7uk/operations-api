@@ -1027,6 +1027,47 @@
     tbl.appendChild(table);
     page.appendChild(tbl);
 
+    // Unmatched EOL software work-list. Populated by op-boot's /eol/unmatched
+    // fetch; rows are installed-software strings the sync's SOFTWARE_PATTERNS
+    // catalogue did not recognise. Sorted by frequency so the highest-payoff
+    // pattern-catalogue additions surface first.
+    const unmatched = Array.isArray(window.EOL_DATA && window.EOL_DATA.EOL_UNMATCHED)
+      ? window.EOL_DATA.EOL_UNMATCHED : [];
+    page.appendChild(h('div.section-label', null,
+      h('span', null, 'Unmatched EOL software'),
+      h('span.count', null, String(unmatched.length)),
+      h('span', { style:{marginLeft:'auto',fontSize:'10px',color:'var(--ink-4)',letterSpacing:'.1em',textTransform:'uppercase',fontFamily:'var(--mono)'} },
+        'work-list for catalogue expansion')));
+    const uwrap = h('div.table-wrap');
+    const utbl = h('table.op');
+    utbl.appendChild(h('thead', null, h('tr', null,
+      h('th', null, 'Software'),
+      h('th', null, 'Version'),
+      h('th', null, 'Sample machine'),
+      h('th', { style:{textAlign:'right'} }, 'Occurrences'),
+      h('th', null, 'Last seen'),
+    )));
+    const utbody = h('tbody');
+    if (!unmatched.length) {
+      utbody.appendChild(h('tr', null, h('td', { colspan:5,
+        style:{padding:'20px',textAlign:'center',color:'var(--ink-3)',fontFamily:'var(--mono)',fontSize:'11.5px',letterSpacing:'.1em',textTransform:'uppercase'} },
+        'No unmatched EOL software. Pattern catalogue covers everything the sync has seen.')));
+    } else {
+      for (const u of unmatched) {
+        const last = u.lastSeenAt ? new Date(u.lastSeenAt).toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '—';
+        utbody.appendChild(h('tr', null,
+          h('td.host', null, u.rawSoftwareName || '—'),
+          h('td.mono.muted', null, u.rawSoftwareVersion || '—'),
+          h('td.mono.muted', null, u.sampleMachineName || '—'),
+          h('td.num.strong', null, String(u.occurrenceCount || 0)),
+          h('td.mono.muted', null, last),
+        ));
+      }
+    }
+    utbl.appendChild(utbody);
+    uwrap.appendChild(utbl);
+    page.appendChild(uwrap);
+
     mount.innerHTML = '';
     mount.appendChild(page);
   }
@@ -2898,30 +2939,18 @@
   let _serverDetailLoaded = null;  // { id, data } — data null on 404/error
   let _serverDetailLoading = null; // { id }
 
-  function _serverDetailHeader(s) {
-    const name = s.serverName || 'Unknown';
-    const fqdn = s.fqdn || '';
-    const shortName = fqdn && fqdn.startsWith(name) ? name : (name.split('.')[0] || name);
-    const fqdnSuffix = fqdn && fqdn !== shortName ? fqdn.slice(shortName.length) : '';
-    return h('h1', { style:{marginBottom:'6px'} },
-      shortName,
-      fqdnSuffix ? h('span.muted', null, fqdnSuffix) : null,
-    );
-  }
-
-  function _serverDetailChips(s) {
-    const chip = (label, val) => h('span.badge', { style:{marginRight:'8px'} },
-      label + ': ', h('b', null, String(val || '—')));
-    return h('div', { style:{marginBottom:'24px'} },
-      chip('Env', s.environment),
-      chip('BU', s.businessUnit),
-      chip('OS', s.operatingSystem),
-      chip('Patch group', s.patchGroup),
-    );
-  }
-
-  function _serverDetailActions() {
-    return h('div', { style:{display:'flex',gap:'10px',marginBottom:'18px'} },
+  // Header (host + italic .domain) is now rendered by the global statusline
+  // via surfaceHero, so the page itself doesn't repeat it. Action row and
+  // application/function/service breadcrumb live here on the page body.
+  function _serverDetailActions(server) {
+    const breadcrumbBits = [server && server.applicationName, server && server.func, server && server.service]
+      .filter(Boolean);
+    const breadcrumb = breadcrumbBits.length
+      ? h('div.sd-breadcrumb', null, ...breadcrumbBits.flatMap((bit, i) => i === breadcrumbBits.length - 1
+          ? [h('b', null, bit)]
+          : [bit, ' · ']))
+      : null;
+    return h('div.sd-actions', null,
       h('button.btn', { on:{click:()=>{ if (window.ROUTER) window.ROUTER.goto('servers'); }}},
         '← Back to inventory'),
       // v1: link out to PatchMgmt; pre-selecting this server in the wizard is
@@ -2929,12 +2958,13 @@
       // operator can find this row quickly.
       h('button.btn', { on:{click:()=>{ if (window.ROUTER) window.ROUTER.goto('patchmgmt'); }}},
         '+ Add patch hold'),
+      breadcrumb,
     );
   }
 
   function _serverDetailEmpty(mount, lead, sub) {
     const page = h('div.page');
-    page.appendChild(_serverDetailActions());
+    page.appendChild(_serverDetailActions(null));
     page.appendChild(h('div', { style:{padding:'40px 20px', textAlign:'center'} },
       h('h2', null, lead),
       sub ? h('p.muted', null, sub) : null,
@@ -2945,7 +2975,7 @@
 
   function _serverDetailLoadingView(mount) {
     const page = h('div.page');
-    page.appendChild(_serverDetailActions());
+    page.appendChild(_serverDetailActions(null));
     page.appendChild(h('div', { style:{padding:'40px 20px', textAlign:'center'} },
       h('p.muted', null, 'Loading server detail…'),
     ));
@@ -2953,12 +2983,22 @@
     mount.appendChild(page);
   }
 
+  // Card head: serif mixed-case title left, small mono uppercase subtitle
+  // (e.g. "4 volumes") right. Mirrors the design example in image 3.
+  function _sdCardHead(title, subtitle) {
+    return h('div.sd-card-head', null,
+      h('div.sd-card-title', null, title),
+      subtitle ? h('div.sd-card-sub', null, subtitle) : null,
+    );
+  }
+
   function _disksCard(disks) {
-    const card = h('div.metric-card');
-    card.appendChild(sectionLabel('Disks', disks.length));
+    const card = h('div.sd-card');
+    card.appendChild(_sdCardHead('Disks', disks.length ? disks.length + ' volumes' : null));
+    const body = h('div.sd-card-body');
     if (disks.length === 0) {
-      card.appendChild(h('div.muted', { style:{padding:'16px'} }, 'No disks reported for this server.'));
-      return card;
+      body.appendChild(h('div.muted', { style:{padding:'16px 20px'} }, 'No disks reported for this server.'));
+      card.appendChild(body); return card;
     }
     const tw = h('div.table-wrap'); const tbl = h('table.op');
     tbl.appendChild(h('thead', null, h('tr', null,
@@ -2980,18 +3020,17 @@
         h('td', null, h('span.badge.'+tone, null, h('span.dot'), label)),
       ));
     });
-    tbl.appendChild(tb); tw.appendChild(tbl); card.appendChild(tw);
-    return card;
+    tbl.appendChild(tb); tw.appendChild(tbl); body.appendChild(tw);
+    card.appendChild(body); return card;
   }
 
   function _lifecycleCard(s) {
-    const card = h('div.metric-card');
-    card.appendChild(sectionLabel('Lifecycle & ownership'));
-    const dl = h('div', { style:{padding:'8px 14px', display:'grid',
-      gridTemplateColumns:'150px 1fr', rowGap:'8px', columnGap:'14px'} });
-    const row = (k, v) => {
-      dl.appendChild(h('div.muted', null, k));
-      dl.appendChild(h('div', null, v || '—'));
+    const card = h('div.sd-card');
+    card.appendChild(_sdCardHead('Lifecycle & ownership', null));
+    const dl = h('div.sd-lifecycle');
+    const row = (k, v, tone) => {
+      dl.appendChild(h('div.k', null, k));
+      dl.appendChild(h('div.v'+(tone?'.'+tone:''), null, v || '—'));
     };
     row('Application', s.applicationName);
     row('Function', s.func);
@@ -3001,17 +3040,18 @@
     row('Patch group', s.patchGroup);
     row('Environment', s.environment);
     row('Last seen', s.lastSeen ? new Date(s.lastSeen).toLocaleString() : '—');
-    row('Reachable', s.isActive ? 'Yes' : 'No');
+    row('Reachable', s.isActive ? 'Yes' : 'No', s.isActive ? null : 'crit');
     card.appendChild(dl);
     return card;
   }
 
   function _certsCard(certs) {
-    const card = h('div.metric-card');
-    card.appendChild(sectionLabel('Certificates', certs.length));
+    const card = h('div.sd-card');
+    card.appendChild(_sdCardHead('Certificates', certs.length ? certs.length + ' bound' : null));
+    const body = h('div.sd-card-body');
     if (certs.length === 0) {
-      card.appendChild(h('div.muted', { style:{padding:'16px'} }, 'No certificates bound to this server.'));
-      return card;
+      body.appendChild(h('div.muted', { style:{padding:'16px 20px'} }, 'No certificates bound to this server.'));
+      card.appendChild(body); return card;
     }
     const tw = h('div.table-wrap'); const tbl = h('table.op');
     tbl.appendChild(h('thead', null, h('tr', null,
@@ -3036,20 +3076,21 @@
         h('td', null, h('span.badge.'+tone, null, h('span.dot'), label)),
       ));
     });
-    tbl.appendChild(tb); tw.appendChild(tbl); card.appendChild(tw);
-    return card;
+    tbl.appendChild(tb); tw.appendChild(tbl); body.appendChild(tw);
+    card.appendChild(body); return card;
   }
 
   function _patchHistoryCard(history) {
-    const card = h('div.metric-card');
-    card.appendChild(sectionLabel('Patch history', history.length));
+    const card = h('div.sd-card');
+    card.appendChild(_sdCardHead('Patch history', history.length ? history.length + ' cycles' : null));
+    const body = h('div.sd-card-body');
     if (history.length === 0) {
-      card.appendChild(h('div.muted', { style:{padding:'16px'} }, 'No patch history available.'));
-      return card;
+      body.appendChild(h('div.muted', { style:{padding:'16px 20px'} }, 'No patch history available.'));
+      card.appendChild(body); return card;
     }
     const tw = h('div.table-wrap'); const tbl = h('table.op');
     tbl.appendChild(h('thead', null, h('tr', null,
-      h('th', null, 'Patch group'),
+      h('th', null, 'Cycle'),
       h('th', null, 'Date'),
       h('th', null, 'Outcome'),
     )));
@@ -3066,8 +3107,8 @@
         h('td', null, h('span.badge'+(tone?'.'+tone:''), null, h('span.dot'), label)),
       ));
     });
-    tbl.appendChild(tb); tw.appendChild(tbl); card.appendChild(tw);
-    return card;
+    tbl.appendChild(tb); tw.appendChild(tbl); body.appendChild(tw);
+    card.appendChild(body); return card;
   }
 
   function _serverDetailContent(mount, detail) {
@@ -3080,12 +3121,9 @@
 
     const page = h('div.page');
     const ribbon = demoRibbon('server-detail'); if (ribbon) page.appendChild(ribbon);
-    page.appendChild(_serverDetailActions());
-    page.appendChild(_serverDetailHeader(s));
-    page.appendChild(_serverDetailChips(s));
+    page.appendChild(_serverDetailActions(s));
 
-    const grid = h('div', { style:{display:'grid',
-      gridTemplateColumns:'repeat(2, minmax(0, 1fr))', gap:'18px'} });
+    const grid = h('div.sd-grid');
     grid.appendChild(_disksCard(disks));
     grid.appendChild(_lifecycleCard(s));
     grid.appendChild(_certsCard(certs));
@@ -3133,6 +3171,16 @@
       if (stillOnSamePage()) window.RERENDER_PAGE(mount);
     });
   }
+
+  // Read-only accessor for op-app.js's Statusline / surfaceHero so they can
+  // tailor the page header to the loaded server when on #servers/{id}.
+  // Returns null when nothing is loaded for that id (still in flight, or
+  // a different id is in the cache slot).
+  window.GET_SERVER_DETAIL = function (id) {
+    const numId = typeof id === 'number' ? id : parseInt(id, 10);
+    if (!_serverDetailLoaded || _serverDetailLoaded.id !== numId) return null;
+    return _serverDetailLoaded.data;
+  };
 
   // ================================================================
   // Expose

@@ -36,7 +36,7 @@ public class PatchExclusionServiceTests : IntegrationTestBase
         await svc.ExcludeServersAsync(new List<int> { 1 }, "hold WEB01", InDays(30), "tester");
         await svc.ExcludeServersAsync(new List<int> { 2 }, "hold WEB02", InDays(10), "tester");
 
-        // Age one of them into "expired hold" territory via a direct UPDATE — the
+        // Age one of them into "expired hold" territory via a direct UPDATE - the
         // service has no API for setting held_until in the past.
         await using (var conn = new NpgsqlConnection(Db.ConnectionString))
         {
@@ -110,7 +110,7 @@ public class PatchExclusionServiceTests : IntegrationTestBase
         await ResetExclusions();
         var svc = CreateService();
 
-        // DECOMM01 (id 6) is_active = FALSE in seed data — the service's WHERE clause skips it.
+        // DECOMM01 (id 6) is_active = FALSE in seed data - the service's WHERE clause skips it.
         var count = await svc.ExcludeServersAsync(new List<int> { 6 }, "try on inactive", InDays(30), "tester");
 
         Assert.Equal(0, count);
@@ -410,5 +410,30 @@ public class PatchExclusionServiceTests : IntegrationTestBase
 
         Assert.Equal(1, page.TotalCount);
         Assert.Equal("WEB01", page.Items.First().ServerName);
+    }
+
+    // Regression guard for migration 010: the ExcludeServersAsync / BulkExcludeAsync
+    // upserts rely on ON CONFLICT (server_id) WHERE is_active. That target requires
+    // a matching partial unique index. If a future migration drops it, the upsert
+    // silently degrades to inserting duplicate active rows instead of updating.
+    [DockerFact]
+    public async Task Migration_010_partial_unique_index_on_active_exclusions_exists()
+    {
+        await using var conn = new NpgsqlConnection(Db.ConnectionString);
+        await conn.OpenAsync();
+
+        var (indexname, indexdef) = await conn.QuerySingleOrDefaultAsync<(string indexname, string indexdef)>(@"
+            SELECT indexname, indexdef
+            FROM pg_indexes
+            WHERE schemaname = 'patching'
+              AND tablename  = 'patch_exclusions'
+              AND indexname  = 'idx_exclusion_active_server'");
+
+        Assert.Equal("idx_exclusion_active_server", indexname);
+        // Must be UNIQUE and partial on is_active so it matches the upsert's
+        // ON CONFLICT (server_id) WHERE is_active target.
+        Assert.Contains("UNIQUE", indexdef, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("server_id", indexdef);
+        Assert.Contains("WHERE is_active", indexdef, StringComparison.OrdinalIgnoreCase);
     }
 }

@@ -158,6 +158,7 @@ $serverScanBlock = [ScriptBlock]::Create(@'
     }
 
     $results = @()
+    $lastError = ''  # Captured to distinguish TLS failure (ERROR) from no HTTPS (UNREACHABLE)
 
     # ── HTTPS Endpoints via TLS connection ───────────────────────────────
     foreach ($port in $Ports) {
@@ -185,7 +186,18 @@ $serverScanBlock = [ScriptBlock]::Create(@'
                     return $true  # Must accept to scan expired/self-signed certs
                 })
             )
-            $sslStream.AuthenticateAsClient($ServerName)
+            # Bounded TLS handshake: synchronous AuthenticateAsClient has no timeout
+            # and will hang the runspace if the server accepts TCP but stalls TLS.
+            $authTask = $sslStream.AuthenticateAsClientAsync($ServerName)
+            if (-not $authTask.Wait(5000)) {
+                $lastError = "TLS handshake timed out after 5s on port $port"
+                continue
+            }
+            if ($authTask.IsFaulted) {
+                $ex = if ($authTask.Exception.InnerException) { $authTask.Exception.InnerException } else { $authTask.Exception }
+                $lastError = "TLS handshake failed on port ${port}: $($ex.Message)"
+                continue
+            }
 
             $remoteCert = $sslStream.RemoteCertificate
             if ($remoteCert) {
@@ -204,7 +216,7 @@ $serverScanBlock = [ScriptBlock]::Create(@'
             }
         }
         catch {
-            Write-Verbose "TLS/connection error for ${ServerName}:${port}: $_"
+            $lastError = "TLS/connection error on port ${port}: $($_.Exception.Message)"
         }
         finally {
             if ($sslStream) { $sslStream.Dispose() }
@@ -212,14 +224,25 @@ $serverScanBlock = [ScriptBlock]::Create(@'
         }
     }
 
-    # If no certs found on any port, report the server as unreachable
+    # If no certs found on any port: ERROR if TLS was attempted and failed,
+    # otherwise UNREACHABLE (the server simply does not expose HTTPS).
     if ($results.Count -eq 0) {
-        $results += New-ResultRow `
-            -Name $ServerName -Status 'UNREACHABLE' `
-            -Thumbprint '' -Subject '' -Issuer '' `
-            -NotBefore '' -NotAfter '' -DaysRemaining '' `
-            -Source 'HTTPS Endpoint' -URL ($Ports -join ',') `
-            -ErrorMsg "No HTTPS certificate found on port(s): $($Ports -join ', ')"
+        if ($lastError) {
+            $results += New-ResultRow `
+                -Name $ServerName -Status 'ERROR' `
+                -Thumbprint '' -Subject '' -Issuer '' `
+                -NotBefore '' -NotAfter '' -DaysRemaining '' `
+                -Source 'HTTPS Endpoint' -URL ($Ports -join ',') `
+                -ErrorMsg $lastError
+        }
+        else {
+            $results += New-ResultRow `
+                -Name $ServerName -Status 'UNREACHABLE' `
+                -Thumbprint '' -Subject '' -Issuer '' `
+                -NotBefore '' -NotAfter '' -DaysRemaining '' `
+                -Source 'HTTPS Endpoint' -URL ($Ports -join ',') `
+                -ErrorMsg "No HTTPS certificate found on port(s): $($Ports -join ', ')"
+        }
     }
 
     return $results

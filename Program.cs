@@ -36,12 +36,12 @@ builder.Host.UseSerilog((ctx, services, cfg) =>
 });
 var config = builder.Configuration;
 
-// Fail fast if connection string is missing — don't wait for first request
+// Fail fast if connection string is missing - don't wait for first request
 var connStringCheck = config.GetConnectionString("OperationsDb");
 if (string.IsNullOrEmpty(connStringCheck) && !builder.Environment.IsDevelopment())
     throw new InvalidOperationException("Connection string 'OperationsDb' is not configured. Set it in appsettings.json or environment variables.");
 
-// Authentication — Windows Negotiate (Kerberos/NTLM) is always required.
+// Authentication - Windows Negotiate (Kerberos/NTLM) is always required.
 // There is no bypass mode. For local development without Active Directory,
 // configure a test account in IIS Express or use a mocked auth middleware in a test project.
 var adminRole = config.GetValue<string>("Authentication:AdminRole") ?? "";
@@ -59,7 +59,7 @@ builder.Services.AddAuthorization(options =>
         options.AddPolicy("OpsAdmin", policy => policy.RequireAuthenticatedUser());
 });
 
-// Database connection — explicit pool settings for production predictability
+// Database connection - explicit pool settings for production predictability
 builder.Services.AddScoped<IDbConnection>(sp =>
 {
     var connString = config.GetConnectionString("OperationsDb");
@@ -144,7 +144,7 @@ if (allowedOrigins.Length == 0 && !app.Environment.IsDevelopment())
 }
 else if (allowedOrigins.Length == 0)
 {
-    app.Logger.LogWarning("No CORS origins configured in Cors:AllowedOrigins — cross-origin requests will be blocked");
+    app.Logger.LogWarning("No CORS origins configured in Cors:AllowedOrigins - cross-origin requests will be blocked");
 }
 
 // Middleware pipeline
@@ -170,6 +170,7 @@ app.UseCors();
 
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseMiddleware<OperationsApi.Infrastructure.RequireRequestedWithHeaderMiddleware>();
 app.UseRateLimiter();
 app.UseResponseCaching();
 app.UseSerilogRequestLogging();

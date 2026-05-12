@@ -244,9 +244,18 @@
         if (window.OC_API && window.OC_API.retry) window.OC_API.retry();
       }},
     }, opts.map(([v,l]) => h('option', { value: v, selected: cur === v }, l)));
+    // Subtitle reminding the user this scope applies estate-wide. Shows the
+    // selected BU in bold, or "All business units" when unscoped — so the
+    // operator can confirm at a glance what the rest of the console is
+    // filtered to.
+    const subtitle = h('div.bu-scope-note', null,
+      'All pages filter to ',
+      h('b', null, cur === '__all' ? 'all business units' : cur),
+    );
     return h('div.bu-scope-wrap', null,
       h('div.rail-section-label', null, 'Scope · Business Unit'),
       sel,
+      subtitle,
     );
   }
 
@@ -301,6 +310,17 @@
       h('div.rail-groups', null,
         ...GROUPS.map(renderGroup)),
       h('div.rail-footer', null,
+        // Theme toggle moved here (was top-right of the statusline). Pill
+        // style is defined in op-components.css under .rail-footer .theme-toggle.
+        h('button.theme-toggle', {
+          title:'Toggle theme',
+          on:{click:()=>setState({theme: state.theme==='light'?'dark':'light'})},
+        },
+          // Label = current theme; glyph = swap target (moon when in light,
+          // sun when in dark). Clicking flips both.
+          state.theme === 'light' ? 'Light' : 'Dark',
+          h('span.glyph', null, state.theme === 'light' ? '☾' : '☀'),
+        ),
         h('span.rail-api'+(api==='off'?'.off':api==='warn'?'.warn':''), null,
           h('span.d'), 'API '+(api==='off'?'offline':api==='warn'?'degraded':'online')),
         h('div.clock', null, (() => {
@@ -322,16 +342,20 @@
     // the banner below (e.g. "Status Operational" next to "API DEGRADED").
     if (sc.apiState === 'off')       heroCopy.word = 'API unreachable';
     else if (sc.apiState === 'warn') heroCopy.word = 'API degraded';
+    // headerNode lets a surface render its own H1 contents (e.g. server
+    // detail uses host + italic .domain.fqdn instead of "Status …").
+    // When absent, fall back to the canonical "Status <em>word</em>" form.
+    const headerInner = heroCopy.headerNode
+      ? heroCopy.headerNode
+      : ['Status ', h('em', null, heroCopy.word)];
     return h('header.statusline', null,
       h('div', null,
         h('div.tag', null, heroCopy.tag),
-        h('h1', null, 'Status ', h('em', null, heroCopy.word)),
+        h('h1', null, ...(Array.isArray(headerInner) ? headerInner : [headerInner])),
         h('div.telegram', null, ...heroCopy.pieces),
       ),
       h('div.right', null,
         h('div.timestamp', null, 'Last refresh · ' + (() => { const d = new Date(); const p = n => String(n).padStart(2,'0'); return p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds()); })()),
-        h('button.theme-toggle', {title:'Toggle theme', on:{click:()=>setState({theme: state.theme==='light'?'dark':'light'})}},
-          state.theme === 'light' ? '☾' : '☀'),
         h('button.refresh', { on:{click: async (e) => {
           const btn = e.currentTarget;
           btn.disabled = true;
@@ -346,6 +370,42 @@
     const CERT = window.CERTS_DATA && window.CERTS_DATA.CERT_COUNTS || {};
     const EOL = window.EOL_DATA && window.EOL_DATA.EOL_TOTALS || {};
     const SRV_D = window.SERVERS_DATA || {};
+    // Server detail page (#servers/{id}) — replace the inventory hero with
+    // a per-server header: small "— SERVERS · {fqdn}" tag, big host name
+    // with italic .domain.tld suffix (using the existing h1 em red), and
+    // chips for environment / BU / OS / patch group.
+    const param = window.ROUTER && window.ROUTER.currentRouteParam ? window.ROUTER.currentRouteParam() : null;
+    if (route === 'servers' && param) {
+      const detail = window.GET_SERVER_DETAIL ? window.GET_SERVER_DETAIL(param) : null;
+      const srv = detail && detail.server ? detail.server : null;
+      if (srv) {
+        const fqdn = srv.fqdn || srv.serverName || '';
+        const dotIdx = fqdn.indexOf('.');
+        const host = dotIdx > 0 ? fqdn.slice(0, dotIdx) : fqdn;
+        const domain = dotIdx > 0 ? fqdn.slice(dotIdx) : '';
+        return {
+          tag: '— SERVERS · ' + (fqdn || srv.serverName || '').toUpperCase(),
+          // headerNode bypasses the default "Status …" prefix entirely.
+          headerNode: [
+            host,
+            domain ? h('em', null, domain) : null,
+          ].filter(Boolean),
+          word: srv.serverName, // kept for the API-degraded override branch
+          pieces: [
+            srv.environment ? h('span.piece', null, h('b', null, srv.environment), srv.businessUnit ? ' · ' + srv.businessUnit : '') : null,
+            srv.operatingSystem ? h('span.piece', null, h('b', null, srv.operatingSystem)) : null,
+            srv.patchGroup ? h('span.piece', null, h('b', null, 'Group ' + srv.patchGroup)) : null,
+          ].filter(Boolean),
+        };
+      }
+      // Loading / not-yet-resolved: keep things quiet, no big "Status …" line.
+      return {
+        tag: '— SERVERS · LOADING',
+        headerNode: [h('span.muted', null, 'Loading server…')],
+        word: '',
+        pieces: [],
+      };
+    }
     switch (route) {
       case 'servers': {
         const unreach = (SRV_D.unreachable || []).length;
@@ -609,15 +669,16 @@
       h('div.cs-sub', null, failing ? (failing === 1 ? '1 sync failing' : failing + ' syncs failing') : 'all syncs healthy'),
       h('div.cs-link', null, 'View sync status')));
 
-    // Disk capacity — pinned to Group + Production via the dedicated summary
-    // fetch in op-boot.js. Demo path (DISK_SUMMARY_GROUP_PROD absent) falls back
-    // to counting the loaded items array.
-    const dGP = window.DISK_SUMMARY_GROUP_PROD;
+    // Disk capacity — Production-only summary (env stays pinned: non-prod
+    // disk capacity is noise for the ops team's at-a-glance view). BU
+    // follows the global rail selection. Demo path (DISK_SUMMARY_PROD
+    // absent) falls back to counting the loaded items array.
+    const dProd = window.DISK_SUMMARY_PROD;
     let dCrit, dWarn, dTotal;
-    if (dGP) {
-      dCrit = dGP.criticalCount;
-      dWarn = dGP.warningCount;
-      dTotal = dGP.totalCount;
+    if (dProd) {
+      dCrit = dProd.criticalCount;
+      dWarn = dProd.warningCount;
+      dTotal = dProd.totalCount;
     } else {
       const disks = (window.DISKS_DATA && Array.isArray(window.DISKS_DATA.items)) ? window.DISKS_DATA.items : [];
       dCrit = disks.filter(d => d.alertStatus === 3).length;
@@ -634,9 +695,9 @@
       h('div.cs-label', null, 'Disk capacity'),
       h('div.cs-value', null, dValue, h('span.cs-unit', null, dUnit)),
       h('div.cs-sub', null,
-        dCrit && dWarn ? (dWarn + ' warning · ' + dTotal + ' tracked (Group prod)')
-        : dCrit || dWarn ? (dTotal + ' tracked (Group prod)')
-        : 'all under threshold (Group prod)'),
+        dCrit && dWarn ? (dWarn + ' warning · ' + dTotal + ' tracked (Production)')
+        : dCrit || dWarn ? (dTotal + ' tracked (Production)')
+        : 'all under threshold (Production)'),
       (dCrit || dWarn) ? h('div.cs-link', null, 'Open Disk Monitoring') : null,
     ));
 

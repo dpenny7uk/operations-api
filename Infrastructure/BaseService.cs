@@ -21,9 +21,6 @@ public class DateOnlyTypeHandler : SqlMapper.TypeHandler<DateOnly>
     };
 }
 
-/// <summary>
-/// Base class for data services - provides common query building utilities.
-/// </summary>
 public abstract class BaseService<TService> where TService : class
 {
     protected readonly IDbConnection Db;
@@ -53,9 +50,6 @@ public abstract class BaseService<TService> where TService : class
         }
     }
 
-    /// <summary>
-    /// Execute a void database operation with error logging.
-    /// </summary>
     protected async Task RunDbAsync(Func<Task> operation,
         [System.Runtime.CompilerServices.CallerMemberName] string caller = "")
     {
@@ -76,9 +70,6 @@ public abstract class BaseService<TService> where TService : class
     protected static string EscapeLike(string value)
         => value.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_");
 
-    /// <summary>
-    /// Add ILIKE filter with wildcards for partial matching.
-    /// </summary>
     protected static void AddILikeFilter(
         ref string sql,
         DynamicParameters p,
@@ -97,9 +88,6 @@ public abstract class BaseService<TService> where TService : class
         p.Add(paramName, pattern);
     }
 
-    /// <summary>
-    /// Add exact match filter.
-    /// </summary>
     protected static void AddExactFilter(
         ref string sql,
         DynamicParameters p,
@@ -120,9 +108,6 @@ public abstract class BaseService<TService> where TService : class
         "excluded_at", "held_until"
     };
 
-    /// <summary>
-    /// Add LIMIT/OFFSET pagination.
-    /// </summary>
     protected static void AddPagination(
         ref string sql,
         DynamicParameters p,
@@ -148,9 +133,6 @@ public abstract class BaseService<TService> where TService : class
     }
 }
 
-/// <summary>
-/// SQL table name constants.
-/// </summary>
 public static class Sql
 {
     public static class Tables
@@ -167,6 +149,7 @@ public static class Sql
         public const string UnmatchedServers = "system.unmatched_servers";
         public const string ServerAliases = "system.server_aliases";
         public const string EolSoftware = "eol.end_of_life_software";
+        public const string UnmatchedEolSoftware = "eol.unmatched_software";
         public const string ScanFailures = "system.scan_failures";
         public const string PatchExclusions = "patching.patch_exclusions";
         public const string ExclusionAlerts = "patching.exclusion_alerts";

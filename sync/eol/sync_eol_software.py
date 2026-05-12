@@ -34,7 +34,9 @@ def is_server(machine_name: str) -> bool:
 
 
 # Databricks query for direct SQL API access (fallback).
-# The Jobs API approach uses a saved query in Databricks instead.
+# The Jobs API approach uses a saved query in Databricks instead — keep this
+# pre-filter aligned with the saved query so both code paths see the same
+# input volume.
 EOL_SOFTWARE_QUERY = """\
 SELECT
     machine_name,
@@ -47,27 +49,54 @@ WHERE drab_decomissioned IS NULL
     LOWER(ivanti_installed_software) LIKE '%sql server%'
     OR LOWER(ivanti_installed_software) LIKE '%.net framework%'
     OR LOWER(ivanti_installed_software) LIKE '%iis%'
+    OR LOWER(ivanti_installed_software) LIKE '%management studio%'
+    OR LOWER(ivanti_installed_software) LIKE '%odbc driver%'
+    OR LOWER(ivanti_installed_software) LIKE '%ole db%'
   )
 """
 
 # Pattern mapping: (regex on ivanti_installed_software, eol_product, eol_product_version)
 # These map installed software names to endoflife.date product identifiers.
 # Order matters — first match wins. More specific patterns should come before general ones.
+#
+# When adding patterns, cross-check the EOL dates against
+# https://learn.microsoft.com/en-us/lifecycle/products and add the
+# corresponding eol.end_of_life_software product-level row via sync_eol_dates.py
+# (otherwise the per-server upsert here has no lifecycle row to join against).
 SOFTWARE_PATTERNS = [
-    # SQL Server — match by marketing year, map to internal version for endoflife.date
+    # === SQL Server Management Studio (SSMS) ==============================
+    # Place BEFORE generic "sql server" so SSMS matches first.
+    (re.compile(r'sql server management studio.*\b20\b', re.IGNORECASE), 'ssms', '20'),
+    (re.compile(r'sql server management studio.*\b19\b', re.IGNORECASE), 'ssms', '19'),
+    (re.compile(r'sql server management studio.*\b18\b', re.IGNORECASE), 'ssms', '18'),
+    (re.compile(r'sql server management studio.*\b17\b', re.IGNORECASE), 'ssms', '17'),
+
+    # === SQL Server (engine) ==============================================
+    # Match by marketing year, map to internal version for endoflife.date.
     (re.compile(r'sql server 2012', re.IGNORECASE), 'mssqlserver', '11.0'),
     (re.compile(r'sql server 2014', re.IGNORECASE), 'mssqlserver', '12.0'),
     (re.compile(r'sql server 2016', re.IGNORECASE), 'mssqlserver', '13.0'),
     (re.compile(r'sql server 2017', re.IGNORECASE), 'mssqlserver', '14.0'),
     (re.compile(r'sql server 2019', re.IGNORECASE), 'mssqlserver', '15.0'),
     (re.compile(r'sql server 2022', re.IGNORECASE), 'mssqlserver', '16.0'),
-    # .NET Framework
+
+    # === ODBC Driver for SQL Server =======================================
+    (re.compile(r'odbc driver 18 for sql server', re.IGNORECASE), 'mssql-odbc', '18'),
+    (re.compile(r'odbc driver 17 for sql server', re.IGNORECASE), 'mssql-odbc', '17'),
+    (re.compile(r'odbc driver 13 for sql server', re.IGNORECASE), 'mssql-odbc', '13'),
+
+    # === OLE DB Driver for SQL Server (MSOLEDBSQL) ========================
+    (re.compile(r'(microsoft )?ole db driver 19 for sql server', re.IGNORECASE), 'mssql-oledb', '19'),
+    (re.compile(r'(microsoft )?ole db driver 18 for sql server', re.IGNORECASE), 'mssql-oledb', '18'),
+
+    # === .NET Framework ===================================================
     (re.compile(r'\.net framework 4\.8', re.IGNORECASE), 'dotnet-framework', '4.8'),
     (re.compile(r'\.net framework 4\.7', re.IGNORECASE), 'dotnet-framework', '4.7'),
     (re.compile(r'\.net framework 4\.6', re.IGNORECASE), 'dotnet-framework', '4.6'),
     (re.compile(r'\.net framework 4\.5', re.IGNORECASE), 'dotnet-framework', '4.5'),
     (re.compile(r'\.net framework 3\.5', re.IGNORECASE), 'dotnet-framework', '3.5'),
-    # IIS
+
+    # === IIS ==============================================================
     (re.compile(r'\biis\b', re.IGNORECASE), 'iis', '10.0'),
 ]
 
@@ -83,6 +112,33 @@ def map_software_to_product(software_name: str):
     return None
 
 
+def _record_unmatched(ctx, unmatched: dict):
+    """Upsert unmatched software names into eol.unmatched_software.
+
+    Best-effort: failures are logged and swallowed so they cannot abort the
+    main sync transaction. The unmatched table is a work-list — losing a run
+    of it just means the next sync re-records the same names.
+    """
+    if ctx.dry_run:
+        return
+    try:
+        with ctx.conn.cursor() as cur:
+            for software_name, (software_version, sample_machine) in unmatched.items():
+                cur.execute(
+                    "SELECT eol.record_unmatched_software(%s, %s, %s, %s)",
+                    (software_name[:500], 'databricks',
+                     (software_version or '')[:255] or None,
+                     (sample_machine or '')[:255] or None)
+                )
+            ctx.conn.commit()
+    except Exception as exc:
+        logger.warning("Failed to record unmatched software (continuing): %s", exc)
+        try:
+            ctx.conn.rollback()
+        except Exception:
+            pass
+
+
 def sync_eol_software(ctx, records: list):
     """Sync per-server EOL software to PostgreSQL using temp table + upsert pattern."""
     if not records:
@@ -91,11 +147,16 @@ def sync_eol_software(ctx, records: list):
 
     # Map raw asset_inventory records to (eol_product, eol_product_version, machine_name)
     mapped = {}  # deduplicate: (product, version, machine_name) -> True
+    # Deduplicate skipped software here so we call record_unmatched_software once
+    # per distinct (name, version, sample-machine) per run. The DB function still
+    # increments occurrence_count atomically across runs.
+    unmatched_seen = {}  # raw_software_name -> (raw_software_version, sample_machine_name)
     skipped = 0
     filtered_desktops = 0
     for r in records:
         machine_name = (r.get('machine_name') or '').strip()
         software_name = r.get('ivanti_installed_software') or ''
+        software_version = r.get('ivanti_software_version') or None
 
         if not machine_name or not software_name:
             skipped += 1
@@ -109,6 +170,10 @@ def sync_eol_software(ctx, records: list):
         if not match:
             logger.debug("No pattern match for: %s", software_name)
             skipped += 1
+            # Record the unmatched software so the dashboard's work-list can
+            # surface high-frequency patterns to add to SOFTWARE_PATTERNS.
+            if software_name not in unmatched_seen:
+                unmatched_seen[software_name] = (software_version, machine_name)
             continue
 
         product, version = match
@@ -120,6 +185,9 @@ def sync_eol_software(ctx, records: list):
         logger.info("Filtered %d non-server records (desktop/unknown prefix)", filtered_desktops)
     if skipped:
         logger.info("Skipped %d records (no pattern match or empty fields)", skipped)
+    if unmatched_seen:
+        logger.info("Recording %d distinct unmatched software names to eol.unmatched_software", len(unmatched_seen))
+        _record_unmatched(ctx, unmatched_seen)
 
     if not mapped:
         raise RuntimeError(

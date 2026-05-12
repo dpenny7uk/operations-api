@@ -24,11 +24,10 @@ public class ServersController : ControllerBase
     {
         var name = User.Identity?.Name;
         if (name is null)
-            _logger.LogWarning("User identity could not be resolved — attributing action to 'api'");
+            _logger.LogWarning("User identity could not be resolved - attributing action to 'api'");
         return name ?? "api";
     }
 
-    /// <summary>List servers with optional filtering by environment, application, or search term.</summary>
     [HttpGet]
     [ProducesResponseType(200)]
     [ProducesResponseType(400)]
@@ -73,7 +72,6 @@ public class ServersController : ControllerBase
         return Ok(summary);
     }
 
-    /// <summary>Get a server by its numeric ID.</summary>
     [HttpGet("{id}")]
     [ProducesResponseType(200)]
     [ProducesResponseType(404)]
@@ -83,7 +81,6 @@ public class ServersController : ControllerBase
         return server == null ? NotFound() : Ok(server);
     }
 
-    /// <summary>Get the patch cycle history for a single server.</summary>
     [HttpGet("{id}/patch-history")]
     [ProducesResponseType(200)]
     [ProducesResponseType(404)]

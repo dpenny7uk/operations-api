@@ -38,13 +38,26 @@ parameters:
     default: false
 
 steps:
+  # Cache pip downloads keyed on requirements.txt hash. Cache hit skips the
+  # network round-trip entirely; cache miss populates the cache for next run.
+  # Path lives under $(Pipeline.Workspace) so it's per-pipeline and isolated
+  # between concurrent agent jobs.
+  - task: Cache@2
+    inputs:
+      key: 'pip | "$(Agent.OS)" | $(Build.SourcesDirectory)/operations-api/sync/requirements.txt'
+      path: '$(Pipeline.Workspace)\.pip-cache'
+    displayName: 'Cache pip downloads'
+
   - powershell: |
       $repoRoot = "$(Build.SourcesDirectory)\operations-api"
       $workDir = "$(Build.StagingDirectory)\sync_run"
       New-Item -ItemType Directory -Force -Path $workDir | Out-Null
       Copy-Item "$repoRoot\sync\common.py" "$workDir\"
       Copy-Item "$repoRoot\sync\${{ parameters.scriptPath }}" "$workDir\"
-      pip install -r "$repoRoot\sync\requirements.txt"
+      # --cache-dir points pip at the cached wheels above. When sync/requirements.txt
+      # is regenerated with `pip-compile --generate-hashes`, add `--require-hashes`
+      # to this command line to make supply-chain pinning enforceable.
+      pip install --cache-dir "$(Pipeline.Workspace)\.pip-cache" -r "$repoRoot\sync\requirements.txt"
       if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     displayName: 'Prepare sync environment'
     timeoutInMinutes: 10
@@ -94,6 +107,7 @@ steps:
     displayName: 'Alert Teams on sync failure'
     condition: failed()
     continueOnError: true
+    timeoutInMinutes: 2
     env:
       TEAMS_WEBHOOK_URL: $(TEAMS_WEBHOOK_URL)
       ALERT_DISPLAY_NAME: "Sync Failed: ${{ parameters.displayName }}"

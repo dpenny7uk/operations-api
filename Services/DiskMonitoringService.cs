@@ -20,7 +20,7 @@ public class DiskMonitoringService : BaseService<DiskMonitoringService>, IDiskMo
         // Four queries implement the cross-facet rule: each breakdown is
         // computed with all OTHER active filters, EXCLUDING its own dimension.
         // This means picking BU rescopes env + status counts, picking env
-        // rescopes BU + status counts, etc. — but a dropdown's own labels stay
+        // rescopes BU + status counts, etc. - but a dropdown's own labels stay
         // stable when you re-pick from it. Top-level totals are scoped by all.
         var (topWhere, topArgs) = BuildDiskFilterClause(environment, businessUnit, alertStatus);
         var (envBreakdownWhere, envBreakdownArgs) = BuildDiskFilterClause(environment, businessUnit, alertStatus, exclude: "environment");
@@ -85,7 +85,7 @@ public class DiskMonitoringService : BaseService<DiskMonitoringService>, IDiskMo
         // written by the sync (_canonicalize_env / _canonicalize_bu in
         // sync_solarwinds_disks.py); equality match avoids any per-query LOWER().
         // serverName uses ILIKE %X% to mirror the certificates partial-match
-        // behaviour — used by the server detail page to fetch one server's disks.
+        // behaviour - used by the server detail page to fetch one server's disks.
         var (whereClause, scopedArgs) = BuildDiskFilterClause(environment, businessUnit, alertStatus, serverName: serverName);
         scopedArgs.Add("Limit", limit);
         scopedArgs.Add("Offset", offset);

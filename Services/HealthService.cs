@@ -48,7 +48,7 @@ public class HealthService : BaseService<HealthService>, IHealthService
                 END AS FreshnessStatus,
                 records_processed AS RecordsProcessed,
                 consecutive_failures AS ConsecutiveFailures,
-                CASE WHEN last_error_message IS NOT NULL THEN 'Sync error occurred — check server logs' ELSE NULL END AS LastErrorMessage,
+                CASE WHEN last_error_message IS NOT NULL THEN 'Sync error occurred - check server logs' ELSE NULL END AS LastErrorMessage,
                 expected_schedule AS ExpectedSchedule
             FROM {Sql.Tables.SyncStatus}
             ORDER BY CASE status 
@@ -71,7 +71,7 @@ public class HealthService : BaseService<HealthService>, IHealthService
                 records_inserted AS RecordsInserted,
                 records_updated AS RecordsUpdated,
                 records_failed AS RecordsFailed,
-                CASE WHEN error_message IS NOT NULL THEN 'Error occurred — check server logs' ELSE NULL END AS ErrorMessage
+                CASE WHEN error_message IS NOT NULL THEN 'Error occurred - check server logs' ELSE NULL END AS ErrorMessage
             FROM {Sql.Tables.SyncHistory}
             WHERE sync_name = @SyncName
             ORDER BY started_at DESC

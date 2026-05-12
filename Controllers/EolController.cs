@@ -16,33 +16,42 @@ public class EolController : ControllerBase
     public EolController(IEolService svc) => _svc = svc;
 
     /// <summary>Get EOL summary with counts by status (eol, extended, approaching, supported).</summary>
+    /// <param name="hasServers">When true, only count products with affected servers &gt; 0.</param>
+    /// <param name="businessUnit">Optional canonical business-unit filter - narrows the per-product affected-server counts (and therefore the hasServers projection) to servers in that BU.</param>
     [HttpGet("summary")]
     [ResponseCache(Duration = 60, Location = ResponseCacheLocation.Client)]
     [ProducesResponseType(200)]
-    public async Task<IActionResult> GetSummary([FromQuery] bool hasServers = false)
-        => Ok(await _svc.GetSummaryAsync(hasServers));
+    [ProducesResponseType(400)]
+    public async Task<IActionResult> GetSummary(
+        [FromQuery] bool hasServers = false,
+        [FromQuery] string? businessUnit = null)
+    {
+        if (businessUnit?.Length > 100 || InputGuard.ContainsControlChars(businessUnit))
+            return BadRequest("businessUnit parameter is invalid.");
+        var buFilter = string.IsNullOrWhiteSpace(businessUnit) ? null : businessUnit.Trim();
+        return Ok(await _svc.GetSummaryAsync(hasServers, buFilter));
+    }
 
-    /// <summary>List EOL software entries with optional filtering.</summary>
-    /// <param name="alertLevel">Filter by status (eol, approaching, supported).</param>
-    /// <param name="product">Filter by product name (partial match).</param>
-    /// <param name="limit">Maximum results (1-1000, default 100).</param>
-    /// <param name="hasServers">When true, only return products with affected servers > 0.</param>
     [HttpGet]
     [ProducesResponseType(200)]
+    [ProducesResponseType(400)]
     public async Task<IActionResult> List(
         [FromQuery] string? alertLevel,
         [FromQuery] string? product,
         [FromQuery] int limit = 100,
-        [FromQuery] bool hasServers = false)
+        [FromQuery] bool hasServers = false,
+        [FromQuery] string? businessUnit = null)
     {
         if (alertLevel != null && alertLevel.ToLower() is not ("eol" or "extended" or "approaching" or "supported"))
             return BadRequest("alertLevel must be one of: eol, approaching, supported.");
         if (product?.Length > 255 || InputGuard.ContainsControlChars(product))
             return BadRequest("product parameter is invalid.");
-        return Ok(await _svc.ListEolSoftwareAsync(alertLevel, product, Math.Clamp(limit, 1, 1000), hasServers));
+        if (businessUnit?.Length > 100 || InputGuard.ContainsControlChars(businessUnit))
+            return BadRequest("businessUnit parameter is invalid.");
+        var buFilter = string.IsNullOrWhiteSpace(businessUnit) ? null : businessUnit.Trim();
+        return Ok(await _svc.ListEolSoftwareAsync(alertLevel, product, Math.Clamp(limit, 1, 1000), hasServers, buFilter));
     }
 
-    /// <summary>Get EOL details for a specific product and version.</summary>
     [HttpGet("{product}/{version}")]
     [ProducesResponseType(200)]
     [ProducesResponseType(400)]
@@ -58,7 +67,6 @@ public class EolController : ControllerBase
         return detail == null ? NotFound() : Ok(detail);
     }
 
-    /// <summary>Get all EOL software entries affecting a specific server.</summary>
     [HttpGet("server/{serverName}")]
     [ProducesResponseType(200)]
     [ProducesResponseType(400)]
@@ -68,4 +76,11 @@ public class EolController : ControllerBase
             return BadRequest("Server name is required and must not exceed 255 characters.");
         return Ok(await _svc.GetByServerAsync(serverName));
     }
+
+    /// <summary>Installed-software strings that did not match SOFTWARE_PATTERNS in the EOL sync. Top-N by frequency = work-list for catalogue expansion.</summary>
+    [HttpGet("unmatched")]
+    [ResponseCache(Duration = 60, Location = ResponseCacheLocation.Client)]
+    [ProducesResponseType(200)]
+    public async Task<IActionResult> GetUnmatched([FromQuery] int limit = 50)
+        => Ok(await _svc.GetUnmatchedSoftwareAsync(Math.Clamp(limit, 1, 500)));
 }

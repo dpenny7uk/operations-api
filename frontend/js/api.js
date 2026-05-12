@@ -84,20 +84,29 @@ export async function api(path) {
   }
 }
 
-// --- POST wrapper (returns { ok, status, error }) ---
+// --- Write wrappers (returns { ok, status, error }) ---
 // Errors are also recorded in the global apiErrors banner so users see a
 // persistent signal, not just the caller's own alert/toast.
-export async function apiPost(path, body = {}) {
+//
+// X-Requested-With: ops-api is the CSRF defence enforced by
+// RequireRequestedWithHeaderMiddleware on the backend. Browsers cannot set
+// custom headers on a simple cross-origin request, so a forged write from a
+// foreign intranet origin will trip CORS preflight and never reach the API.
+async function apiWrite(method, path, body) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
   try {
-    const res = await fetch(API_BASE + path, {
-      method: 'POST',
+    const init = {
+      method,
       credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'ops-api',
+      },
       signal: controller.signal,
-      body: JSON.stringify(body),
-    });
+    };
+    if (body !== undefined) init.body = JSON.stringify(body);
+    const res = await fetch(API_BASE + path, init);
     if (!res.ok) {
       recordHttpError(path, res.status);
       const text = await res.text().catch(() => '');
@@ -111,3 +120,7 @@ export async function apiPost(path, body = {}) {
     clearTimeout(timer);
   }
 }
+
+export async function apiPost(path, body = {})   { return apiWrite('POST',   path, body); }
+export async function apiPatch(path, body = {})  { return apiWrite('PATCH',  path, body); }
+export async function apiDelete(path)            { return apiWrite('DELETE', path, undefined); }

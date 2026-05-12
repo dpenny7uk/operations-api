@@ -589,6 +589,177 @@ table.op td .btn.danger:hover {
 .cert-strip-legend .sw.ok   { background: var(--ok); }
 .cert-strip-legend .sw.exp  { background: var(--ink); }
 
+/* ── BU SCOPE (rail global filter) ──────────────────── */
+.bu-scope-wrap {
+  padding: 0 4px;
+  margin-bottom: 22px;
+}
+.bu-scope-wrap .rail-section-label {
+  margin-bottom: 8px;
+}
+select.bu-scope {
+  width: 100%;
+  height: 32px;
+  padding: 0 24px 0 8px;
+  border: 1px solid var(--rule-2);
+  border-radius: 2px;
+  background: var(--card);
+  color: var(--ink);
+  /* Sans-serif (vs the mono used elsewhere in the rail) so longer BU names
+     like "Contoso London Market" / "Contoso Special Risks" actually fit
+     without truncation. Mono is ~25% wider per glyph at the same size. */
+  font-family: inherit;
+  font-size: 11px;
+  letter-spacing: 0;
+  cursor: pointer;
+  transition: border-color var(--t);
+  text-overflow: ellipsis;
+  /* Restore the chevron in dark themes where the default disappears against
+     the dark dropdown background. */
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--ink-3) 50%),
+                    linear-gradient(135deg, var(--ink-3) 50%, transparent 50%);
+  background-position: calc(100% - 14px) 50%, calc(100% - 9px) 50%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+select.bu-scope:focus { outline: none; border-color: var(--ink); }
+select.bu-scope option {
+  background: var(--card);
+  color: var(--ink);
+  font-size: 12px; /* native option list — most browsers ignore the parent's smaller size, so set explicitly to keep parity */
+}
+
+.bu-scope-note {
+  margin-top: 8px;
+  padding: 0 2px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-3);
+  letter-spacing: 0.02em;
+  line-height: 1.4;
+}
+.bu-scope-note b { color: var(--ink); font-weight: 600; }
+
+/* Theme toggle in the rail footer. Overrides every dimension that the global
+   .theme-toggle rule (32×32 round icon button) sets, since we want a wide
+   pill with the current theme name on the left and the swap-to glyph on
+   the right — like a select control rather than an icon button. */
+.rail-footer .theme-toggle {
+  width: 100%;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 12px;
+  border: 1px solid var(--rule-2);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ink-2);
+  font-family: var(--mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  cursor: pointer;
+  margin-bottom: 12px;
+  transition: all var(--t);
+}
+.rail-footer .theme-toggle:hover { border-color: var(--ink); color: var(--ink); }
+.rail-footer .theme-toggle .glyph { font-size: 14px; line-height: 1; color: var(--ink-3); }
+
+/* Inline API status under the theme toggle: just a colored dot + plain mono
+   text, no pill wash. The .off / .warn variants colour the dot only — text
+   colour stays neutral so the row blends with the surrounding rail-footer
+   metadata rather than competing with it. */
+.rail-footer .rail-api {
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+  color: var(--ink-2);
+  text-transform: none;
+  letter-spacing: 0.04em;
+  font-size: 11px;
+}
+.rail-footer .rail-api .d { background: var(--ok); }
+.rail-footer .rail-api.off  { color: var(--ink-2); }
+.rail-footer .rail-api.off  .d { background: var(--crit); }
+.rail-footer .rail-api.warn { color: var(--ink-2); }
+.rail-footer .rail-api.warn .d { background: var(--warn); }
+
+/* ── SERVER DETAIL CARDS ──────────────────────────────── */
+.sd-card {
+  border: 1px solid var(--rule);
+  background: var(--card);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.sd-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid var(--rule);
+}
+.sd-card-title {
+  font-family: var(--display);
+  font-size: 22px;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+.sd-card-sub {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--ink-3);
+}
+.sd-card-body { padding: 4px 0 8px; }
+.sd-card-body table.op { border: none; }
+.sd-lifecycle {
+  padding: 6px 20px 14px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  row-gap: 10px;
+  column-gap: 24px;
+  font-size: 13px;
+}
+.sd-lifecycle .k { color: var(--ink-3); }
+.sd-lifecycle .v { color: var(--ink); text-align: right; font-variant-numeric: tabular-nums; }
+.sd-lifecycle .v.warn { color: var(--warn); }
+.sd-lifecycle .v.crit { color: var(--crit); }
+
+.sd-actions {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 22px;
+}
+.sd-actions .btn {
+  font-family: var(--mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.10em;
+}
+.sd-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+.sd-breadcrumb {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-left: auto;
+  align-self: center;
+}
+.sd-breadcrumb b { color: var(--ink); }
+
 /* ── FILTER BAR ──────────────────────────────────────── */
 .filters {
   display: flex;

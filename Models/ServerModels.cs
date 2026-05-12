@@ -27,7 +27,7 @@ public class ServerDetail : Server
 /// One row of the server's patch cycle history. Status is computed in the
 /// service: 'held' if an active patch_exclusion covers the cycle date,
 /// 'patched' if the cycle date is in the past, otherwise 'scheduled'.
-/// Optimistic until Ivanti reconciliation populates patch_schedule.patch_status —
+/// Optimistic until Ivanti reconciliation populates patch_schedule.patch_status -
 /// see CLAUDE.md.
 /// </summary>
 public class ServerPatchHistoryItem
@@ -48,7 +48,7 @@ public class ServerMatch
 public class ServerSummary
 {
     // Top-level counts respect the optional environment + businessUnit filters
-    // on the query string. The breakdown lists are cross-facet scoped — env
+    // on the query string. The breakdown lists are cross-facet scoped - env
     // counts reflect the current BU filter (excluding env from its own scope),
     // and BU counts reflect the current env filter (excluding BU).
     public int TotalCount { get; set; }

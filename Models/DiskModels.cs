@@ -58,7 +58,7 @@ public class Disk
     public decimal ThresholdCritPct { get; set; }
     public DateTime CapturedAt { get; set; }
 
-    // Linear-regression projection — null when slope <= 0 (disk stable or shrinking).
+    // Linear-regression projection - null when slope <= 0 (disk stable or shrinking).
     public double? DaysUntilCritical { get; set; }
 }
 

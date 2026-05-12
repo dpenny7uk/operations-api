@@ -40,8 +40,8 @@ public interface IServerService
 
 public interface IPatchingService
 {
-    Task<NextPatchingSummary?> GetNextPatchingSummaryAsync();
-    Task<IEnumerable<PatchCycle>> ListPatchCyclesAsync(bool upcomingOnly, int limit);
+    Task<NextPatchingSummary?> GetNextPatchingSummaryAsync(string? businessUnit = null);
+    Task<IEnumerable<PatchCycle>> ListPatchCyclesAsync(bool upcomingOnly, int limit, string? businessUnit = null);
     Task<PagedResult<PatchScheduleItem>> GetCycleServersAsync(int cycleId, string? patchGroup, bool? hasIssues, string? search, int limit = 100, int offset = 0);
     Task<IEnumerable<KnownIssue>> ListKnownIssuesAsync(string? severity, string? app, string? patchType, bool activeOnly);
     Task<IEnumerable<GlobalServerSearchResult>> SearchServersGlobalAsync(string query, int limit);
@@ -79,10 +79,11 @@ public interface IAlertsService
 
 public interface IEolService
 {
-    Task<EolSummary> GetSummaryAsync(bool hasServers = false);
-    Task<IEnumerable<EolSoftware>> ListEolSoftwareAsync(string? alertLevel, string? product, int limit, bool hasServers = false);
+    Task<EolSummary> GetSummaryAsync(bool hasServers = false, string? businessUnit = null);
+    Task<IEnumerable<EolSoftware>> ListEolSoftwareAsync(string? alertLevel, string? product, int limit, bool hasServers = false, string? businessUnit = null);
     Task<EolSoftwareDetail?> GetByProductVersionAsync(string product, string version);
     Task<IEnumerable<EolSoftware>> GetByServerAsync(string serverName, int limit = 500);
+    Task<IEnumerable<UnmatchedEolSoftware>> GetUnmatchedSoftwareAsync(int limit);
 }
 
 public interface IDiskMonitoringService

@@ -62,7 +62,7 @@ public class PatchExclusionService : BaseService<PatchExclusionService>, IPatchE
             WHERE pe.is_active
             {topExtra}", topArgs);
 
-        // States[] — single-row counts, then unpivot.
+        // States[] - single-row counts, then unpivot.
         var stRow = await Db.QueryFirstAsync($@"
             SELECT
                 COUNT(*) FILTER (WHERE pe.held_until < CURRENT_DATE)::INT AS OverdueCount,
@@ -80,7 +80,7 @@ public class PatchExclusionService : BaseService<PatchExclusionService>, IPatchE
             new() { State = "active",        TotalCount = (int)stRow.activecount },
         };
 
-        // BusinessUnits[] — GROUP BY business_unit under state-scoped (BU-excluded).
+        // BusinessUnits[] - GROUP BY business_unit under state-scoped (BU-excluded).
         var buRows = await Db.QueryAsync<ExclusionBuCount>($@"
             SELECT
                 COALESCE(s.business_unit, 'Unknown') AS BusinessUnit,
@@ -115,7 +115,7 @@ public class PatchExclusionService : BaseService<PatchExclusionService>, IPatchE
         }
 
         // State filter uses the same vocabulary as StateClauseFor but with the
-        // pe-aliased columns from the existing data SQL — append directly.
+        // pe-aliased columns from the existing data SQL - append directly.
         where += StateClauseFor(state);
 
         var countSql = $@"

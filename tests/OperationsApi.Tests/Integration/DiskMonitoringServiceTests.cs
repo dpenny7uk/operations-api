@@ -40,7 +40,7 @@ public class DiskMonitoringServiceTests : IntegrationTestBase
         var items = page.Items.ToList();
         Assert.Equal(4, items.Count);
 
-        // ORDER BY alert_status DESC, percent_used DESC — crit (API01) first.
+        // ORDER BY alert_status DESC, percent_used DESC - crit (API01) first.
         Assert.Equal("API01", items[0].ServerName);
         Assert.Equal((short)3, items[0].AlertStatus);
         Assert.Equal("WEB02", items[1].ServerName);
@@ -77,7 +77,7 @@ public class DiskMonitoringServiceTests : IntegrationTestBase
         var svc = CreateService();
         var page = await svc.ListDisksAsync(limit: 100, offset: 0);
 
-        // DEV01 only has the single current snapshot — slope can't be fitted.
+        // DEV01 only has the single current snapshot - slope can't be fitted.
         var dev01 = page.Items.Single(d => d.ServerName == "DEV01");
         Assert.Null(dev01.DaysUntilCritical);
     }

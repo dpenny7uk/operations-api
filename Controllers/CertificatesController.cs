@@ -30,12 +30,6 @@ public class CertificatesController : ControllerBase
         return Ok(await _svc.GetSummaryAsync(buFilter, levelFilter));
     }
 
-    /// <summary>List certificates with optional filtering by alert level, server, BU, or days until expiry.</summary>
-    /// <param name="alertLevel">Filter by alert level (critical, warning, ok, expired).</param>
-    /// <param name="serverName">Filter by server name (partial match).</param>
-    /// <param name="daysUntilExpiry">Only return certificates expiring within this many days.</param>
-    /// <param name="businessUnit">Optional canonical business-unit filter.</param>
-    /// <param name="limit">Maximum results (1-1000, default 100).</param>
     [HttpGet]
     [ProducesResponseType(200)]
     public async Task<IActionResult> List(
@@ -54,7 +48,6 @@ public class CertificatesController : ControllerBase
         return Ok(await _svc.ListCertificatesAsync(alertLevel, serverName, days, Math.Clamp(limit, 1, 1000), buFilter));
     }
 
-    /// <summary>Get a specific certificate by ID.</summary>
     [HttpGet("{id}")]
     [ProducesResponseType(200)]
     [ProducesResponseType(404)]
@@ -64,7 +57,6 @@ public class CertificatesController : ControllerBase
         return cert == null ? NotFound() : Ok(cert);
     }
 
-    /// <summary>Get all certificates for a specific server.</summary>
     [HttpGet("server/{serverName}")]
     [ProducesResponseType(200)]
     [ProducesResponseType(400)]

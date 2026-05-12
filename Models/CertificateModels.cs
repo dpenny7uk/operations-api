@@ -3,7 +3,7 @@ namespace OperationsApi.Models;
 public class CertificateSummary
 {
     // Top-level counts respect the optional businessUnit + level filters on the
-    // query string. The breakdown lists below are cross-facet scoped — Levels
+    // query string. The breakdown lists below are cross-facet scoped - Levels
     // counts reflect the active BU filter (excluding level), and BusinessUnits
     // counts reflect the active level filter (excluding BU).
     public int CriticalCount { get; set; }

@@ -16,7 +16,7 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
     public PatchingService(IDbConnection db, ILogger<PatchingService> logger)
         : base(db, logger) { }
 
-    public Task<NextPatchingSummary?> GetNextPatchingSummaryAsync() => RunDbAsync(async () =>
+    public Task<NextPatchingSummary?> GetNextPatchingSummaryAsync(string? businessUnit = null) => RunDbAsync(async () =>
     {
         // Find ALL upcoming active cycles in the next 45 days. Weekly cycles
         // (most groups) and monthly cycles (e.g. usa/usb) both fall inside
@@ -41,18 +41,29 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
 
         var cycleIds = cycles.Select(c => c.CycleId).ToArray();
 
+        // When BU is set, narrow the per-cycle counts and issue counts to
+        // servers in that BU. The join uses ps.server_id → shared.servers
+        // (CLAUDE.md note: patch_schedule.business_unit is denormalised; the
+        // canonical BU lives on shared.servers). Rows with server_id IS NULL
+        // (soft-deleted servers) are excluded by the inner join - correct,
+        // since they no longer belong to any BU.
+        var hasBu = !string.IsNullOrWhiteSpace(businessUnit);
+        var buJoin = hasBu
+            ? $" INNER JOIN {Sql.Tables.Servers} s ON s.server_id = ps.server_id AND s.is_active = TRUE AND s.business_unit = @BusinessUnit"
+            : "";
+
         // Get servers by group, issues by severity, and the configured time
         // window per patch group. DISTINCT ON collapses the onprem/azure pair
         // to one row; WHERE scheduled_time IS NOT NULL drops the empty Azure
         // placeholder rows.
         using var multi = await Db.QueryMultipleAsync($@"
-            SELECT cycle_id AS CycleId, patch_group AS PatchGroup, COUNT(*)::INT AS Count
-            FROM {Sql.Tables.PatchSchedule}
-            WHERE cycle_id = ANY(@CycleIds)
-            GROUP BY cycle_id, patch_group;
+            SELECT ps.cycle_id AS CycleId, ps.patch_group AS PatchGroup, COUNT(*)::INT AS Count
+            FROM {Sql.Tables.PatchSchedule} ps{buJoin}
+            WHERE ps.cycle_id = ANY(@CycleIds)
+            GROUP BY ps.cycle_id, ps.patch_group;
 
             SELECT ki.severity AS Severity, COUNT(DISTINCT ps.server_name)::INT AS ServerCount
-            FROM {Sql.Tables.PatchSchedule} ps
+            FROM {Sql.Tables.PatchSchedule} ps{buJoin}
             JOIN {Sql.Tables.KnownIssues} ki ON ki.is_active
                 AND (LOWER(ps.app) = ANY(COALESCE(ki.affected_apps, ARRAY[]::TEXT[])) OR LOWER(ps.service) = ANY(COALESCE(ki.affected_services, ARRAY[]::TEXT[])))
             WHERE ps.cycle_id = ANY(@CycleIds)
@@ -62,7 +73,7 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
             FROM {Sql.Tables.PatchWindows}
             WHERE scheduled_time IS NOT NULL
             ORDER BY patch_group, window_type;
-        ", new { CycleIds = cycleIds });
+        ", new { CycleIds = cycleIds, BusinessUnit = businessUnit });
 
         var groups = (await multi.ReadAsync<GroupCount>()).ToList();
         var issues = (await multi.ReadAsync<SeverityCount>()).ToList();
@@ -106,8 +117,17 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
         };
     });
 
-    public Task<IEnumerable<PatchCycle>> ListPatchCyclesAsync(bool upcomingOnly, int limit) => RunDbAsync(async () =>
+    public Task<IEnumerable<PatchCycle>> ListPatchCyclesAsync(bool upcomingOnly, int limit, string? businessUnit = null) => RunDbAsync(async () =>
     {
+        // When BU is set, narrow the per-cycle aggregate (server count + the
+        // completed/failed/started/finished projections) to servers in that
+        // BU. Cycles themselves remain visible regardless of BU - every BU
+        // shares the same monthly cadence - but their headline server counts
+        // become BU-scoped, matching the rest of the console's per-BU view.
+        var hasBu = !string.IsNullOrWhiteSpace(businessUnit);
+        var buJoin = hasBu
+            ? $" INNER JOIN {Sql.Tables.Servers} s ON s.server_id = ps.server_id AND s.is_active = TRUE AND s.business_unit = @BusinessUnit"
+            : "";
         var sql = $@"
             SELECT
                 pc.cycle_id AS CycleId,
@@ -134,7 +154,7 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
                     COUNT(*) FILTER (WHERE ps.patch_status = 'failed')::INT    AS failed,
                     MIN(ps.status_updated_at) FILTER (WHERE ps.patch_status IN ('in_progress','completed','failed')) AS started_at,
                     MAX(ps.status_updated_at) FILTER (WHERE ps.patch_status IN ('completed','failed')) AS completed_at
-                FROM {Sql.Tables.PatchSchedule} ps
+                FROM {Sql.Tables.PatchSchedule} ps{buJoin}
                 GROUP BY ps.cycle_id
             ) agg ON agg.cycle_id = pc.cycle_id";
 
@@ -149,7 +169,7 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
             sql += " ORDER BY pc.cycle_date DESC LIMIT @Limit";
         }
 
-        return await Db.QueryAsync<PatchCycle>(sql, new { Limit = limit });
+        return await Db.QueryAsync<PatchCycle>(sql, new { Limit = limit, BusinessUnit = businessUnit });
     });
 
     public Task<PagedResult<PatchScheduleItem>> GetCycleServersAsync(

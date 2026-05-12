@@ -19,27 +19,44 @@ public class EolService : BaseService<EolService>, IEolService
     private static string AlertLevel(string eolColumn = "p.eol_end_of_life", string extColumn = "p.eol_end_of_extended_support")
         => string.Format(AlertLevelCase, eolColumn, extColumn);
 
-    // CTE that combines per-server software rows with Windows Server OS mapping
-    private const string AllServersCte = @"
+    // CTE that combines per-server software rows with Windows Server OS mapping.
+    // When businessUnit is supplied, both branches are restricted to servers in
+    // that BU via shared.servers - the EolSoftware branch tightens its existing
+    // join, and the v_os_eol_mapping branch picks up an extra inner join (since
+    // the view doesn't carry BU itself).
+    private static string AllServers(string? businessUnit = null)
+    {
+        var hasBu = !string.IsNullOrWhiteSpace(businessUnit);
+        var eolBranchBu = hasBu ? " AND s.business_unit = @BusinessUnit" : "";
+        var osBranchBuJoin = hasBu
+            ? $@" INNER JOIN shared.servers s2
+                  ON UPPER(s2.server_name) = UPPER(m.machine_name)
+                  AND s2.is_active = TRUE
+                  AND s2.business_unit = @BusinessUnit"
+            : "";
+        return $@"
         all_servers AS (
             SELECT e.machine_name, e.eol_product, e.eol_product_version
-            FROM {0} e
-            INNER JOIN shared.servers s ON UPPER(s.server_name) = UPPER(e.machine_name) AND s.is_active = TRUE
+            FROM {Sql.Tables.EolSoftware} e
+            INNER JOIN shared.servers s ON UPPER(s.server_name) = UPPER(e.machine_name) AND s.is_active = TRUE{eolBranchBu}
             WHERE e.is_active = TRUE AND e.machine_name IS NOT NULL
             UNION
-            SELECT machine_name, eol_product, eol_product_version
-            FROM eol.v_os_eol_mapping
-            WHERE eol_product_version IS NOT NULL
+            SELECT m.machine_name, m.eol_product, m.eol_product_version
+            FROM eol.v_os_eol_mapping m{osBranchBuJoin}
+            WHERE m.eol_product_version IS NOT NULL
         )";
-
-    private static string AllServers() => string.Format(AllServersCte, Sql.Tables.EolSoftware);
+    }
 
     public EolService(IDbConnection db, ILogger<EolService> logger)
         : base(db, logger) { }
 
-    public Task<EolSummary> GetSummaryAsync(bool hasServers = false) => RunDbAsync(() =>
-        Db.QueryFirstAsync<EolSummary>($@"
-            WITH {AllServers()},
+    public Task<EolSummary> GetSummaryAsync(bool hasServers = false, string? businessUnit = null) => RunDbAsync(() =>
+    {
+        var dp = new DynamicParameters();
+        if (!string.IsNullOrWhiteSpace(businessUnit))
+            dp.Add("BusinessUnit", businessUnit);
+        return Db.QueryFirstAsync<EolSummary>($@"
+            WITH {AllServers(businessUnit)},
             product_counts AS (
                 SELECT
                     p.eol_product,
@@ -70,17 +87,18 @@ public class EolService : BaseService<EolService>, IEolService
                 ) AS AffectedServers
             FROM product_counts
             {(hasServers ? "WHERE server_count > 0" : "")}
-        ")
-    );
+        ", dp);
+    });
 
     public Task<IEnumerable<EolSoftware>> ListEolSoftwareAsync(
         string? alertLevel,
         string? product,
         int limit,
-        bool hasServers = false) => RunDbAsync(async () =>
+        bool hasServers = false,
+        string? businessUnit = null) => RunDbAsync(async () =>
     {
         var sql = $@"
-            WITH {AllServers()}
+            WITH {AllServers(businessUnit)}
             SELECT
                 p.eol_product AS Product,
                 p.eol_product_version AS Version,
@@ -96,6 +114,9 @@ public class EolService : BaseService<EolService>, IEolService
             WHERE p.is_active = TRUE AND p.machine_name IS NULL";
 
         var dp = new DynamicParameters();
+
+        if (!string.IsNullOrWhiteSpace(businessUnit))
+            dp.Add("BusinessUnit", businessUnit);
 
         if (!string.IsNullOrEmpty(product))
         {
@@ -168,6 +189,25 @@ public class EolService : BaseService<EolService>, IEolService
 
         return detail;
     });
+
+    public Task<IEnumerable<UnmatchedEolSoftware>> GetUnmatchedSoftwareAsync(int limit) => RunDbAsync(() =>
+        Db.QueryAsync<UnmatchedEolSoftware>($@"
+            SELECT
+                unmatched_id          AS UnmatchedId,
+                raw_software_name     AS RawSoftwareName,
+                raw_software_version  AS RawSoftwareVersion,
+                source_system         AS SourceSystem,
+                sample_machine_name   AS SampleMachineName,
+                status                AS Status,
+                first_seen_at         AS FirstSeenAt,
+                last_seen_at          AS LastSeenAt,
+                occurrence_count      AS OccurrenceCount
+            FROM {Sql.Tables.UnmatchedEolSoftware}
+            WHERE status = 'pending'
+            ORDER BY occurrence_count DESC, raw_software_name
+            LIMIT @Limit
+        ", new { Limit = limit })
+    );
 
     public Task<IEnumerable<EolSoftware>> GetByServerAsync(string serverName, int limit = 500) => RunDbAsync(() =>
         Db.QueryAsync<EolSoftware>($@"

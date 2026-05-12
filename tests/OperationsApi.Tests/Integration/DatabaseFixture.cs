@@ -9,7 +9,7 @@ namespace OperationsApi.Tests.Integration;
 /// <summary>
 /// Spins up a PostgreSQL container, runs all migration scripts, and seeds test data.
 /// Shared across all integration test classes via ICollectionFixture.
-/// Gracefully handles Docker not being available — tests will skip.
+/// Gracefully handles Docker not being available - tests will skip.
 /// </summary>
 public class DatabaseFixture : IAsyncLifetime
 {
@@ -132,7 +132,7 @@ public class DatabaseFixture : IAsyncLifetime
 
     // monitoring.disk_current is a MATERIALIZED VIEW since 015. Seed inserts
     // into disk_snapshots are invisible to it until refresh. Non-concurrent
-    // refresh is fine here — fast on tiny seed data, doesn't need the unique
+    // refresh is fine here - fast on tiny seed data, doesn't need the unique
     // index path that CONCURRENTLY requires.
     private async Task RefreshDiskCurrent()
     {
@@ -244,7 +244,7 @@ public class DatabaseFixture : IAsyncLifetime
         VALUES
             -- Definition rows (machine_name IS NULL).
             -- Summary thresholds expect 5+ active definitions split across the
-            -- four lifecycle buckets — Win2016/2019 EOL, SQL2019 approaching,
+            -- four lifecycle buckets - Win2016/2019 EOL, SQL2019 approaching,
             -- Win2022/2025 supported. Windows Server 2016 has no per-server
             -- row; affected-server counting comes from the OS mapping view
             -- against shared.servers, but the seed has no 2016 hosts so its
@@ -308,7 +308,7 @@ public class DatabaseFixture : IAsyncLifetime
         INSERT INTO system.server_aliases (canonical_name, alias_name, source_system, created_by)
         VALUES ('WEB01', 'WEBSERVER01', 'patching_html', 'test');
 
-        -- ═══ Disk snapshots — current state covering all three alert statuses ═══
+        -- ═══ Disk snapshots - current state covering all three alert statuses ═══
         -- The disk_current view picks the latest snapshot per (server, disk).
         -- WEB01 C:\ is OK (50%), WEB02 C:\ is warn (85%), API01 D:\ is crit (95%).
         INSERT INTO monitoring.disk_snapshots
@@ -326,7 +326,7 @@ public class DatabaseFixture : IAsyncLifetime
             (NOW() - INTERVAL '5 minutes', 'DEV01', 'portal-web', 'Development', 'Alex Morgan',
              'Engineering', 'C:\', 250, 100.00, 150.00, 40.00, 1, 80, 90, 1004, 104);
 
-        -- ═══ Disk history — small growth series for projection regression ═══
+        -- ═══ Disk history - small growth series for projection regression ═══
         -- WEB01 C:\ growing ~1 GB/day (positive slope → daysUntilCritical computed).
         INSERT INTO monitoring.disk_snapshots
             (captured_at, server_name, service, environment, technical_owner, business_unit,
@@ -343,7 +343,7 @@ public class DatabaseFixture : IAsyncLifetime
             (NOW() - INTERVAL '5 days', 'WEB01', 'portal-web', 'Production', 'Alex Morgan', 'Engineering',
              'C:\', 500, 245.00, 255.00, 49.00, 1, 80, 90, 1001, 101);
 
-        -- ═══ Disk alerts — one previously-sent crit alert for de-dup tests ═══
+        -- ═══ Disk alerts - one previously-sent crit alert for de-dup tests ═══
         INSERT INTO monitoring.alerts
             (server_name, disk_label, alert_type, alert_status_at_send,
              percent_used_at_send, notification_sent, notification_sent_at)
@@ -353,7 +353,7 @@ public class DatabaseFixture : IAsyncLifetime
 }
 
 /// <summary>
-/// Base class for integration tests — skips all tests when Docker is unavailable.
+/// Base class for integration tests - skips all tests when Docker is unavailable.
 /// </summary>
 public abstract class IntegrationTestBase : IDisposable
 {
@@ -409,7 +409,7 @@ public class DockerFactAttribute : FactAttribute
             }
             catch
             {
-                return "Docker is not available — install Docker Desktop to run integration tests";
+                return "Docker is not available - install Docker Desktop to run integration tests";
             }
         }
     });

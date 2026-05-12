@@ -15,10 +15,6 @@ public class DisksController : ControllerBase
 
     public DisksController(IDiskMonitoringService svc) => _svc = svc;
 
-    /// <summary>Get disk summary with counts by alert status.</summary>
-    /// <param name="environment">Optional canonical environment filter (e.g. "Production").</param>
-    /// <param name="businessUnit">Optional canonical business-unit filter (e.g. "Contoso Group Support").</param>
-    /// <param name="alertStatus">Optional alert-status filter (1=OK, 2=Warning, 3=Critical).</param>
     [HttpGet("summary")]
     [ResponseCache(Duration = 60, Location = ResponseCacheLocation.Client)]
     [ProducesResponseType(200)]
@@ -65,7 +61,7 @@ public class DisksController : ControllerBase
         return Ok(await _svc.ListDisksAsync(clampedLimit, clampedOffset, envFilter, buFilter, statusFilter, nameFilter));
     }
 
-    // Anything outside {1, 2, 3} is treated as no filter — protects the SQL
+    // Anything outside {1, 2, 3} is treated as no filter - protects the SQL
     // from arbitrary integers without throwing on a stray query string.
     private static int? ValidateAlertStatus(int? alertStatus)
         => alertStatus is 1 or 2 or 3 ? alertStatus : null;

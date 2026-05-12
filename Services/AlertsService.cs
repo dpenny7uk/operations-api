@@ -5,7 +5,7 @@ using OperationsApi.Models;
 
 namespace OperationsApi.Services;
 
-// Recent alerts aggregator — surfaces the most recent notable events across
+// Recent alerts aggregator - surfaces the most recent notable events across
 // unreachable scans, cert expiries, sync failures, and overdue exclusions.
 // No dedicated table: everything is derived from existing data at query time.
 public class AlertsService : BaseService<AlertsService>, IAlertsService
@@ -19,14 +19,14 @@ public class AlertsService : BaseService<AlertsService>, IAlertsService
         var sql = $@"
             WITH alerts AS (
                 -- Unreachable servers: each unresolved scan failure is one
-                -- warning-level alert. Unreachable alone isn't critical — most
+                -- warning-level alert. Unreachable alone isn't critical - most
                 -- estate servers don't expose 443/8443, so a failed scan is
                 -- noise until paired with other signals.
                 SELECT
                     'server:' || sf.server_name AS Id,
                     sf.last_failure_at          AS ""When"",
                     (sf.server_name || ' unreachable') AS Sub,
-                    COALESCE(sf.scan_type, 'Scan') || ' failure — ' || sf.failure_count::text || ' attempts' AS Detail,
+                    COALESCE(sf.scan_type, 'Scan') || ' failure - ' || sf.failure_count::text || ' attempts' AS Detail,
                     'warn' AS Tone
                 FROM {Sql.Tables.ScanFailures} sf
                 WHERE NOT sf.is_resolved
@@ -35,7 +35,7 @@ public class AlertsService : BaseService<AlertsService>, IAlertsService
 
                 -- Certificate criticals (expired / ≤14d): one crit per cert.
                 -- is_active filter excludes superseded rows from the inventory
-                -- (e.g. a cert whose thumbprint changed on renewal — the old
+                -- (e.g. a cert whose thumbprint changed on renewal - the old
                 -- row stays in the table but is_active goes FALSE on the next
                 -- scan, see sync_certificates.py).
                 SELECT
@@ -74,7 +74,7 @@ public class AlertsService : BaseService<AlertsService>, IAlertsService
                     'exclusion:' || pe.exclusion_id::text AS Id,
                     pe.held_until::timestamptz  AS ""When"",
                     (pe.server_name || ' exclusion overdue') AS Sub,
-                    'Hold expired ' || (CURRENT_DATE - pe.held_until)::text || ' days ago — ' || LEFT(pe.reason, 80) AS Detail,
+                    'Hold expired ' || (CURRENT_DATE - pe.held_until)::text || ' days ago - ' || LEFT(pe.reason, 80) AS Detail,
                     'warn' AS Tone
                 FROM patching.patch_exclusions pe
                 WHERE pe.is_active AND pe.held_until < CURRENT_DATE
@@ -82,7 +82,7 @@ public class AlertsService : BaseService<AlertsService>, IAlertsService
                 UNION ALL
 
                 -- Disk threshold breaches (current state from monitoring.disk_current).
-                -- Scoped to Group + Production to match the Health page's disk card —
+                -- Scoped to Group + Production to match the Health page's disk card -
                 -- the in-app alerts feed should reflect what on-call actually pages
                 -- on, not the whole estate. Non-prod and non-Group disks are
                 -- noise here. Read-on-demand for the feed; Teams push notifications

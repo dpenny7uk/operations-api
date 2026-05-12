@@ -1,3 +1,8 @@
+# Exact-pinned. To enable supply-chain hash verification on the build agent,
+# regenerate with `pip-compile --generate-hashes` (pip-tools) and then add
+# `--require-hashes` to the pip install line in
+# devops/pipelines/templates/ops-sync-steps.yml. Until that lands, the cache
+# task there still gives the perf + offline-resilience wins.
 psycopg2-binary==2.9.10
 pyodbc==5.2.0
 requests==2.31.0

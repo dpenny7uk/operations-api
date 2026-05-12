@@ -3,7 +3,6 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace OperationsApi.Controllers;
 
-/// <summary>Returns the currently authenticated user's identity.</summary>
 [Authorize]
 [ApiController]
 [Route("api/me")]
@@ -26,7 +25,7 @@ public class MeController : ControllerBase
     // plus the OpsAdmin policy's configured role string and whether
     // User.IsInRole returns true for it. Use this to debug 403s on AdminRole-
     // gated endpoints without guessing at claim formats (SID vs DOMAIN\name vs
-    // DNS-style prefix). Authenticated users only — same disclosure surface as
+    // DNS-style prefix). Authenticated users only - same disclosure surface as
     // `whoami /claims` shows the user themselves.
     [HttpGet("claims")]
     [ProducesResponseType(200)]

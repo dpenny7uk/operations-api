@@ -20,7 +20,7 @@ public class CertificateService : BaseService<CertificateService>, ICertificateS
 
     // Level vocabulary used on the wire matches the frontend dropdown values:
     // 'expired' / 'crit' / 'warn' / 'ok'. Maps to the canonical SQL columns
-    // (alert_level + is_expired) using inline literals — no parameters needed.
+    // (alert_level + is_expired) using inline literals - no parameters needed.
     // Unknown values return an empty clause (treated as no filter).
     private static string LevelToSqlClause(string? level)
     {
@@ -79,7 +79,7 @@ public class CertificateService : BaseService<CertificateService>, ICertificateS
               {topExtra}
         ", topArgs);
 
-        // Levels[] — one row per level under the BU-scoped (level-excluded) WHERE.
+        // Levels[] - one row per level under the BU-scoped (level-excluded) WHERE.
         // Reuses the four FILTER clauses then unpivots into rows.
         var levelRow = await Db.QueryFirstAsync($@"
             SELECT
@@ -101,7 +101,7 @@ public class CertificateService : BaseService<CertificateService>, ICertificateS
             new() { Level = "ok",      TotalCount = (int)levelRow.okcount },
         };
 
-        // BusinessUnits[] — GROUP BY business_unit under the level-scoped (BU-excluded) WHERE.
+        // BusinessUnits[] - GROUP BY business_unit under the level-scoped (BU-excluded) WHERE.
         var buRows = await Db.QueryAsync<CertificateBuCount>($@"
             SELECT
                 COALESCE(s.business_unit, 'Unknown') AS BusinessUnit,

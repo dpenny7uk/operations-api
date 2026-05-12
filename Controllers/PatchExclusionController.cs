@@ -4,7 +4,7 @@ using OperationsApi.Services;
 
 namespace OperationsApi.Controllers;
 
-/// <summary>Patch exclusion management — exclude servers from patching cycles with a reason and hold date.</summary>
+/// <summary>Patch exclusion management - exclude servers from patching cycles with a reason and hold date.</summary>
 [Authorize]
 [ApiController]
 [Route("api/patching/exclusions")]
@@ -30,12 +30,6 @@ public class PatchExclusionController : ControllerBase
         return Ok(await _svc.GetExclusionSummaryAsync(buFilter, stateFilter));
     }
 
-    /// <summary>List active patch exclusions with optional search, BU/state filters, and pagination.</summary>
-    /// <param name="search">Search term — matches server name or reason.</param>
-    /// <param name="businessUnit">Optional canonical business-unit filter.</param>
-    /// <param name="state">Optional hold-state filter ('overdue' | 'expiring-soon' | 'active').</param>
-    /// <param name="limit">Page size (1-500, default 100).</param>
-    /// <param name="offset">Pagination offset (default 0).</param>
     [HttpGet]
     [ProducesResponseType(200)]
     public async Task<IActionResult> List(
@@ -58,7 +52,7 @@ public class PatchExclusionController : ControllerBase
     }
 
     /// <summary>Search servers from patching schedule data for exclusion selection.</summary>
-    /// <param name="search">Search term — matches server name, service, application, or patch group.</param>
+    /// <param name="search">Search term - matches server name, service, application, or patch group.</param>
     /// <param name="limit">Page size (1-50, default 50).</param>
     /// <param name="offset">Pagination offset (default 0).</param>
     [HttpGet("servers")]
@@ -157,7 +151,7 @@ public class PatchExclusionController : ControllerBase
         return updated ? Ok() : NotFound();
     }
 
-    /// <summary>Renew (PATCH) an exclusion — updates hold-until and/or notes. Requires OpsAdmin role.</summary>
+    /// <summary>Renew (PATCH) an exclusion - updates hold-until and/or notes. Requires OpsAdmin role.</summary>
     [HttpPatch("{id}")]
     [Authorize(Policy = "OpsAdmin")]
     [ProducesResponseType(200)]
@@ -194,7 +188,7 @@ public class PatchExclusionController : ControllerBase
     }
 
     /// <summary>Remove a server from the exclusion list (soft delete). Requires OpsAdmin role.</summary>
-    /// <remarks>Legacy endpoint — prefer DELETE /{id}.</remarks>
+    /// <remarks>Legacy endpoint - prefer DELETE /{id}.</remarks>
     [HttpPost("{id}/remove")]
     [Authorize(Policy = "OpsAdmin")]
     [ProducesResponseType(200)]

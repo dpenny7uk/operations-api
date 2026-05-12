@@ -4,7 +4,7 @@ using OperationsApi.Services;
 
 namespace OperationsApi.Controllers;
 
-/// <summary>Recent alerts across the estate — unreachable hosts, cert expiries, sync lag, overdue exclusions.</summary>
+/// <summary>Recent alerts across the estate - unreachable hosts, cert expiries, sync lag, overdue exclusions.</summary>
 [Authorize]
 [ApiController]
 [Route("api/alerts")]

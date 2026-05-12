@@ -16,35 +16,35 @@ public class PatchingController : ControllerBase
     public PatchingController(IPatchingService svc) => _svc = svc;
 
     /// <summary>Get a summary of the next upcoming patch cycle including server counts and known issues.</summary>
+    /// <param name="businessUnit">Optional canonical business-unit filter - narrows server / known-issue counts to that BU. Cycle dates and patch-window times are unaffected (they're shared across BUs).</param>
     [HttpGet("next")]
     [ResponseCache(Duration = 60, Location = ResponseCacheLocation.Client)]
     [ProducesResponseType(200)]
+    [ProducesResponseType(400)]
     [ProducesResponseType(404)]
-    public async Task<IActionResult> GetNextSummary()
+    public async Task<IActionResult> GetNextSummary([FromQuery] string? businessUnit = null)
     {
-        var summary = await _svc.GetNextPatchingSummaryAsync();
+        if (businessUnit?.Length > 100 || InputGuard.ContainsControlChars(businessUnit))
+            return BadRequest("businessUnit parameter is invalid.");
+        var buFilter = string.IsNullOrWhiteSpace(businessUnit) ? null : businessUnit.Trim();
+        var summary = await _svc.GetNextPatchingSummaryAsync(buFilter);
         return summary == null ? NotFound("No upcoming cycles") : Ok(summary);
     }
 
-    /// <summary>List patch cycles, optionally filtered to upcoming only.</summary>
-    /// <param name="upcomingOnly">If true, only return future/scheduled cycles (default true).</param>
-    /// <param name="limit">Maximum number of cycles to return (1-100, default 10).</param>
     [HttpGet("cycles")]
     [ProducesResponseType(200)]
+    [ProducesResponseType(400)]
     public async Task<IActionResult> ListCycles(
         [FromQuery] bool upcomingOnly = true,
-        [FromQuery] int limit = 10)
+        [FromQuery] int limit = 10,
+        [FromQuery] string? businessUnit = null)
     {
-        return Ok(await _svc.ListPatchCyclesAsync(upcomingOnly, Math.Clamp(limit, 1, 100)));
+        if (businessUnit?.Length > 100 || InputGuard.ContainsControlChars(businessUnit))
+            return BadRequest("businessUnit parameter is invalid.");
+        var buFilter = string.IsNullOrWhiteSpace(businessUnit) ? null : businessUnit.Trim();
+        return Ok(await _svc.ListPatchCyclesAsync(upcomingOnly, Math.Clamp(limit, 1, 100), buFilter));
     }
 
-    /// <summary>Get servers assigned to a specific patch cycle with optional filtering.</summary>
-    /// <param name="cycleId">The patch cycle ID.</param>
-    /// <param name="patchGroup">Filter by patch group name.</param>
-    /// <param name="hasIssues">Filter to servers with/without known issues.</param>
-    /// <param name="search">Search term to filter servers by name, service, application, or patch group.</param>
-    /// <param name="limit">Page size (1-500, default 100).</param>
-    /// <param name="offset">Pagination offset (default 0).</param>
     [HttpGet("cycles/{cycleId}/servers")]
     [ProducesResponseType(200)]
     public async Task<IActionResult> GetCycleServers(
@@ -63,8 +63,7 @@ public class PatchingController : ControllerBase
             Math.Clamp(limit, 1, 500), Math.Clamp(offset, 0, 100000)));
     }
 
-    /// <summary>Search servers across all visible patch cycles.</summary>
-    /// <param name="q">Search term (min 2 characters) — matches server name, service, application, or patch group.</param>
+    /// <param name="q">Search term (min 2 characters) - matches server name, service, application, or patch group.</param>
     /// <param name="limit">Maximum total results (1-200, default 50).</param>
     [HttpGet("servers/search")]
     [ProducesResponseType(200)]
@@ -80,7 +79,6 @@ public class PatchingController : ControllerBase
         return Ok(await _svc.SearchServersGlobalAsync(q, Math.Clamp(limit, 1, 200)));
     }
 
-    /// <summary>List known patching issues with optional severity and application filters.</summary>
     [HttpGet("issues")]
     [ProducesResponseType(200)]
     public async Task<IActionResult> ListIssues(
@@ -96,7 +94,6 @@ public class PatchingController : ControllerBase
         return Ok(await _svc.ListKnownIssuesAsync(severity, application, patchType, activeOnly));
     }
 
-    /// <summary>Get a specific known issue by ID.</summary>
     [HttpGet("issues/{id}")]
     [ProducesResponseType(200)]
     [ProducesResponseType(404)]
@@ -106,7 +103,6 @@ public class PatchingController : ControllerBase
         return issue == null ? NotFound() : Ok(issue);
     }
 
-    /// <summary>Get configured patch maintenance windows.</summary>
     [HttpGet("windows")]
     [ResponseCache(Duration = 300, Location = ResponseCacheLocation.Client)]
     [ProducesResponseType(200)]
