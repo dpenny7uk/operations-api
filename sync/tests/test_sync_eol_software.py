@@ -52,10 +52,8 @@ class TestMapSoftwareToProduct:
     def test_empty_string_returns_none(self):
         assert map_software_to_product('') is None
 
-    def test_odbc_driver_matches_nothing(self):
-        # ODBC drivers are SQL Server related but don't match our patterns
-        # because they don't contain "sql server 20XX"
-        assert map_software_to_product('Microsoft ODBC Driver 17 for SQL Server') is None
+    def test_odbc_driver_17_matches(self):
+        assert map_software_to_product('Microsoft ODBC Driver 17 for SQL Server') == ('mssql-odbc', '17')
 
     def test_native_client_matches_sql_2012(self):
         # "Microsoft SQL Server 2012 Native Client" contains "sql server 2012"
@@ -66,8 +64,7 @@ class TestMapSoftwareToProduct:
         assert map_software_to_product('SQL Server Management Studio') is None
 
     def test_ssms_with_version_matches(self):
-        # "Microsoft SQL Server Management Studio - 18.12.1" doesn't have a year
-        assert map_software_to_product('Microsoft SQL Server Management Studio - 18.12.1') is None
+        assert map_software_to_product('Microsoft SQL Server Management Studio - 18.12.1') == ('ssms', '18')
 
 
 # ── sync_eol_software ───────────────────────────────────────────────────────

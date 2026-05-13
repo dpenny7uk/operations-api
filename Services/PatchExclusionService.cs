@@ -121,6 +121,7 @@ public class PatchExclusionService : BaseService<PatchExclusionService>, IPatchE
         var countSql = $@"
             SELECT COUNT(*)::INT
             FROM patching.patch_exclusions pe
+            LEFT JOIN shared.servers s ON pe.server_id = s.server_id
             {where}";
 
         var dataSql = $@"

@@ -1184,6 +1184,26 @@
   function renderPatchingPage(mount) {
     const page = h('div.page');
     const ribbon = demoRibbon('patching'); if (ribbon) page.appendChild(ribbon);
+
+    // Source-data staleness banner: rendered when /api/patching/next had no
+    // upcoming cycle in the source HTML scrape and fell back to the most
+    // recent past cycle. Tells the user the dashboard data is behind the
+    // actual cadence so they don't act on stale numbers.
+    const stale = window.PATCH_NEXT_STALE;
+    if (stale) {
+      const n = stale.daysOverdue || 0;
+      page.appendChild(h('div.stale-banner', {
+        role: 'status',
+        style: {
+          background: '#fff4e5', color: '#7a3e00',
+          padding: '10px 14px', marginBottom: '12px',
+          borderLeft: '4px solid #f0a020',
+          fontSize: '13px', fontWeight: '500'
+        }
+      }, 'Patching schedule source is ' + n + ' day' + (n !== 1 ? 's' : '')
+         + ' behind. Showing the most recent cycle until the schedule page is updated.'));
+    }
+
     const PATCH_ISSUES = getPatchIssues();
 
     // HERO — countdown + cycle meta + group bars

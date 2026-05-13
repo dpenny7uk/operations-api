@@ -23,6 +23,12 @@ public class NextPatchingSummary
     public Dictionary<string, string> WindowsByGroup { get; set; } = new();
     public Dictionary<string, int> IssuesBySeverity { get; set; } = new();
     public int TotalIssuesAffectingServers { get; set; }
+
+    // True when no upcoming cycle was found in the source scrape and we fell
+    // back to the most recent past cycle. DaysOverdue is the positive number
+    // of days since that fallback cycle's date.
+    public bool IsStale { get; set; }
+    public int? DaysOverdue { get; set; }
 }
 
 public class CycleDetailItem

@@ -381,6 +381,28 @@ public class PatchExclusionServiceTests : IntegrationTestBase
         Assert.Single(second.Items);
     }
 
+    // Regression: countSql was missing the shared.servers join even though the
+    // WHERE clause referenced s.business_unit when a BU filter was supplied.
+    // Hit prod as 500 on /api/patching/exclusions?...&businessUnit=ITS.
+    [DockerFact]
+    public async Task List_with_businessUnit_filter_does_not_throw()
+    {
+        await ResetExclusions();
+        var svc = CreateService();
+        await svc.ExcludeServersAsync(new List<int> { 1, 2 }, "hold", InDays(7), "tester");
+
+        // Matching BU - all seeded servers are 'Engineering', so both rows returned.
+        var matching = await svc.ListExclusionsAsync(null, 50, 0, businessUnit: "Engineering");
+        Assert.Equal(2, matching.TotalCount);
+        Assert.Equal(2, matching.Items.Count());
+
+        // Non-matching BU is the canary: pre-patch this threw because countSql
+        // referenced s.business_unit without joining shared.servers.
+        var empty = await svc.ListExclusionsAsync(null, 50, 0, businessUnit: "ITS");
+        Assert.Equal(0, empty.TotalCount);
+        Assert.Empty(empty.Items);
+    }
+
     // ── SearchPatchServersAsync ──────────────────────────────────────
 
     [DockerFact]

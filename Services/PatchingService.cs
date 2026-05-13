@@ -36,8 +36,35 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
             ORDER BY cycle_date
         ")).ToList();
 
+        // The source HTML schedule page is updated by hand and sometimes lags
+        // behind the actual cycle cadence. When there's no upcoming cycle in
+        // the 45-day window, fall back to the most recent past cycle within
+        // 30 days so the dashboard still shows context with an IsStale flag.
+        // The truly-empty case (no cycles in either direction) still returns
+        // null -> 404, which preserves the diagnostic for total data loss.
+        bool isStale = false;
         if (cycles.Count == 0)
-            return null;
+        {
+            cycles = (await Db.QueryAsync<NextCycleRow>($@"
+                SELECT
+                    cycle_id AS CycleId,
+                    cycle_date AS CycleDate,
+                    servers_onprem AS ServersOnprem,
+                    status AS Status,
+                    (cycle_date - CURRENT_DATE)::INT AS DaysUntil
+                FROM {Sql.Tables.PatchCycles}
+                WHERE status = 'active'
+                  AND cycle_date >= CURRENT_DATE - INTERVAL '30 days'
+                  AND cycle_date <  CURRENT_DATE
+                ORDER BY cycle_date DESC
+                LIMIT 1
+            ")).ToList();
+
+            if (cycles.Count == 0)
+                return null;
+
+            isStale = true;
+        }
 
         var cycleIds = cycles.Select(c => c.CycleId).ToArray();
 
@@ -113,7 +140,9 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
                 i => i.Severity ?? "Unknown",
                 i => i.ServerCount
             ),
-            TotalIssuesAffectingServers = issues.Sum(i => i.ServerCount)
+            TotalIssuesAffectingServers = issues.Sum(i => i.ServerCount),
+            IsStale = isStale,
+            DaysOverdue = isStale ? -(first.DaysUntil ?? 0) : null
         };
     });
 

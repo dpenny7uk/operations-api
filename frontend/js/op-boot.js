@@ -538,6 +538,12 @@ async function runFetches() {
     ]).then(([cycles, next]) => {
       if (!cycles && !next) { markDemo('patching'); return; }
       window.PATCH_GROUPS = mapPatchGroups(cycles, next);
+      // Source schedule is human-maintained and sometimes lags; the API
+      // falls back to the most recent past cycle with isStale=true so the
+      // dashboard can warn the user instead of going blank.
+      window.PATCH_NEXT_STALE = (next && next.isStale)
+        ? { daysOverdue: next.daysOverdue || 0 }
+        : null;
       rerender();
     }),
     api('/patching/cycles?upcomingOnly=false&limit=24' + buQs).then(v => {

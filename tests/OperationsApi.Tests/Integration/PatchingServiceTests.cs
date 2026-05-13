@@ -1,4 +1,6 @@
+using Dapper;
 using Microsoft.Extensions.Logging.Abstractions;
+using Npgsql;
 using OperationsApi.Services;
 using Xunit;
 
@@ -46,6 +48,48 @@ public class PatchingServiceTests : IntegrationTestBase
         Assert.NotNull(summary);
         // WEB01/WEB02 have app=Portal, service=IIS which matches the IIS known issue
         Assert.True(summary.TotalIssuesAffectingServers > 0);
+    }
+
+    // Source HTML schedule lags behind cadence sometimes (gated on Ivanti API
+    // access). Verify the fallback returns the most recent past cycle with
+    // IsStale=true instead of 404-ing.
+    [DockerFact]
+    public async Task NextSummary_falls_back_to_past_cycle_when_no_upcoming()
+    {
+        await using var conn = new NpgsqlConnection(Db.ConnectionString);
+        await conn.OpenAsync();
+
+        // Snapshot upcoming-cycle dates so we can restore them after the test.
+        var originals = (await conn.QueryAsync<(int CycleId, DateOnly CycleDate)>(
+            "SELECT cycle_id, cycle_date FROM patching.patch_cycles WHERE cycle_date >= CURRENT_DATE"
+        )).ToList();
+
+        try
+        {
+            // Push all upcoming cycles 3 days into the past so the forward
+            // query returns zero rows and the fallback kicks in.
+            await conn.ExecuteAsync(@"
+                UPDATE patching.patch_cycles
+                SET cycle_date = CURRENT_DATE - INTERVAL '3 days'
+                WHERE cycle_date >= CURRENT_DATE");
+
+            var svc = CreateService();
+            var summary = await svc.GetNextPatchingSummaryAsync();
+
+            Assert.NotNull(summary);
+            Assert.True(summary!.IsStale);
+            Assert.Equal(3, summary.DaysOverdue);
+            Assert.True(summary.Cycle.CycleDate < DateOnly.FromDateTime(DateTime.Today));
+        }
+        finally
+        {
+            foreach (var (id, date) in originals)
+            {
+                await conn.ExecuteAsync(
+                    "UPDATE patching.patch_cycles SET cycle_date = @date WHERE cycle_id = @id",
+                    new { id, date });
+            }
+        }
     }
 
     // ── ListPatchCyclesAsync ─────────────────────────────────────────
