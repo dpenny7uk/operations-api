@@ -483,13 +483,20 @@ async function runFetches() {
       if (!s) { markDemo('servers'); return; }
       const envBreakdown = mapEnvBreakdown(s);
       const buBreakdown = mapBuBreakdown(s);
-      window.SERVERS_DATA = Object.assign({}, window.SERVERS_DATA, {
-        envBreakdown,
-        SRV_ENV: envBreakdown,
-        SRV_BU:  buBreakdown,
-        SRV_ENV_MAX: envBreakdown.length ? Math.max(...envBreakdown.map(e => e.count)) : 0,
-        SRV_TOTAL: s.totalCount,
-      });
+      // SRV_BU always reflects the unfiltered global breakdown (it powers
+      // the rail's BU dropdown). The page-level numbers (SRV_TOTAL, SRV_ENV,
+      // SRV_ENV_MAX) are owned by fetchAllServers above, which respects the
+      // selected BU - overwriting them here causes the BU-filtered count to
+      // briefly appear and then revert to the global count when this
+      // unfiltered fetch resolves last.
+      const update = { SRV_BU: buBreakdown };
+      if (!bu || bu === '__all') {
+        update.envBreakdown = envBreakdown;
+        update.SRV_ENV = envBreakdown;
+        update.SRV_ENV_MAX = envBreakdown.length ? Math.max(...envBreakdown.map(e => e.count)) : 0;
+        update.SRV_TOTAL = s.totalCount;
+      }
+      window.SERVERS_DATA = Object.assign({}, window.SERVERS_DATA, update);
       rerender();
     }),
     api('/servers/unreachable' + (buQs ? '?' + buQs.slice(1) : '')).then(v => {

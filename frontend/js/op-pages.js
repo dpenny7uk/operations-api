@@ -2525,6 +2525,15 @@
     // window.SELECTED_BU from the global rail selector).
     if (diskState.service !== '__all')rows = rows.filter(d => (d.service || '') === diskState.service);
     rows.sort((a, b) => {
+      // Primary: alertStatus desc (CRITICAL=3, WARNING=2, OK=1). Custom
+      // per-server thresholds mean a 90% disk can be CRITICAL while a 95%
+      // disk on a different server is only WARNING; sorting by raw
+      // percentUsed alone hides the actionable rows underneath the larger
+      // (but healthy) ones.
+      const sa = a.alertStatus || 0;
+      const sb = b.alertStatus || 0;
+      if (sa !== sb) return sb - sa;
+
       const av = a[diskState.sort], bv = b[diskState.sort];
       if (av == null && bv == null) return 0;
       if (av == null) return 1;
