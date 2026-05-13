@@ -1184,39 +1184,49 @@
   function renderPatchingPage(mount) {
     const page = h('div.page');
     const ribbon = demoRibbon('patching'); if (ribbon) page.appendChild(ribbon);
-
-    // Source-data staleness banner: rendered when /api/patching/next had no
-    // upcoming cycle in the source HTML scrape and fell back to the most
-    // recent past cycle. Tells the user the dashboard data is behind the
-    // actual cadence so they don't act on stale numbers.
-    const stale = window.PATCH_NEXT_STALE;
-    if (stale) {
-      const n = stale.daysOverdue || 0;
-      page.appendChild(h('div.stale-banner', {
-        role: 'status',
-        style: {
-          background: '#fff4e5', color: '#7a3e00',
-          padding: '10px 14px', marginBottom: '12px',
-          borderLeft: '4px solid #f0a020',
-          fontSize: '13px', fontWeight: '500'
-        }
-      }, 'Patching schedule source is ' + n + ' day' + (n !== 1 ? 's' : '')
-         + ' behind. Showing the most recent cycle until the schedule page is updated.'));
-    }
-
     const PATCH_ISSUES = getPatchIssues();
+
+    // Hero text defaults to demo strings (needed for offline dev). When live
+    // data arrives via window.PATCH_NEXT_CYCLE the hero shows the real cycle
+    // date and count. When the API flags isStale (source HTML schedule has
+    // not been updated), the hero pivots to "Last Cycle / Completed X" with
+    // an explicit subtitle so users know the data is behind the cadence.
+    let heroCount = '3';
+    let heroUnit = 'days';
+    let heroTitle = 'Next Cycle';
+    let heroDate = 'April 2026 · begins Apr 23, 2026';
+    let heroSub = getPatchTotal().toLocaleString() + ' servers across '
+      + (new Set(getPatchGroups().map(g => g.id)).size) + ' groups · '
+      + (PATCH_ISSUES.filter(i => i.status==='blocking').length > 0
+          ? PATCH_ISSUES.filter(i => i.status==='blocking').length + ' open blocker'
+          : 'no open blockers');
+
+    const cycle = window.PATCH_NEXT_CYCLE;
+    if (cycle && cycle.cycleDate) {
+      const dateStr = new Date(cycle.cycleDate).toLocaleDateString('en-GB',
+        { day: 'numeric', month: 'long', year: 'numeric' });
+      if (cycle.isStale) {
+        const n = cycle.daysOverdue || 0;
+        heroCount = String(n);
+        heroUnit = n === 1 ? 'day behind' : 'days behind';
+        heroTitle = 'Last Cycle';
+        heroDate = 'Completed ' + dateStr;
+        heroSub = 'Source schedule has not been updated — awaiting next cycle dates from the schedule owner';
+      } else {
+        const d = cycle.daysUntil != null ? cycle.daysUntil : 0;
+        heroCount = String(d);
+        heroUnit = d === 1 ? 'day' : 'days';
+        heroDate = 'Begins ' + dateStr;
+      }
+    }
 
     // HERO — countdown + cycle meta + group bars
     const hero = h('div.patch-banner', null,
-      h('div.countdown', null, h('span.n', null, '3'), h('span.unit', null, 'days')),
+      h('div.countdown', null, h('span.n', null, heroCount), h('span.unit', null, heroUnit)),
       h('div.meta', null,
-        h('span.t', null, 'Next Cycle'),
-        h('span.d', null, 'April 2026 · begins Apr 23, 2026'),
-        h('span.sub', null, getPatchTotal().toLocaleString()+' servers across '
-          + (new Set(getPatchGroups().map(g => g.id)).size)+' groups · '
-          + (PATCH_ISSUES.filter(i => i.status==='blocking').length>0
-              ? PATCH_ISSUES.filter(i => i.status==='blocking').length+' open blocker'
-              : 'no open blockers'))),
+        h('span.t', null, heroTitle),
+        h('span.d', null, heroDate),
+        h('span.sub', null, heroSub)),
       h('div.groups', null,
         ...getPatchGroups().slice(0, 12).map(g =>
           h('div.group', null,

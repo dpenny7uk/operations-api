@@ -45,6 +45,10 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
         bool isStale = false;
         if (cycles.Count == 0)
         {
+            // Include 'completed' because sync_patching_schedule.py flips
+            // past cycles from 'active' to 'completed' on every run. Filtering
+            // on 'active' alone would miss every cycle the sync has already
+            // processed - exactly the rows we want for the stale fallback.
             cycles = (await Db.QueryAsync<NextCycleRow>($@"
                 SELECT
                     cycle_id AS CycleId,
@@ -53,7 +57,7 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
                     status AS Status,
                     (cycle_date - CURRENT_DATE)::INT AS DaysUntil
                 FROM {Sql.Tables.PatchCycles}
-                WHERE status = 'active'
+                WHERE status IN ('active', 'completed')
                   AND cycle_date >= CURRENT_DATE - INTERVAL '30 days'
                   AND cycle_date <  CURRENT_DATE
                 ORDER BY cycle_date DESC

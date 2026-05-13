@@ -52,25 +52,25 @@ public class PatchingServiceTests : IntegrationTestBase
 
     // Source HTML schedule lags behind cadence sometimes (gated on Ivanti API
     // access). Verify the fallback returns the most recent past cycle with
-    // IsStale=true instead of 404-ing.
+    // IsStale=true instead of 404-ing. The mutation here mirrors what
+    // sync_patching_schedule.py does in prod: it flips past cycles from
+    // 'active' to 'completed' on each run. The fallback query must include
+    // 'completed' or it will miss every prod cycle.
     [DockerFact]
     public async Task NextSummary_falls_back_to_past_cycle_when_no_upcoming()
     {
         await using var conn = new NpgsqlConnection(Db.ConnectionString);
         await conn.OpenAsync();
 
-        // Snapshot upcoming-cycle dates so we can restore them after the test.
-        var originals = (await conn.QueryAsync<(int CycleId, DateOnly CycleDate)>(
-            "SELECT cycle_id, cycle_date FROM patching.patch_cycles WHERE cycle_date >= CURRENT_DATE"
+        var originals = (await conn.QueryAsync<(int CycleId, DateOnly CycleDate, string Status)>(
+            "SELECT cycle_id, cycle_date, status FROM patching.patch_cycles WHERE cycle_date >= CURRENT_DATE"
         )).ToList();
 
         try
         {
-            // Push all upcoming cycles 3 days into the past so the forward
-            // query returns zero rows and the fallback kicks in.
             await conn.ExecuteAsync(@"
                 UPDATE patching.patch_cycles
-                SET cycle_date = CURRENT_DATE - INTERVAL '3 days'
+                SET cycle_date = CURRENT_DATE - INTERVAL '3 days', status = 'completed'
                 WHERE cycle_date >= CURRENT_DATE");
 
             var svc = CreateService();
@@ -79,15 +79,16 @@ public class PatchingServiceTests : IntegrationTestBase
             Assert.NotNull(summary);
             Assert.True(summary!.IsStale);
             Assert.Equal(3, summary.DaysOverdue);
+            Assert.Equal("completed", summary.Cycle.Status);
             Assert.True(summary.Cycle.CycleDate < DateOnly.FromDateTime(DateTime.Today));
         }
         finally
         {
-            foreach (var (id, date) in originals)
+            foreach (var (id, date, status) in originals)
             {
                 await conn.ExecuteAsync(
-                    "UPDATE patching.patch_cycles SET cycle_date = @date WHERE cycle_id = @id",
-                    new { id, date });
+                    "UPDATE patching.patch_cycles SET cycle_date = @date, status = @status WHERE cycle_id = @id",
+                    new { id, date, status });
             }
         }
     }

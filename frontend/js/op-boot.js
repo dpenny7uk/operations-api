@@ -538,12 +538,17 @@ async function runFetches() {
     ]).then(([cycles, next]) => {
       if (!cycles && !next) { markDemo('patching'); return; }
       window.PATCH_GROUPS = mapPatchGroups(cycles, next);
-      // Source schedule is human-maintained and sometimes lags; the API
-      // falls back to the most recent past cycle with isStale=true so the
-      // dashboard can warn the user instead of going blank.
-      window.PATCH_NEXT_STALE = (next && next.isStale)
-        ? { daysOverdue: next.daysOverdue || 0 }
-        : null;
+      // Live cycle data for the patching-page hero. Source schedule is
+      // human-maintained and sometimes lags; isStale=true means the API
+      // fell back to the most recent past cycle and the hero should warn
+      // instead of showing a fictional upcoming date.
+      window.PATCH_NEXT_CYCLE = next ? {
+        cycleId:    next.cycle && next.cycle.cycleId,
+        cycleDate:  next.cycle && next.cycle.cycleDate,
+        daysUntil:  next.daysUntil,
+        isStale:    !!next.isStale,
+        daysOverdue: next.daysOverdue || 0
+      } : null;
       rerender();
     }),
     api('/patching/cycles?upcomingOnly=false&limit=24' + buQs).then(v => {
