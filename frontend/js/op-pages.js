@@ -275,19 +275,24 @@
   // populates the cache and re-renders the page. Callers must handle the
   // three states (null/loading/array).
   const EOL_HOST_CACHE = new Map();
+  function eolCacheKey(product, version) {
+    const bu = (window.SELECTED_BU && window.SELECTED_BU !== '__all') ? window.SELECTED_BU : '';
+    return product + '@' + version + '@' + bu;
+  }
   // Peek the cache without triggering a fetch. Returns undefined | 'loading' | Array.
   // Used by search-time host matching and the auto-expand check, both of which
   // must not fan out N+1 fetches across every row.
   function eolHostsCached(product, version) {
-    return EOL_HOST_CACHE.get(product + '@' + version);
+    return EOL_HOST_CACHE.get(eolCacheKey(product, version));
   }
   function eolHostsFor(product, version) {
-    const key = product + '@' + version;
+    const key = eolCacheKey(product, version);
     const cached = EOL_HOST_CACHE.get(key);
     if (cached !== undefined) return cached;
     EOL_HOST_CACHE.set(key, 'loading');
     if (window.OC_API && window.OC_API.getEolDetail) {
-      window.OC_API.getEolDetail(product, version).then(detail => {
+      const bu = (window.SELECTED_BU && window.SELECTED_BU !== '__all') ? window.SELECTED_BU : null;
+      window.OC_API.getEolDetail(product, version, bu).then(detail => {
         const assets = (detail && Array.isArray(detail.assets)) ? detail.assets : [];
         const list = assets.map((name, i) => ({
           idx: i + 1,
@@ -853,7 +858,8 @@
   function applyEolFilters() {
     const q = eolState.q.trim().toLowerCase();
     let rows = liveEol().products.slice();
-    if (eolState.status !== '__all') rows = rows.filter(r => r.status === eolState.status);
+    if (eolState.status === 'action') rows = rows.filter(r => r.status === 'eol' || r.status === 'extended');
+    else if (eolState.status !== '__all') rows = rows.filter(r => r.status === eolState.status);
     if (q) {
       rows = rows.filter(r => {
         if (r.product.toLowerCase().includes(q)) return true;
@@ -886,7 +892,7 @@
     // Hero strip — STAMPED EOL counts (loud)
     const strip = h('div.crit-strip');
     strip.appendChild(h('div.cs-cell.status-cell'+(EOL_TOTALS.eol>0?'.crit':EOL_TOTALS.extended>0?'.warn':'.ok'),
-      { on:{click:()=>{ eolState.status = EOL_TOTALS.eol>0?'eol':'extended'; window.RERENDER_PAGE(mount); }}},
+      { on:{click:()=>{ eolState.status = (EOL_TOTALS.eol + EOL_TOTALS.extended)>0 ? 'action' : '__all'; window.RERENDER_PAGE(mount); }}},
       h('div.cs-label', null, 'End of life · action required'),
       h('div.cs-value', null, String(EOL_TOTALS.eol + EOL_TOTALS.extended),
         h('span.cs-unit', null, 'of '+EOL_TOTALS.products+' products')),
@@ -921,6 +927,7 @@
     const rows = applyEolFilters();
     const statusOpts = [
       ['__all','All statuses ('+EOL_PRODUCTS.length+')'],
+      ['action','Action required ('+(EOL_TOTALS.eol + EOL_TOTALS.extended)+')'],
       ['eol','End of life ('+EOL_TOTALS.eol+')'],
       ['extended','Extended support ('+EOL_TOTALS.extended+')'],
       ['supported','Supported ('+EOL_TOTALS.supported+')'],
@@ -2674,13 +2681,24 @@
       h('div.cs-value', null, overallWord),
       h('div.cs-sub', null, kpis.total + ' disks tracked'),
     ));
-    strip.appendChild(h('div.cs-cell.crit', null,
+    const applyDiskStatus = async (code) => {
+      diskState.status = code;
+      diskState.page = 1;
+      if (window.OC_API && typeof window.OC_API.fetchDisks === 'function') {
+        const refetched = await window.OC_API.fetchDisks({ env: diskState.env, status: code });
+        if (refetched) return;
+      }
+      window.RERENDER_PAGE(mount);
+    };
+    strip.appendChild(h('div.cs-cell.crit',
+      kpis.crit ? { style:{cursor:'pointer'}, on:{click: () => applyDiskStatus('3')} } : null,
       h('div.cs-label', null, 'Critical'),
       h('div.cs-value', null, String(kpis.crit), h('span.cs-unit', null, '≥ 90% used')),
       h('div.cs-sub', null, kpis.crit ? 'over crit threshold' : 'none over crit'),
       kpis.crit ? h('div.cs-link', null, 'Show critical') : null,
     ));
-    strip.appendChild(h('div.cs-cell.warn', null,
+    strip.appendChild(h('div.cs-cell.warn',
+      kpis.warn ? { style:{cursor:'pointer'}, on:{click: () => applyDiskStatus('2')} } : null,
       h('div.cs-label', null, 'Warning'),
       h('div.cs-value', null, String(kpis.warn), h('span.cs-unit', null, '≥ 80% used')),
       h('div.cs-sub', null, kpis.warn ? 'approaching crit' : 'none over warn'),
@@ -3203,11 +3221,13 @@
     window.OC_API.getServerDetail(id).then(data => {
       _serverDetailLoaded = { id, data };
       _serverDetailLoading = null;
-      if (stillOnSamePage()) window.RERENDER_PAGE(mount);
+      // RERENDER_SHELL (not RERENDER_PAGE) so the Statusline re-evaluates
+      // surfaceHero() and replaces "Loading server…" with the real host name.
+      if (stillOnSamePage()) window.RERENDER_SHELL ? window.RERENDER_SHELL() : window.RERENDER_PAGE(mount);
     }).catch(() => {
       _serverDetailLoaded = { id, data: null };
       _serverDetailLoading = null;
-      if (stillOnSamePage()) window.RERENDER_PAGE(mount);
+      if (stillOnSamePage()) window.RERENDER_SHELL ? window.RERENDER_SHELL() : window.RERENDER_PAGE(mount);
     });
   }
 
