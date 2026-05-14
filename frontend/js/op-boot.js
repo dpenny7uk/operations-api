@@ -766,8 +766,11 @@ window.OC_API = {
   },
 
   // Returns EolSoftwareDetail with .assets[] (machine names) or null on error.
-  getEolDetail: (product, version) =>
-    api('/eol/' + encodeURIComponent(product) + '/' + encodeURIComponent(version)),
+  getEolDetail: (product, version, businessUnit) => {
+    const bu = businessUnit !== undefined ? businessUnit : window.SELECTED_BU;
+    const qs = (bu && bu !== '__all') ? ('?businessUnit=' + encodeURIComponent(bu)) : '';
+    return api('/eol/' + encodeURIComponent(product) + '/' + encodeURIComponent(version) + qs);
+  },
 
   // Refetch /api/disks + /api/disks/summary scoped to the given filters.
   // Any filter can be falsy / '__all' to mean unfiltered. Status is the

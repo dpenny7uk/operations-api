@@ -108,19 +108,32 @@ public class ServersController : ControllerBase
     /// <summary>List servers that failed certificate or other scans (unreachable).</summary>
     [HttpGet("unreachable")]
     [ProducesResponseType(200)]
-    public async Task<IActionResult> GetUnreachable([FromQuery] int limit = 50)
-        => Ok(await _svc.GetUnreachableServersAsync(Math.Clamp(limit, 1, 500)));
+    [ProducesResponseType(400)]
+    public async Task<IActionResult> GetUnreachable(
+        [FromQuery] int limit = 50,
+        [FromQuery] string? businessUnit = null)
+    {
+        if (businessUnit?.Length > 100 || InputGuard.ContainsControlChars(businessUnit))
+            return BadRequest("businessUnit parameter is invalid.");
+        var buFilter = string.IsNullOrWhiteSpace(businessUnit) ? null : businessUnit.Trim();
+        return Ok(await _svc.GetUnreachableServersAsync(Math.Clamp(limit, 1, 500), buFilter));
+    }
 
     /// <summary>List servers that could not be matched to the canonical inventory.</summary>
     [HttpGet("unmatched")]
     [ProducesResponseType(200)]
+    [ProducesResponseType(400)]
     public async Task<IActionResult> GetUnmatched(
         [FromQuery] string? sourceSystem,
-        [FromQuery] int limit = 50)
+        [FromQuery] int limit = 50,
+        [FromQuery] string? businessUnit = null)
     {
         if (sourceSystem?.Length > 100 || InputGuard.ContainsControlChars(sourceSystem))
             return BadRequest("sourceSystem parameter is invalid.");
-        return Ok(await _svc.GetUnmatchedServersAsync(sourceSystem, Math.Clamp(limit, 1, 500)));
+        if (businessUnit?.Length > 100 || InputGuard.ContainsControlChars(businessUnit))
+            return BadRequest("businessUnit parameter is invalid.");
+        var buFilter = string.IsNullOrWhiteSpace(businessUnit) ? null : businessUnit.Trim();
+        return Ok(await _svc.GetUnmatchedServersAsync(sourceSystem, Math.Clamp(limit, 1, 500), buFilter));
     }
 
     /// <summary>Create a server name alias mapping. Requires OpsAdmin role.</summary>

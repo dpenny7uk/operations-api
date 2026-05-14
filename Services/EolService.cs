@@ -151,11 +151,16 @@ public class EolService : BaseService<EolService>, IEolService
         return await Db.QueryAsync<EolSoftware>(sql, dp);
     });
 
-    public Task<EolSoftwareDetail?> GetByProductVersionAsync(string product, string version) => RunDbAsync(async () =>
+    public Task<EolSoftwareDetail?> GetByProductVersionAsync(string product, string version, string? businessUnit = null) => RunDbAsync(async () =>
     {
-        // Get lifecycle dates from product-level row
+        var dp = new DynamicParameters();
+        dp.Add("Product", product);
+        dp.Add("Version", version);
+        if (!string.IsNullOrWhiteSpace(businessUnit))
+            dp.Add("BusinessUnit", businessUnit);
+
         var detail = await Db.QueryFirstOrDefaultAsync<EolSoftwareDetail>($@"
-            WITH {AllServers()}
+            WITH {AllServers(businessUnit)}
             SELECT
                 p.eol_product AS Product,
                 p.eol_product_version AS Version,
@@ -172,18 +177,17 @@ public class EolService : BaseService<EolService>, IEolService
             WHERE p.eol_product = @Product AND p.eol_product_version = @Version
               AND p.is_active = TRUE AND p.machine_name IS NULL
             GROUP BY p.eol_product, p.eol_product_version, p.eol_end_of_life, p.eol_end_of_extended_support, p.eol_end_of_support
-        ", new { Product = product, Version = version });
+        ", dp);
 
         if (detail != null)
         {
-            // Get affected server names from per-server rows + OS mapping
             var assets = await Db.QueryAsync<string>($@"
-                WITH {AllServers()}
+                WITH {AllServers(businessUnit)}
                 SELECT DISTINCT s.machine_name
                 FROM all_servers s
                 WHERE s.eol_product = @Product AND s.eol_product_version = @Version
                 ORDER BY s.machine_name
-            ", new { Product = product, Version = version });
+            ", dp);
             detail.Assets = assets.ToList();
         }
 

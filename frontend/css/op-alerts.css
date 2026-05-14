@@ -783,7 +783,7 @@ body[data-alert-style="v3"] .loud-banner.warn {
   gap: 2px;
 }
 .metric-card .env-row {
-  padding: 6px 0;
+  padding: 6px 0 6px 10px;
   grid-template-columns: 140px 1fr 60px;
   gap: 12px;
 }

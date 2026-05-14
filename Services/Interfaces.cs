@@ -31,8 +31,8 @@ public interface IServerService
     Task<ServerDetail?> GetServerByIdAsync(int id);
     Task<IEnumerable<ServerPatchHistoryItem>> GetPatchHistoryAsync(int serverId, int limit = 50);
     Task<ServerMatch?> ResolveServerNameAsync(string name);
-    Task<IEnumerable<UnmatchedServer>> GetUnmatchedServersAsync(string? source, int limit);
-    Task<IEnumerable<UnreachableServer>> GetUnreachableServersAsync(int limit);
+    Task<IEnumerable<UnmatchedServer>> GetUnmatchedServersAsync(string? source, int limit, string? businessUnit = null);
+    Task<IEnumerable<UnreachableServer>> GetUnreachableServersAsync(int limit, string? businessUnit = null);
     Task CreateAliasAsync(string canonical, string alias, string? source, string actingUser);
     Task<int> ResolveUnmatchedServerAsync(string raw, int serverId, string canonicalName, string? sourceSystem = null, string? actingUser = null);
     Task IgnoreUnmatchedServerAsync(string raw, string? sourceSystem = null, string? actingUser = null);
@@ -81,7 +81,7 @@ public interface IEolService
 {
     Task<EolSummary> GetSummaryAsync(bool hasServers = false, string? businessUnit = null);
     Task<IEnumerable<EolSoftware>> ListEolSoftwareAsync(string? alertLevel, string? product, int limit, bool hasServers = false, string? businessUnit = null);
-    Task<EolSoftwareDetail?> GetByProductVersionAsync(string product, string version);
+    Task<EolSoftwareDetail?> GetByProductVersionAsync(string product, string version, string? businessUnit = null);
     Task<IEnumerable<EolSoftware>> GetByServerAsync(string serverName, int limit = 500);
     Task<IEnumerable<UnmatchedEolSoftware>> GetUnmatchedSoftwareAsync(int limit);
 }

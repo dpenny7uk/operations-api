@@ -254,17 +254,27 @@ public class ServerService : BaseService<ServerService>, IServerService
         ", new { ServerId = serverId, Limit = limit })
     );
 
-    public Task<IEnumerable<UnmatchedServer>> GetUnmatchedServersAsync(string? source, int limit) => RunDbAsync(async () =>
+    public Task<IEnumerable<UnmatchedServer>> GetUnmatchedServersAsync(string? source, int limit, string? businessUnit = null) => RunDbAsync(async () =>
     {
-        var sql = $@"
-            SELECT
-                server_name_raw AS ServerNameRaw,
-                server_name_normalized AS ServerNameNormalized,
-                source_system AS SourceSystem,
-                occurrence_count AS OccurrenceCount,
-                first_seen_at AS FirstSeenAt,
-                last_seen_at AS LastSeenAt,
-                (
+        // Unmatched rows are by definition not in shared.servers, so they don't
+        // carry a BU. When the caller scopes by BU, restrict to entries whose
+        // closest fuzzy-matched canonical server is in that BU - keeps the
+        // work-list scoped to the operator's estate.
+        var hasBu = !string.IsNullOrWhiteSpace(businessUnit);
+        var closestMatchSql = hasBu
+            ? $@"(
+                    SELECT s.server_name
+                    FROM {Sql.Tables.Servers} s
+                    WHERE s.is_active
+                      AND s.business_unit = @BusinessUnit
+                      AND similarity(system.normalize_server_name(s.server_name), um.server_name_normalized) > 0.3
+                    ORDER BY similarity(
+                        system.normalize_server_name(s.server_name),
+                        um.server_name_normalized
+                    ) DESC, s.server_name
+                    LIMIT 1
+                )"
+            : $@"(
                     SELECT s.server_name
                     FROM {Sql.Tables.Servers} s
                     WHERE s.is_active
@@ -274,12 +284,27 @@ public class ServerService : BaseService<ServerService>, IServerService
                         um.server_name_normalized
                     ) DESC, s.server_name
                     LIMIT 1
-                ) AS ClosestMatch
+                )";
+
+        var sql = $@"
+            SELECT
+                server_name_raw AS ServerNameRaw,
+                server_name_normalized AS ServerNameNormalized,
+                source_system AS SourceSystem,
+                occurrence_count AS OccurrenceCount,
+                first_seen_at AS FirstSeenAt,
+                last_seen_at AS LastSeenAt,
+                {closestMatchSql} AS ClosestMatch
             FROM {Sql.Tables.UnmatchedServers} um
             WHERE status = 'pending'";
 
         var p = new DynamicParameters();
         AddExactFilter(ref sql, p, "source_system", "Source", source);
+        if (hasBu)
+        {
+            sql += " AND " + closestMatchSql + " IS NOT NULL";
+            p.Add("BusinessUnit", businessUnit);
+        }
 
         sql += " ORDER BY occurrence_count DESC LIMIT @Limit";
         p.Add("Limit", limit);
@@ -287,19 +312,26 @@ public class ServerService : BaseService<ServerService>, IServerService
         return await Db.QueryAsync<UnmatchedServer>(sql, p);
     });
 
-    public Task<IEnumerable<UnreachableServer>> GetUnreachableServersAsync(int limit) => RunDbAsync(() =>
-        Db.QueryAsync<UnreachableServer>($@"
+    public Task<IEnumerable<UnreachableServer>> GetUnreachableServersAsync(int limit, string? businessUnit = null) => RunDbAsync(() =>
+    {
+        var sql = $@"
             SELECT
                 server_name AS ServerName,
                 environment AS Environment,
                 last_failure_at AS LastSeen,
                 scan_type AS ScanType,
                 failure_count AS FailureCount
-            FROM system.v_unreachable_servers
-            ORDER BY failure_count DESC
-            LIMIT @Limit
-        ", new { Limit = limit })
-    );
+            FROM system.v_unreachable_servers";
+        var p = new DynamicParameters();
+        if (!string.IsNullOrWhiteSpace(businessUnit))
+        {
+            sql += " WHERE business_unit = @BusinessUnit";
+            p.Add("BusinessUnit", businessUnit);
+        }
+        sql += " ORDER BY failure_count DESC LIMIT @Limit";
+        p.Add("Limit", limit);
+        return Db.QueryAsync<UnreachableServer>(sql, p);
+    });
 
     public Task CreateAliasAsync(string canonical, string alias, string? source, string actingUser) => RunDbAsync(async () =>
     {

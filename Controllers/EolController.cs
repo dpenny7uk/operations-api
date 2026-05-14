@@ -56,14 +56,20 @@ public class EolController : ControllerBase
     [ProducesResponseType(200)]
     [ProducesResponseType(400)]
     [ProducesResponseType(404)]
-    public async Task<IActionResult> GetByProductVersion(string product, string version)
+    public async Task<IActionResult> GetByProductVersion(
+        string product,
+        string version,
+        [FromQuery] string? businessUnit = null)
     {
         if (string.IsNullOrWhiteSpace(product) || string.IsNullOrWhiteSpace(version)
             || product.Length > 255 || version.Length > 100
             || InputGuard.ContainsControlChars(product) || InputGuard.ContainsControlChars(version)
             || product.Contains('/') || product.Contains('\\') || version.Contains('/') || version.Contains('\\'))
             return BadRequest("Product and version are required and must not exceed length limits.");
-        var detail = await _svc.GetByProductVersionAsync(product, version);
+        if (businessUnit?.Length > 100 || InputGuard.ContainsControlChars(businessUnit))
+            return BadRequest("businessUnit parameter is invalid.");
+        var buFilter = string.IsNullOrWhiteSpace(businessUnit) ? null : businessUnit.Trim();
+        var detail = await _svc.GetByProductVersionAsync(product, version, buFilter);
         return detail == null ? NotFound() : Ok(detail);
     }
 
