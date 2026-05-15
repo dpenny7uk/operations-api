@@ -1,8 +1,8 @@
 -- Operations Platform - Track installed software that did not match any
 -- entry in sync_eol_software.py's SOFTWARE_PATTERNS catalogue.
 --
--- Background: CLAUDE.md notes 11,757 of 18,065 EOL records are skipped each
--- run. These are managed servers (post desktop-filter) whose installed-
+-- Background: 11,757 of 18,065 EOL records are skipped each run. These are
+-- managed servers (post desktop-filter) whose installed-
 -- software string doesn't match the 12 hardcoded regex patterns. Today they
 -- are logged at INFO and silently discarded — so the dashboard's EOL coverage
 -- is ~35% of reality and nobody can see what we're missing.

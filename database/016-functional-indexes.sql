@@ -13,7 +13,7 @@
 --
 -- This is a bridge fix. The follow-up workstream normalises server_name at
 -- source (lowercase on write in the sync scripts) and drops the UPPER()
--- predicates entirely. See CLAUDE.md "What to work on next".
+-- predicates entirely.
 --
 -- Idempotent: CREATE INDEX IF NOT EXISTS wrapped in BEGIN/COMMIT.
 

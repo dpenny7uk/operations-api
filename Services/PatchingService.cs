@@ -74,8 +74,8 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
 
         // When BU is set, narrow the per-cycle counts and issue counts to
         // servers in that BU. The join uses ps.server_id → shared.servers
-        // (CLAUDE.md note: patch_schedule.business_unit is denormalised; the
-        // canonical BU lives on shared.servers). Rows with server_id IS NULL
+        // (patch_schedule.business_unit is denormalised; the canonical BU lives
+        // on shared.servers). Rows with server_id IS NULL
         // (soft-deleted servers) are excluded by the inner join - correct,
         // since they no longer belong to any BU.
         var hasBu = !string.IsNullOrWhiteSpace(businessUnit);

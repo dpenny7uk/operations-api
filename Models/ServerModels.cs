@@ -27,8 +27,8 @@ public class ServerDetail : Server
 /// One row of the server's patch cycle history. Status is computed in the
 /// service: 'held' if an active patch_exclusion covers the cycle date,
 /// 'patched' if the cycle date is in the past, otherwise 'scheduled'.
-/// Optimistic until Ivanti reconciliation populates patch_schedule.patch_status -
-/// see CLAUDE.md.
+/// Optimistic until Ivanti reconciliation populates patch_schedule.patch_status
+/// (pending API access, gated by Ivanti meeting week of 2026-04-27).
 /// </summary>
 public class ServerPatchHistoryItem
 {

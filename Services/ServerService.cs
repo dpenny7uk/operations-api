@@ -225,7 +225,7 @@ public class ServerService : BaseService<ServerService>, IServerService
     // cycle-level status from patch_exclusions:
     //   held      - there's an active exclusion whose window covers cycle_date
     //   patched   - cycle has passed (optimistic: patch_status itself is
-    //               unpopulated, see CLAUDE.md "patch_status never populated")
+    //               unpopulated pending Ivanti API access)
     //   scheduled - cycle is upcoming
     // When Ivanti reconciliation lands, swap the optimistic 'patched' branch
     // for the real ps.patch_status value.
