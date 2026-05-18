@@ -78,6 +78,27 @@ if ($CriticalDays -ge $ThresholdDays) {
     exit 1
 }
 
+# Static cert-validation callback. A PowerShell scriptblock callback fails inside the
+# RunspacePool when .NET dispatches the TLS validation onto an internal thread pool
+# thread that has no runspace bound ("There is no Runspace available to run scripts
+# in this thread"). A compiled .NET delegate has no runspace dependency, so the
+# callback runs on any thread.
+if (-not ([System.Management.Automation.PSTypeName]'OpsCertValidator').Type) {
+    Add-Type -TypeDefinition @"
+using System.Net.Security;
+using System.Security.Cryptography.X509Certificates;
+public static class OpsCertValidator {
+    // Exposed as a static readonly delegate (not a method group), so PowerShell can
+    // pass it straight to the SslStream constructor - PS 5.1 cannot cast a PSMethod
+    // reference to an arbitrary delegate type.
+    public static readonly RemoteCertificateValidationCallback AcceptAny = AcceptAnyImpl;
+    private static bool AcceptAnyImpl(object sender, X509Certificate cert, X509Chain chain, SslPolicyErrors errors) {
+        return true;
+    }
+}
+"@
+}
+
 # ── Read server list ─────────────────────────────────────────────────────────
 
 $servers = @(Get-Content -Path $ServerListPath |
@@ -177,15 +198,12 @@ $serverScanBlock = [ScriptBlock]::Create(@'
                 continue
             }
 
+            # Must accept any cert (incl. expired/self-signed) to scan them.
+            # Callback is a static .NET delegate, not a scriptblock - see OpsCertValidator
+            # at the top of the file for the reason.
             $sslStream = New-Object System.Net.Security.SslStream(
                 $tcpClient.GetStream(), $false,
-                ([System.Net.Security.RemoteCertificateValidationCallback]{
-                    param($sslSender, $certificate, $chain, $sslPolicyErrors)
-                    if ($sslPolicyErrors -ne 'None') {
-                        Write-Verbose "TLS policy errors for ${ServerName}:${port}: $sslPolicyErrors (accepted for scanning)"
-                    }
-                    return $true  # Must accept to scan expired/self-signed certs
-                })
+                [OpsCertValidator]::AcceptAny
             )
             # Bounded TLS handshake: synchronous AuthenticateAsClient has no timeout
             # and will hang the runspace if the server accepts TCP but stalls TLS.
@@ -301,15 +319,10 @@ $endpointScanBlock = [ScriptBlock]::Create(@'
             }
         }
 
+        # Static delegate callback - see OpsCertValidator at the top of the file.
         $sslStream = New-Object System.Net.Security.SslStream(
             $tcpClient.GetStream(), $false,
-            ([System.Net.Security.RemoteCertificateValidationCallback]{
-                param($sslSender, $certificate, $chain, $sslPolicyErrors)
-                if ($sslPolicyErrors -ne 'None') {
-                    Write-Verbose "TLS policy errors for ${EndpointURL}: $sslPolicyErrors (accepted for scanning)"
-                }
-                return $true  # Must accept to scan expired/self-signed certs
-            })
+            [OpsCertValidator]::AcceptAny
         )
         $sslStream.AuthenticateAsClient($host_)
 
