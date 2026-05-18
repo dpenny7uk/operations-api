@@ -628,7 +628,7 @@
   // ================================================================
   function CritStrip(sc) {
     const stale = sc.apiState !== 'ok';
-    const strip = h('div.crit-strip');
+    const strip = h('div.crit-strip.crit-strip-6');
 
     // System status
     const c1tone = sc.summary.crit ? 'crit' : sc.summary.warn ? 'warn' : 'ok';

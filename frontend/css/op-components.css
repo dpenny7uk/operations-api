@@ -1489,6 +1489,15 @@ select.bu-scope option {
   .crit-strip .cs-cell:nth-child(odd) { border-right: 1px solid var(--rule); }
 }
 
+/* 6-cell Health strip: avoid 5+1 orphan on intermediate widths (Surface,
+   1366x768 laptops) by stepping to a clean 3x2 grid. Container query on
+   .page so the layout responds to actual content width, not viewport. */
+@container page (max-width: 1320px) {
+  .crit-strip-6 { grid-template-columns: repeat(3, 1fr); }
+  .crit-strip-6 .cs-cell:nth-child(3n) { border-right: none; }
+  .crit-strip-6 .cs-cell:nth-child(-n+3) { border-bottom: 1px solid var(--rule); }
+}
+
 /* ── TABS (Patching Schedules, Patch Management) ─────── */
 .tabs {
   display: flex;
