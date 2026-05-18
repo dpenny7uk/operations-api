@@ -36,6 +36,11 @@ def _validate_teams_url(url: str) -> None:
         )
 
 
+# Scope: Group Support owned servers, plus endpoint certs from our config CSV
+# (server_id IS NULL identifies rows that came from certificate-endpoints.csv,
+# which is curated by our team - so all entries are "ours" by construction).
+ALERT_BU = 'Contoso Group Support'
+
 _CERT_ALERT_BASE = """
     SELECT
         c.certificate_id,
@@ -55,6 +60,7 @@ _CERT_ALERT_BASE = """
     LEFT JOIN shared.applications a ON s.primary_application_id = a.application_id
     WHERE c.is_active
       AND c.valid_to IS NOT NULL
+      AND (s.business_unit = %s OR c.server_id IS NULL)
       AND UPPER(c.server_name) NOT IN (
           SELECT UPPER(server_name) FROM system.scan_failures
           WHERE scan_type = 'certificate' AND NOT is_resolved
@@ -232,12 +238,14 @@ def main():
     webhook_url = os.environ['TEAMS_WEBHOOK_URL']
     _validate_teams_url(webhook_url)
 
+    logger.info("Scope: business_unit = %r (plus endpoint certs without a server_id)", ALERT_BU)
+
     conn = get_database_connection(app_name='cert_expiry_alert')
     try:
         with conn.cursor() as cur:
-            cur.execute(CRITICAL_QUERY)
+            cur.execute(CRITICAL_QUERY, (ALERT_BU,))
             certs = [dict(row) for row in cur.fetchall()]
-            cur.execute(WARNING_QUERY)
+            cur.execute(WARNING_QUERY, (ALERT_BU,))
             warning_certs = [dict(row) for row in cur.fetchall()]
 
         if not certs and not warning_certs:

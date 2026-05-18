@@ -43,6 +43,10 @@ def _validate_teams_url(url: str) -> None:
 COOLDOWN_HOURS = int(os.environ.get('DISK_ALERT_COOLDOWN_HOURS', '24'))
 
 
+# Scope: Group Support only - we own these servers operationally, the rest of the
+# estate is paged by their respective BU teams.
+ALERT_BU = 'Contoso Group Support'
+
 # Breaches: status>=2 AND not in an unresolved alert row within the cooldown window.
 BREACH_QUERY = """
     SELECT
@@ -58,6 +62,7 @@ BREACH_QUERY = """
         d.alert_status
     FROM monitoring.disk_current d
     WHERE d.alert_status >= 2
+      AND d.business_unit = %s
       AND NOT EXISTS (
           SELECT 1 FROM monitoring.alerts a
           WHERE a.server_name = d.server_name
@@ -85,6 +90,7 @@ RESOLUTION_QUERY = """
     WHERE a.notification_sent = TRUE
       AND NOT a.resolved
       AND d.alert_status = 1
+      AND d.business_unit = %s
     ORDER BY a.server_name, a.disk_label
 """
 
@@ -252,13 +258,14 @@ def main():
     _validate_teams_url(webhook_url)
 
     logger.info("Cooldown: %dh (set DISK_ALERT_COOLDOWN_HOURS to change)", COOLDOWN_HOURS)
+    logger.info("Scope: business_unit = %r", ALERT_BU)
 
     conn = get_database_connection(app_name='disk_breach_alert')
     try:
         with conn.cursor() as cur:
-            cur.execute(BREACH_QUERY, (COOLDOWN_HOURS,))
+            cur.execute(BREACH_QUERY, (ALERT_BU, COOLDOWN_HOURS))
             breaches = [dict(r) for r in cur.fetchall()]
-            cur.execute(RESOLUTION_QUERY)
+            cur.execute(RESOLUTION_QUERY, (ALERT_BU,))
             resolutions = [dict(r) for r in cur.fetchall()]
 
         if not breaches and not resolutions:
