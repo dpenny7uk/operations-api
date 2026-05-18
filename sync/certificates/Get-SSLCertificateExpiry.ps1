@@ -167,11 +167,12 @@ $serverScanBlock = [ScriptBlock]::Create(@'
         try {
             $tcpClient = New-Object System.Net.Sockets.TcpClient
             $connectTask = $tcpClient.ConnectAsync($ServerName, $port)
-            if (-not $connectTask.Wait(2000)) {
-                $tcpClient.Dispose()
-                continue
-            }
-            if ($connectTask.IsFaulted) {
+            # Task.Wait throws AggregateException on a faulted task (TCP refused/RST/no route).
+            # Swallow it so a fast TCP failure stays UNREACHABLE instead of falling through to
+            # the outer catch and being mis-classified as ERROR.
+            $tcpConnected = $false
+            try { $tcpConnected = $connectTask.Wait(2000) } catch { }
+            if (-not $tcpConnected -or $connectTask.IsFaulted) {
                 $tcpClient.Dispose()
                 continue
             }
@@ -188,14 +189,19 @@ $serverScanBlock = [ScriptBlock]::Create(@'
             )
             # Bounded TLS handshake: synchronous AuthenticateAsClient has no timeout
             # and will hang the runspace if the server accepts TCP but stalls TLS.
+            # Task.Wait throws AggregateException on a faulted task - catch it so we read the
+            # real failure reason from $authTask.Exception instead of surfacing a generic
+            # "Wait... One or more errors occurred" string.
             $authTask = $sslStream.AuthenticateAsClientAsync($ServerName)
-            if (-not $authTask.Wait(5000)) {
-                $lastError = "TLS handshake timed out after 5s on port $port"
-                continue
-            }
+            $tlsCompleted = $false
+            try { $tlsCompleted = $authTask.Wait(5000) } catch { }
             if ($authTask.IsFaulted) {
                 $ex = if ($authTask.Exception.InnerException) { $authTask.Exception.InnerException } else { $authTask.Exception }
                 $lastError = "TLS handshake failed on port ${port}: $($ex.Message)"
+                continue
+            }
+            if (-not $tlsCompleted) {
+                $lastError = "TLS handshake timed out after 5s on port $port"
                 continue
             }
 
@@ -216,7 +222,10 @@ $serverScanBlock = [ScriptBlock]::Create(@'
             }
         }
         catch {
-            $lastError = "TLS/connection error on port ${port}: $($_.Exception.Message)"
+            # PowerShell wraps .NET exceptions in MethodInvocationException; the real
+            # cause is at InnerException, so prefer that for a useful error string.
+            $inner = if ($_.Exception.InnerException) { $_.Exception.InnerException.Message } else { $_.Exception.Message }
+            $lastError = "TLS/connection error on port ${port}: $inner"
         }
         finally {
             if ($sslStream) { $sslStream.Dispose() }
@@ -269,15 +278,10 @@ $endpointScanBlock = [ScriptBlock]::Create(@'
 
         $tcpClient = New-Object System.Net.Sockets.TcpClient
         $connectTask = $tcpClient.ConnectAsync($host_, $port)
-        if (-not $connectTask.Wait(10000)) {
-            $tcpClient.Dispose()
-            return [PSCustomObject]@{
-                Name = $EndpointName; Status = 'ERROR'; Thumbprint = ''; Subject = ''
-                Issuer = ''; NotBefore = ''; NotAfter = ''; DaysRemaining = ''
-                Source = 'HTTPS Endpoint'; URL = $EndpointURL
-                Error = "Connection timed out to ${host_}:${port}"
-            }
-        }
+        # Task.Wait throws AggregateException on a faulted task - swallow so we can
+        # inspect $connectTask.Exception below and surface the real socket error.
+        $tcpConnected = $false
+        try { $tcpConnected = $connectTask.Wait(10000) } catch { }
         if ($connectTask.IsFaulted) {
             $tcpClient.Dispose()
             return [PSCustomObject]@{
@@ -285,6 +289,15 @@ $endpointScanBlock = [ScriptBlock]::Create(@'
                 Issuer = ''; NotBefore = ''; NotAfter = ''; DaysRemaining = ''
                 Source = 'HTTPS Endpoint'; URL = $EndpointURL
                 Error = if ($connectTask.Exception.InnerException) { $connectTask.Exception.InnerException.Message } else { $connectTask.Exception.Message }
+            }
+        }
+        if (-not $tcpConnected) {
+            $tcpClient.Dispose()
+            return [PSCustomObject]@{
+                Name = $EndpointName; Status = 'ERROR'; Thumbprint = ''; Subject = ''
+                Issuer = ''; NotBefore = ''; NotAfter = ''; DaysRemaining = ''
+                Source = 'HTTPS Endpoint'; URL = $EndpointURL
+                Error = "Connection timed out to ${host_}:${port}"
             }
         }
 
@@ -329,11 +342,14 @@ $endpointScanBlock = [ScriptBlock]::Create(@'
         }
     }
     catch {
+        # Prefer InnerException - the synchronous AuthenticateAsClient call gets wrapped in
+        # MethodInvocationException, and the inner message is the real TLS failure reason.
+        $msg = if ($_.Exception.InnerException) { $_.Exception.InnerException.Message } else { $_.Exception.Message }
         return [PSCustomObject]@{
             Name = $EndpointName; Status = 'ERROR'; Thumbprint = ''; Subject = ''
             Issuer = ''; NotBefore = ''; NotAfter = ''; DaysRemaining = ''
             Source = 'HTTPS Endpoint'; URL = $EndpointURL
-            Error = $_.Exception.Message
+            Error = $msg
         }
     }
     finally {
