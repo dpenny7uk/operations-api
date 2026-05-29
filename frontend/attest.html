@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Access Attestation — Operations Console</title>
+<link rel="stylesheet" href="css/op-fonts.css?v=__BUILD_HASH__">
+<link rel="stylesheet" href="css/op-base.css?v=__BUILD_HASH__">
+<style>
+  /* Standalone attest page — minimal layout, no SPA chrome. */
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    padding: 32px 20px 80px;
+    min-height: 100vh;
+  }
+  .attest-wrap {
+    max-width: 880px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+  }
+  .attest-header { display: flex; flex-direction: column; gap: 6px; padding-bottom: 18px; border-bottom: 1px solid var(--rule); }
+  .attest-header .brand {
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.16em;
+    text-transform: uppercase; color: var(--ink-3);
+  }
+  .attest-header h1 {
+    font-family: var(--display); font-size: 32px; line-height: 1.1;
+    letter-spacing: -0.015em; color: var(--ink); font-weight: 500;
+  }
+  .attest-header .sub { color: var(--ink-2); font-size: 14px; }
+  .attest-meta {
+    display: flex; flex-wrap: wrap; gap: 18px;
+    font-family: var(--mono); font-size: 11.5px; color: var(--ink-2);
+  }
+  .attest-meta b { color: var(--ink); font-weight: 600; }
+  .completed-banner {
+    border: 1px solid var(--ok); background: var(--ok-wash);
+    padding: 16px 20px; display: flex; align-items: center; gap: 14px;
+  }
+  .completed-banner .icon {
+    width: 28px; height: 28px; border-radius: 999px; background: var(--ok); color: white;
+    display: inline-flex; align-items: center; justify-content: center; font-weight: 600;
+    flex-shrink: 0; font-family: var(--mono);
+  }
+  .completed-banner .text { display: flex; flex-direction: column; gap: 2px; }
+  .completed-banner .title { font-weight: 600; color: var(--ink); }
+  .completed-banner .sub { font-family: var(--mono); font-size: 11.5px; color: var(--ink-2); }
+  .instructions {
+    background: var(--paper-2); border: 1px solid var(--rule);
+    padding: 16px 20px; font-family: var(--mono); font-size: 12px;
+    color: var(--ink-2); line-height: 1.6;
+  }
+  .instructions b { color: var(--ink); }
+  .subjects-table { border: 1px solid var(--rule); background: var(--card); }
+  .subjects-table .row {
+    display: grid; grid-template-columns: 1fr 1fr 220px;
+    gap: 14px; padding: 14px 18px; border-bottom: 1px solid var(--rule);
+    align-items: center;
+  }
+  .subjects-table .row:last-child { border-bottom: none; }
+  .subjects-table .row.disabled-user { background: var(--paper-2); }
+  .subj-name { display: flex; flex-direction: column; gap: 2px; }
+  .subj-name .display { font-weight: 600; color: var(--ink); }
+  .subj-name .sam { font-family: var(--mono); font-size: 11px; color: var(--ink-3); }
+  .subj-email { font-family: var(--mono); font-size: 12px; color: var(--ink-2); }
+  .subj-disabled-flag { font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--crit); margin-top: 2px; }
+  .decision-cell { display: flex; gap: 0; border: 1px solid var(--rule); border-radius: 2px; overflow: hidden; }
+  .decision-cell label {
+    flex: 1; padding: 8px 12px; text-align: center; cursor: pointer;
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--ink-3); background: var(--card); transition: background var(--t), color var(--t);
+    user-select: none;
+  }
+  .decision-cell label + label { border-left: 1px solid var(--rule); }
+  .decision-cell input[type="radio"] { display: none; }
+  .decision-cell input[type="radio"]:checked + span { font-weight: 700; }
+  .decision-cell label.keep-on { background: var(--ok-wash); color: var(--ok); font-weight: 600; }
+  .decision-cell label.revoke-on { background: var(--crit-wash); color: var(--crit); font-weight: 600; }
+  .decision-cell label.disabled { cursor: not-allowed; opacity: 0.65; }
+  .decision-summary {
+    display: flex; gap: 16px; padding: 14px 18px; background: var(--paper-2);
+    border-bottom: 1px solid var(--rule); font-family: var(--mono); font-size: 11.5px;
+  }
+  .decision-summary .keep { color: var(--ok); }
+  .decision-summary .revoke { color: var(--crit); }
+  .decision-summary b { font-weight: 700; }
+  .comment-cell { margin-top: 6px; }
+  .comment-cell input {
+    width: 100%; padding: 6px 8px; border: 1px solid var(--rule);
+    background: var(--card); font-family: var(--mono); font-size: 11.5px;
+  }
+  .actions { display: flex; gap: 12px; align-items: center; padding-top: 12px; }
+  .actions button.primary {
+    background: var(--ink); color: var(--paper); padding: 12px 28px;
+    font-family: var(--mono); font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase;
+    font-weight: 600; cursor: pointer; transition: background var(--t);
+  }
+  .actions button.primary:hover { background: var(--signal-2); }
+  .actions button.primary:disabled { opacity: 0.5; cursor: not-allowed; }
+  .actions .hint { font-family: var(--mono); font-size: 11px; color: var(--ink-3); }
+  .toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    background: var(--ink); color: var(--paper); padding: 14px 24px;
+    font-family: var(--mono); font-size: 12px; letter-spacing: 0.06em;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.18); z-index: 100;
+    opacity: 0; transition: opacity var(--t);
+  }
+  .toast.show { opacity: 1; }
+  .empty-state {
+    padding: 60px 20px; text-align: center; color: var(--ink-3);
+    font-family: var(--mono); font-size: 13px;
+  }
+  .empty-state h2 { font-family: var(--display); font-size: 24px; color: var(--ink); font-weight: 500; margin-bottom: 8px; }
+  .demo-ribbon-attest {
+    background: var(--warn-wash); border: 1px solid var(--warn);
+    padding: 10px 16px; font-family: var(--mono); font-size: 11px;
+    letter-spacing: 0.06em; color: var(--ink); display: flex; gap: 12px; align-items: center;
+  }
+  .demo-ribbon-attest b { color: var(--warn); letter-spacing: 0.12em; }
+</style>
+</head>
+<body data-theme="light" data-accent="amber" data-surface="ivory">
+<div id="root" class="attest-wrap"></div>
+<div id="toast" class="toast"></div>
+
+<script src="js/op-h.js?v=__BUILD_HASH__"></script>
+<script src="js/auditing-demo-data.js?v=__BUILD_HASH__"></script>
+<script>
+(function () {
+  'use strict';
+  const h = window.H;
+  const D = window.AUDITING_DATA;
+  const root = document.getElementById('root');
+
+  // Read ?t=<token> from URL.
+  const params = new URLSearchParams(location.search);
+  const token = params.get('t');
+
+  function fmtDateTime(s) {
+    if (!s) return '—';
+    const d = new Date(s);
+    if (isNaN(d.getTime())) return s;
+    return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' }) +
+      ' at ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  }
+  function shortGroup(dn) {
+    const m = /^CN=([^,]+)/i.exec(dn || '');
+    return m ? m[1] : (dn || '');
+  }
+  function showToast(msg) {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.classList.add('show');
+    setTimeout(() => el.classList.remove('show'), 3500);
+  }
+
+  function renderEmpty(title, sub) {
+    root.innerHTML = '';
+    root.appendChild(h('div.empty-state', null,
+      h('h2', null, title),
+      h('div', null, sub),
+    ));
+  }
+
+  if (!D) {
+    renderEmpty('Demo data unavailable', 'auditing-demo-data.js did not load. Check the script tag.');
+    return;
+  }
+  if (!token) {
+    renderEmpty('No token provided',
+      'Open this page with ?t=demo-pending to see a fresh attestation form, or ?t=demo-completed to see the read-only state.');
+    return;
+  }
+  const packet = D.getPacketByToken(token);
+  if (!packet) {
+    renderEmpty('Invalid or expired link',
+      'This attestation link is not recognised. In the real app, this means the token signature is invalid, the packet was deleted, or the link has been tampered with.');
+    return;
+  }
+
+  const campaign = D.getCampaign(packet.campaign_id);
+  const group = D.getGroup(packet.group_dn);
+  const members = D.getMembersOfGroup(packet.group_dn);
+  const owners = D.getOwnersOfGroup(packet.group_dn);
+  const isCompleted = !!packet.submitted_at;
+
+  // Local in-memory decisions state (Phase 0 — never POSTed).
+  const decisions = {};
+  members.forEach(m => { decisions[m.sam] = null; });
+  const comments = {};
+
+  // Pre-populate from stored decisions if completed.
+  if (isCompleted) {
+    D.getDecisionsByPacket(packet.packet_id).forEach(d => {
+      decisions[d.subject_sam] = d.decision;
+      if (d.comment) comments[d.subject_sam] = d.comment;
+    });
+  }
+
+  function render() {
+    root.innerHTML = '';
+
+    // Phase 0 disclosure
+    root.appendChild(h('div.demo-ribbon-attest', null,
+      h('b', null, 'DEMO DATA'),
+      h('span', null, 'Phase 0 prototype — this page does not send your submission. Use ?t=demo-pending or ?t=demo-completed to test the two states.'),
+    ));
+
+    // Header
+    root.appendChild(h('div.attest-header', null,
+      h('div.brand', null, 'OPERATIONS CONSOLE · ACCESS ATTESTATION'),
+      h('h1', null, campaign ? campaign.name : 'Access Attestation'),
+      h('div.sub', null,
+        'Please review members of ',
+        h('b', { style: { color: 'var(--ink)' } }, shortGroup(packet.group_dn)),
+        ' and confirm whether each person still needs this access.'),
+    ));
+
+    // Meta line
+    root.appendChild(h('div.attest-meta', null,
+      campaign ? h('span', null, 'Application: ', h('b', null, campaign.application_name)) : null,
+      h('span', null, 'AD group: ', h('b', null, shortGroup(packet.group_dn))),
+      h('span', null, 'Group type: ', h('b', null, (group && group.type) || 'Security')),
+      campaign ? h('span', null, 'Due: ', h('b', null, (campaign.due_at || '—').slice(0, 10))) : null,
+      h('span', null, 'Owners: ',
+        h('b', null, owners.length ? owners.map(o => o.display || o.owner_sam).join(', ') : '—')),
+    ));
+
+    // Completed banner (if applicable)
+    if (isCompleted) {
+      root.appendChild(h('div.completed-banner', null,
+        h('span.icon', null, '✓'),
+        h('div.text', null,
+          h('div.title', null, 'This attestation has already been completed.'),
+          h('div.sub', null,
+            'Submitted by ', h('b', { style: { color: 'var(--ink)' } }, packet.submitted_by_display),
+            ' on ', fmtDateTime(packet.submitted_at), '. Decisions are shown below as a record.'),
+        ),
+      ));
+    } else {
+      // Instructions
+      root.appendChild(h('div.instructions', null,
+        h('b', null, 'For each person:'), ' choose ',
+        h('b', { style: { color: 'var(--ok)' } }, 'Keep'),
+        ' if they still need access, or ',
+        h('b', { style: { color: 'var(--crit)' } }, 'Revoke'),
+        ' if their access should be removed. ',
+        'Add a comment if useful. Submit when you have decided every row. ',
+        owners.length > 1
+          ? h('span', null, 'Note: this group has multiple owners. The first to submit closes the attestation for everyone.')
+          : null,
+      ));
+    }
+
+    // Decision summary
+    const sumKeep = Object.values(decisions).filter(v => v === 'keep').length;
+    const sumRevoke = Object.values(decisions).filter(v => v === 'revoke').length;
+    const sumPending = members.length - sumKeep - sumRevoke;
+
+    const tableWrap = h('div.subjects-table');
+    tableWrap.appendChild(h('div.decision-summary', null,
+      h('span.keep', null, h('b', null, String(sumKeep)), ' to keep'),
+      h('span.revoke', null, h('b', null, String(sumRevoke)), ' to revoke'),
+      isCompleted ? null : h('span', { style: { color: 'var(--ink-3)' } }, h('b', null, String(sumPending)), ' pending'),
+      h('span', { style: { marginLeft: 'auto', color: 'var(--ink-3)' } }, members.length + ' members total'),
+    ));
+
+    members.forEach(m => {
+      const row = h('div.row' + (m.enabled ? '' : '.disabled-user'));
+      const nameCell = h('div.subj-name', null,
+        h('span.display', null, m.display),
+        h('span.sam', null, m.sam),
+        m.enabled ? null : h('span.subj-disabled-flag', null, 'AD account disabled'),
+      );
+      row.appendChild(nameCell);
+      row.appendChild(h('div.subj-email', null, m.email));
+
+      const cur = decisions[m.sam];
+      const keepCls = cur === 'keep' ? '.keep-on' : '';
+      const revokeCls = cur === 'revoke' ? '.revoke-on' : '';
+      const disabledCls = isCompleted ? '.disabled' : '';
+
+      const decisionCell = h('div', null,
+        h('div.decision-cell', null,
+          h('label' + keepCls + disabledCls, null,
+            h('input', {
+              type: 'radio', name: 'd-' + m.sam, value: 'keep',
+              checked: cur === 'keep', disabled: isCompleted,
+              on: { change: () => { if (!isCompleted) { decisions[m.sam] = 'keep'; render(); } } },
+            }),
+            h('span', null, 'Keep'),
+          ),
+          h('label' + revokeCls + disabledCls, null,
+            h('input', {
+              type: 'radio', name: 'd-' + m.sam, value: 'revoke',
+              checked: cur === 'revoke', disabled: isCompleted,
+              on: { change: () => { if (!isCompleted) { decisions[m.sam] = 'revoke'; render(); } } },
+            }),
+            h('span', null, 'Revoke'),
+          ),
+        ),
+        (cur === 'revoke' || (isCompleted && comments[m.sam])) ? h('div.comment-cell', null,
+          h('input', {
+            type: 'text', placeholder: 'Reason (optional)', value: comments[m.sam] || '',
+            disabled: isCompleted,
+            on: { input: (e) => { comments[m.sam] = e.target.value; } },
+          }),
+        ) : null,
+      );
+      row.appendChild(decisionCell);
+      tableWrap.appendChild(row);
+    });
+    root.appendChild(tableWrap);
+
+    // Actions
+    if (!isCompleted) {
+      const canSubmit = sumPending === 0;
+      const submitBtn = h('button.primary', {
+        disabled: !canSubmit,
+        on: {
+          click: () => {
+            if (!canSubmit) return;
+            showToast('Thank you — submission received. (Phase 0 prototype: nothing was actually sent.)');
+          },
+        },
+      }, 'Submit attestation');
+      root.appendChild(h('div.actions', null,
+        submitBtn,
+        h('span.hint', null, canSubmit ? 'All ' + members.length + ' decisions ready to submit' : sumPending + ' decision' + (sumPending === 1 ? '' : 's') + ' still pending'),
+      ));
+    }
+  }
+
+  render();
+})();
+</script>
+</body>
+</html>
