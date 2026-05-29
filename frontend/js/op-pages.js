@@ -23,6 +23,7 @@
     {id:'certs',     idx:'05', label:'Certificates'},
     {id:'eol',       idx:'06', label:'End of Life'},
     {id:'disks',     idx:'07', label:'Disk Monitoring'},
+    {id:'auditing',  idx:'08', label:'Auditing'},
   ];
 
   // currentRoute returns the base route id (e.g. 'servers' for both '#servers'
@@ -3242,6 +3243,642 @@
   };
 
   // ================================================================
+  // AUDITING (08) — Phase 0 prototype. All data sourced from
+  // window.AUDITING_DATA (defined in auditing-demo-data.js). Swap to real
+  // /api/auditing/* in Phase 1 by replacing the data reads with apiAuditing.*.
+  // ================================================================
+  const aState = { tab: 'apps', selectedAppId: null, selectedCampaignId: null };
+
+  function _audData() { return window.AUDITING_DATA || null; }
+  function _fmtDateTime(s) {
+    if (!s) return '—';
+    const d = new Date(s);
+    if (isNaN(d.getTime())) return s;
+    return d.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}) +
+      ' ' + String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+  }
+  function _fmtDate(s) {
+    if (!s) return '—';
+    const d = new Date(s);
+    if (isNaN(d.getTime())) return s;
+    return d.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});
+  }
+  function _shortGroup(dn) {
+    const m = /^CN=([^,]+)/i.exec(dn || '');
+    return m ? m[1] : (dn || '');
+  }
+
+  function renderAuditingPage(mount) {
+    const D = _audData();
+    const page = h('div.page');
+
+    page.appendChild(h('div.page-head', null,
+      h('span.counter', null, '08 / 08'),
+      h('span.title', null, 'Auditing'),
+      h('span.note', null, 'Application access attestation. Register apps and the AD groups that gate them, then launch campaigns that ask each group’s owner to keep or revoke every member.'),
+    ));
+
+    if (!D) {
+      page.appendChild(h('div.loud-banner.warn', null,
+        h('div.lead', null, 'Demo data not loaded'),
+        h('div.msg', { html: '<b>auditing-demo-data.js</b> did not load. Check that the script tag is in index.html and the file exists at frontend/js/auditing-demo-data.js.' }),
+      ));
+      mount.innerHTML = '';
+      mount.appendChild(page);
+      return;
+    }
+
+    // Phase 0 disclosure ribbon so reviewers know this is not yet wired up.
+    page.appendChild(h('div.demo-ribbon-row', { role: 'status', 'aria-label': 'Phase 0 prototype' },
+      h('span.demo-ribbon', null, 'DEMO DATA'),
+      h('span.demo-ribbon-note', null, 'Phase 0 prototype — fixtures from auditing-demo-data.js. No backend, no AD sync, no email. Click-through only.'),
+    ));
+
+    // Tabs
+    const ownerlessCount = D.APPLICATIONS.filter(a => a.bindings.some(dn => D.getOwnersOfGroup(dn).length === 0)).length;
+    const activeCampaigns = D.CAMPAIGNS.filter(c => c.status === 'active').length;
+    const tab = (id, label, n) => {
+      const on = aState.tab === id;
+      return h('button.tab'+(on?'.on':''), {
+        on:{click:()=>{ aState.tab=id; aState.selectedAppId=null; aState.selectedCampaignId=null; window.RERENDER_PAGE(mount); }},
+      }, label, n != null ? h('span.n', null, String(n)) : null);
+    };
+    page.appendChild(h('div.tabs', null,
+      tab('apps', 'Applications', D.APPLICATIONS.length),
+      tab('campaigns', 'Campaigns', D.CAMPAIGNS.length),
+      tab('new', 'New campaign'),
+    ));
+
+    if (aState.tab === 'apps') {
+      if (aState.selectedAppId) page.appendChild(renderAuditingAppDetail(mount));
+      else                       page.appendChild(renderAuditingAppsList(mount, ownerlessCount));
+    } else if (aState.tab === 'campaigns') {
+      if (aState.selectedCampaignId) page.appendChild(renderAuditingCampaignDetail(mount));
+      else                            page.appendChild(renderAuditingCampaignsList(mount, activeCampaigns));
+    } else if (aState.tab === 'new') {
+      page.appendChild(renderAuditingNewCampaign(mount));
+    }
+
+    mount.innerHTML = '';
+    mount.appendChild(page);
+  }
+
+  function renderAuditingAppsList(mount, ownerlessCount) {
+    const D = _audData();
+    const wrap = h('div', { style:{display:'flex',flexDirection:'column',gap:'18px'} });
+
+    // Overdue summary — apps past their next-due date and not currently active.
+    const overdueApps = D.APPLICATIONS.filter(a => D.getAuditStatus(a.application_id).status === 'overdue');
+    if (overdueApps.length) {
+      const autoCount = overdueApps.filter(a => a.auto_launch).length;
+      const manualCount = overdueApps.length - autoCount;
+      wrap.appendChild(h('div.loud-banner.crit', null,
+        h('div.lead', null, 'Audits overdue'),
+        h('div.msg', { html:
+          '<b>' + overdueApps.length + ' application' + (overdueApps.length===1?'':'s') + '</b> past the scheduled audit date. '
+          + (autoCount ? autoCount + ' will be picked up by the auto-launch job. ' : '')
+          + (manualCount ? manualCount + ' require manual launch from this page.' : '')
+        }),
+      ));
+    }
+
+    if (ownerlessCount > 0) {
+      wrap.appendChild(h('div.loud-banner.warn', null,
+        h('div.lead', null, 'Owner coverage gap'),
+        h('div.msg', { html: '<b>' + ownerlessCount + ' application' + (ownerlessCount===1?'':'s') + '</b> have at least one bound AD group with no <code>managedBy</code> owner. Campaigns for these apps cannot be launched until owners are populated in AD (or the per-campaign fallback to <code>business_owner</code> is enabled at launch time).' }),
+      ));
+    }
+
+    const tblWrap = h('div.table-wrap');
+    const tbl = h('table.op');
+    tbl.appendChild(h('thead', null, h('tr', null,
+      h('th', null, 'Application'),
+      h('th', null, 'Business owner'),
+      h('th', null, 'Bound groups'),
+      h('th.num', null, 'Members'),
+      h('th', null, 'Cadence'),
+      h('th', null, 'Last audit'),
+      h('th', null, 'Next due'),
+      h('th', null, 'Auto'),
+      h('th', null, 'Owner coverage'),
+      h('th', null, ''),
+    )));
+    const tb = h('tbody');
+    for (const app of D.APPLICATIONS) {
+      const totalMembers = new Set();
+      let groupsWithoutOwners = 0;
+      app.bindings.forEach(dn => {
+        D.getMembersOfGroup(dn).forEach(u => totalMembers.add(u.sam));
+        if (D.getOwnersOfGroup(dn).length === 0) groupsWithoutOwners++;
+      });
+      const coverageOk = groupsWithoutOwners === 0;
+      const bo = D.getUser(app.business_owner);
+      const chips = h('div', { style:{display:'flex',flexWrap:'wrap',gap:'4px'} },
+        ...app.bindings.map(dn => h('span.badge.neutral', null, _shortGroup(dn))));
+
+      const status = D.getAuditStatus(app.application_id);
+      const lastAudit = D.getLastAuditDate(app.application_id);
+      const nextDue = D.getNextAuditDue(app.application_id);
+      const cadence = app.audit_frequency_months
+        ? (app.audit_frequency_months === 6 ? '6-monthly' : app.audit_frequency_months === 12 ? 'Annual' : app.audit_frequency_months + ' months')
+        : '—';
+
+      let nextDueCell;
+      if (status.status === 'active') {
+        nextDueCell = h('span.badge.warn', null, h('span.dot'), 'In flight');
+      } else if (status.status === 'never') {
+        nextDueCell = h('span', { style:{fontFamily:'var(--mono)',fontSize:'11.5px',color:'var(--ink-3)'} }, 'Never audited');
+      } else if (status.status === 'overdue') {
+        nextDueCell = h('span.badge.crit', null, h('span.dot'), Math.abs(status.daysUntilDue) + 'd overdue');
+      } else if (status.status === 'due_soon') {
+        nextDueCell = h('span.badge.warn', null, h('span.dot'), 'Due in ' + status.daysUntilDue + 'd');
+      } else {
+        nextDueCell = h('span', { style:{fontFamily:'var(--mono)',fontSize:'11.5px',color:'var(--ink-2)'} },
+          _fmtDate(nextDue),
+          h('span', { style:{color:'var(--ink-4)',marginLeft:'6px'} }, '(' + status.daysUntilDue + 'd)'),
+        );
+      }
+
+      const autoCell = app.auto_launch
+        ? h('span.badge.ok', null, h('span.dot'), 'On')
+        : h('span', { style:{fontFamily:'var(--mono)',fontSize:'11px',color:'var(--ink-3)'} }, 'Manual');
+
+      const sevCls = status.status === 'overdue' ? '.sev-crit' : status.status === 'due_soon' ? '.sev-warn' : '';
+
+      tb.appendChild(h('tr'+sevCls, {
+        on:{click:()=>{ aState.selectedAppId = app.application_id; window.RERENDER_PAGE(mount); }},
+        style:{cursor:'pointer'},
+      },
+        h('td.host', null, app.name),
+        h('td', null, bo ? bo.display : app.business_owner || '—'),
+        h('td', null, chips),
+        h('td.num', null, String(totalMembers.size)),
+        h('td.mono.muted', null, cadence),
+        h('td.mono.muted', null, lastAudit ? _fmtDate(lastAudit) : '—'),
+        h('td', null, nextDueCell),
+        h('td', null, autoCell),
+        h('td', null, coverageOk
+          ? h('span.badge.ok', null, h('span.dot'), 'All groups owned')
+          : h('span.badge.crit', null, h('span.dot'), groupsWithoutOwners + ' missing')),
+        h('td', null, h('span', { style:{color:'var(--ink-3)',fontFamily:'var(--mono)',fontSize:'11px'} }, 'View →')),
+      ));
+    }
+    tbl.appendChild(tb);
+    tblWrap.appendChild(tbl);
+    wrap.appendChild(tblWrap);
+
+    return wrap;
+  }
+
+  function renderAuditingAppDetail(mount) {
+    const D = _audData();
+    const app = D.getApp(aState.selectedAppId);
+    const wrap = h('div', { style:{display:'flex',flexDirection:'column',gap:'18px'} });
+    if (!app) {
+      wrap.appendChild(h('div', null, 'Application not found.'));
+      return wrap;
+    }
+
+    wrap.appendChild(h('div', { style:{display:'flex',alignItems:'center',gap:'12px'} },
+      h('button.tab', { on:{click:()=>{ aState.selectedAppId=null; window.RERENDER_PAGE(mount); }}}, '← Back to applications'),
+      h('span', { style:{fontFamily:'var(--display)',fontSize:'22px',color:'var(--ink)'} }, app.name),
+    ));
+
+    const meta = h('div', { style:{display:'flex',flexWrap:'wrap',gap:'20px',fontFamily:'var(--mono)',fontSize:'11.5px',color:'var(--ink-2)'} },
+      h('span', null, 'Business owner: ', h('b', { style:{color:'var(--ink)'} }, (D.getUser(app.business_owner) || {}).display || '—')),
+      h('span', null, 'Technical owner: ', h('b', { style:{color:'var(--ink)'} }, (D.getUser(app.technical_owner) || {}).display || '—')),
+      h('span', null, 'Support: ', h('b', { style:{color:'var(--ink)'} }, app.support_email || '—')),
+    );
+    wrap.appendChild(meta);
+
+    // Audit cadence & automation panel
+    wrap.appendChild(renderAuditingAppCadence(mount, app));
+
+    // Audit history (past campaigns)
+    wrap.appendChild(renderAuditingAppHistory(mount, app));
+
+    // Per-group panel: members + owners
+    for (const dn of app.bindings) {
+      const group = D.getGroup(dn);
+      const members = D.getMembersOfGroup(dn);
+      const owners = D.getOwnersOfGroup(dn);
+      const panel = h('div', { style:{border:'1px solid var(--rule)',background:'var(--card)',padding:'18px 20px',display:'flex',flexDirection:'column',gap:'10px'} });
+      panel.appendChild(h('div', { style:{display:'flex',alignItems:'center',gap:'12px',flexWrap:'wrap'} },
+        h('span', { style:{fontFamily:'var(--mono)',fontSize:'12px',letterSpacing:'.08em',textTransform:'uppercase',color:'var(--ink)'} }, _shortGroup(dn)),
+        h('span.badge.neutral', null, (group && group.type) || 'Security'),
+        h('span', { style:{color:'var(--ink-3)',fontFamily:'var(--mono)',fontSize:'11px'} }, members.length + ' member' + (members.length === 1 ? '' : 's')),
+        owners.length === 0
+          ? h('span.badge.crit', null, h('span.dot'), 'No owner')
+          : h('span.badge.ok', null, h('span.dot'), owners.length + ' owner' + (owners.length === 1 ? '' : 's')),
+      ));
+
+      // Owners list
+      if (owners.length) {
+        const ownerLine = h('div', { style:{fontFamily:'var(--mono)',fontSize:'11.5px',color:'var(--ink-2)'} },
+          'Owners: ',
+          ...owners.flatMap((o, i) => [
+            i > 0 ? h('span', { style:{color:'var(--ink-4)'} }, ' · ') : null,
+            h('b', { style:{color:'var(--ink)'} }, o.display || o.owner_sam),
+            h('span', { style:{color:'var(--ink-3)'} }, ' (' + (o.source === 'managedBy' ? 'managedBy' : 'co-owner') + ')'),
+          ]),
+        );
+        panel.appendChild(ownerLine);
+      } else {
+        panel.appendChild(h('div', { style:{fontFamily:'var(--mono)',fontSize:'11.5px',color:'var(--crit)'} },
+          'No owner resolved for this group. Populate <code>managedBy</code> in AD or enable the business_owner fallback at campaign launch time.'));
+      }
+
+      // Members table
+      const mtbl = h('table.op');
+      mtbl.appendChild(h('thead', null, h('tr', null,
+        h('th', null, 'Display name'),
+        h('th', null, 'Sam'),
+        h('th', null, 'Email'),
+        h('th', null, 'Status'),
+      )));
+      const mtb = h('tbody');
+      if (!members.length) {
+        mtb.appendChild(h('tr', null, h('td', { colspan: 4, style:{padding:'12px',color:'var(--ink-3)',fontFamily:'var(--mono)',fontSize:'11px',textAlign:'center'} }, 'No members.')));
+      } else {
+        for (const u of members) {
+          mtb.appendChild(h('tr', null,
+            h('td.host', null, u.display),
+            h('td.mono.muted', null, u.sam),
+            h('td.muted', null, u.email),
+            h('td', null, u.enabled ? h('span.badge.ok', null, 'Enabled') : h('span.badge.crit', null, 'Disabled')),
+          ));
+        }
+      }
+      mtbl.appendChild(mtb);
+      panel.appendChild(h('div.table-wrap', null, mtbl));
+
+      wrap.appendChild(panel);
+    }
+
+    return wrap;
+  }
+
+  function renderAuditingAppCadence(mount, app) {
+    const D = _audData();
+    const status = D.getAuditStatus(app.application_id);
+    const lastAudit = D.getLastAuditDate(app.application_id);
+    const nextDue = D.getNextAuditDue(app.application_id);
+
+    const panel = h('div', { style:{border:'1px solid var(--rule)',background:'var(--card)',padding:'18px 20px',display:'flex',flexDirection:'column',gap:'14px'} });
+    panel.appendChild(h('div', { style:{display:'flex',alignItems:'center',gap:'12px'} },
+      h('span', { style:{fontFamily:'var(--mono)',fontSize:'10px',letterSpacing:'.12em',textTransform:'uppercase',color:'var(--ink-3)'} }, 'Audit schedule'),
+      status.status === 'overdue'
+        ? h('span.badge.crit', null, h('span.dot'), 'Overdue by ' + Math.abs(status.daysUntilDue) + ' days')
+        : status.status === 'due_soon'
+        ? h('span.badge.warn', null, h('span.dot'), 'Due in ' + status.daysUntilDue + ' days')
+        : status.status === 'active'
+        ? h('span.badge.warn', null, h('span.dot'), 'Campaign in flight')
+        : status.status === 'never'
+        ? h('span.badge.neutral', null, 'Never audited')
+        : h('span.badge.ok', null, h('span.dot'), 'On schedule'),
+    ));
+
+    const grid = h('div', { style:{display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(220px, 1fr))',gap:'18px'} });
+
+    // Cadence selector
+    const cadenceCol = h('div', { style:{display:'flex',flexDirection:'column',gap:'6px'} },
+      h('span', { style:{fontFamily:'var(--mono)',fontSize:'10px',letterSpacing:'.1em',textTransform:'uppercase',color:'var(--ink-3)'} }, 'Cadence'),
+      h('select', {
+        'data-fk':'audit-cadence-' + app.application_id,
+        style:{padding:'8px 10px',border:'1px solid var(--rule)',background:'var(--card)',fontFamily:'inherit',fontSize:'13px'},
+        value: String(app.audit_frequency_months || 12),
+        on:{change:(e)=>{ app.audit_frequency_months = parseInt(e.target.value, 10); window.RERENDER_PAGE(mount); }},
+      },
+        h('option', { value: '6',  selected: app.audit_frequency_months === 6  }, 'Every 6 months'),
+        h('option', { value: '12', selected: app.audit_frequency_months === 12 }, 'Annual (12 months)'),
+        h('option', { value: '24', selected: app.audit_frequency_months === 24 }, 'Every 2 years'),
+      ),
+    );
+    grid.appendChild(cadenceCol);
+
+    // Auto-launch toggle
+    const autoCol = h('div', { style:{display:'flex',flexDirection:'column',gap:'6px'} },
+      h('span', { style:{fontFamily:'var(--mono)',fontSize:'10px',letterSpacing:'.1em',textTransform:'uppercase',color:'var(--ink-3)'} }, 'Automation'),
+      h('label', { style:{display:'flex',alignItems:'center',gap:'10px',cursor:'pointer',padding:'8px 10px',border:'1px solid var(--rule)',background:'var(--card)'} },
+        h('input', { type:'checkbox', checked: !!app.auto_launch,
+          on:{change:(e)=>{ app.auto_launch = e.target.checked; window.RERENDER_PAGE(mount); }},
+        }),
+        h('span', { style:{fontFamily:'var(--mono)',fontSize:'12px'} },
+          app.auto_launch ? 'Auto-launch on due date' : 'Manual launch only'),
+      ),
+    );
+    grid.appendChild(autoCol);
+
+    // Last audit
+    grid.appendChild(h('div', { style:{display:'flex',flexDirection:'column',gap:'6px'} },
+      h('span', { style:{fontFamily:'var(--mono)',fontSize:'10px',letterSpacing:'.1em',textTransform:'uppercase',color:'var(--ink-3)'} }, 'Last audit'),
+      h('span', { style:{fontFamily:'var(--mono)',fontSize:'13px',color:'var(--ink)'} }, lastAudit ? _fmtDate(lastAudit) : 'Never'),
+      lastAudit ? h('span', { style:{fontFamily:'var(--mono)',fontSize:'11px',color:'var(--ink-3)'} },
+        Math.floor((Date.now() - new Date(lastAudit).getTime()) / 86400000) + ' days ago') : null,
+    ));
+
+    // Next due
+    grid.appendChild(h('div', { style:{display:'flex',flexDirection:'column',gap:'6px'} },
+      h('span', { style:{fontFamily:'var(--mono)',fontSize:'10px',letterSpacing:'.1em',textTransform:'uppercase',color:'var(--ink-3)'} }, 'Next audit due'),
+      h('span', { style:{fontFamily:'var(--mono)',fontSize:'13px',color: status.status === 'overdue' ? 'var(--crit)' : 'var(--ink)'} },
+        nextDue ? _fmtDate(nextDue) : (status.status === 'never' ? 'After first audit' : '—')),
+      status.daysUntilDue != null ? h('span', { style:{fontFamily:'var(--mono)',fontSize:'11px',color: status.status === 'overdue' ? 'var(--crit)' : 'var(--ink-3)'} },
+        status.daysUntilDue < 0 ? Math.abs(status.daysUntilDue) + ' days overdue' : 'in ' + status.daysUntilDue + ' days') : null,
+    ));
+
+    panel.appendChild(grid);
+
+    panel.appendChild(h('div', { style:{fontFamily:'var(--mono)',fontSize:'11px',color:'var(--ink-3)',lineHeight:'1.55',borderTop:'1px solid var(--rule)',paddingTop:'10px'} },
+      app.auto_launch
+        ? 'When the next-due date is reached, the audit will be launched automatically and emails sent to every group owner. (Phase 1: this runs as an ASP.NET Core BackgroundService checking nightly.)'
+        : 'You will need to manually launch the next audit from the Campaigns tab when due. Enable Auto-launch above to have the system kick it off and email owners without intervention.',
+    ));
+
+    return panel;
+  }
+
+  function renderAuditingAppHistory(mount, app) {
+    const D = _audData();
+    const history = D.getAuditHistory(app.application_id);
+    const panel = h('div', { style:{display:'flex',flexDirection:'column',gap:'10px'} });
+    panel.appendChild(h('div', { style:{display:'flex',alignItems:'center',gap:'12px'} },
+      h('span', { style:{fontFamily:'var(--mono)',fontSize:'10px',letterSpacing:'.12em',textTransform:'uppercase',color:'var(--ink-3)'} }, 'Audit history'),
+      h('span', { style:{fontFamily:'var(--mono)',fontSize:'11px',color:'var(--ink-3)'} }, history.length + ' campaign' + (history.length === 1 ? '' : 's')),
+    ));
+
+    if (!history.length) {
+      panel.appendChild(h('div', { style:{padding:'18px',border:'1px dashed var(--rule)',fontFamily:'var(--mono)',fontSize:'11.5px',color:'var(--ink-3)',textAlign:'center'} },
+        'No audit campaigns have been run for this application yet.'));
+      return panel;
+    }
+
+    const tblWrap = h('div.table-wrap');
+    const tbl = h('table.op');
+    tbl.appendChild(h('thead', null, h('tr', null,
+      h('th', null, 'Campaign'),
+      h('th', null, 'Status'),
+      h('th', null, 'Launch'),
+      h('th', null, 'Due'),
+      h('th', null, 'Closed'),
+      h('th.num', null, 'Outcome'),
+      h('th', null, ''),
+    )));
+    const tb = h('tbody');
+    for (const c of history) {
+      const summary = D.summarizeCampaignDecisions(c.campaign_id);
+      const prog = D.getCampaignProgress(c.campaign_id);
+      const statusBadge = c.status === 'active'
+        ? h('span.badge.warn', null, h('span.dot'), 'Active')
+        : c.status === 'closed'
+        ? h('span.badge.ok', null, h('span.dot'), 'Closed')
+        : h('span.badge.neutral', null, 'Draft');
+      const launchBadge = c.launch_kind === 'auto'
+        ? h('span.badge.neutral', null, 'Auto')
+        : h('span.badge.neutral', null, 'Manual');
+      const outcome = c.status === 'closed'
+        ? (summary.total > 0
+            ? h('span', { style:{fontFamily:'var(--mono)',fontSize:'11.5px'} },
+                h('b', { style:{color:'var(--ok)'} }, String(summary.keep)), ' kept · ',
+                h('b', { style:{color:'var(--crit)'} }, String(summary.revoke)), ' revoked')
+            : '—')
+        : c.status === 'active'
+        ? h('span', { style:{fontFamily:'var(--mono)',fontSize:'11.5px',color:'var(--ink-3)'} }, prog.submitted + ' / ' + prog.total + ' submitted')
+        : '—';
+      tb.appendChild(h('tr', {
+        on:{click:()=>{ aState.tab='campaigns'; aState.selectedAppId=null; aState.selectedCampaignId=c.campaign_id; window.RERENDER_PAGE(mount); }},
+        style:{cursor:'pointer'},
+      },
+        h('td.host', null, c.name),
+        h('td', null, statusBadge),
+        h('td', null, launchBadge),
+        h('td.mono.muted', null, _fmtDate(c.due_at)),
+        h('td.mono.muted', null, _fmtDate(c.closed_at)),
+        h('td.num', null, outcome),
+        h('td', null, h('span', { style:{color:'var(--ink-3)',fontFamily:'var(--mono)',fontSize:'11px'} }, 'View →')),
+      ));
+    }
+    tbl.appendChild(tb);
+    tblWrap.appendChild(tbl);
+    panel.appendChild(tblWrap);
+
+    return panel;
+  }
+
+  function renderAuditingCampaignsList(mount) {
+    const D = _audData();
+    const wrap = h('div', { style:{display:'flex',flexDirection:'column',gap:'18px'} });
+
+    const tblWrap = h('div.table-wrap');
+    const tbl = h('table.op');
+    tbl.appendChild(h('thead', null, h('tr', null,
+      h('th', null, 'Campaign'),
+      h('th', null, 'Application'),
+      h('th', null, 'Status'),
+      h('th', null, 'Due'),
+      h('th', null, 'Progress'),
+      h('th', null, 'Launched'),
+      h('th', null, ''),
+    )));
+    const tb = h('tbody');
+    const campaigns = D.CAMPAIGNS.slice().sort((a,b) => (b.created_at || '').localeCompare(a.created_at || ''));
+    for (const c of campaigns) {
+      const prog = D.getCampaignProgress(c.campaign_id);
+      const statusBadge = c.status === 'active'
+        ? h('span.badge.warn', null, h('span.dot'), 'Active')
+        : c.status === 'closed'
+        ? h('span.badge.ok', null, h('span.dot'), 'Closed')
+        : h('span.badge.neutral', null, 'Draft');
+      tb.appendChild(h('tr', {
+        on:{click:()=>{ aState.selectedCampaignId = c.campaign_id; window.RERENDER_PAGE(mount); }},
+        style:{cursor:'pointer'},
+      },
+        h('td.host', null, c.name),
+        h('td', null, c.application_name),
+        h('td', null, statusBadge),
+        h('td.mono.muted', null, _fmtDate(c.due_at)),
+        h('td.mono', null, prog.submitted + ' / ' + prog.total + ' submitted'),
+        h('td.mono.muted', null, _fmtDate(c.created_at) + ' by ' + c.created_by),
+        h('td', null, h('span', { style:{color:'var(--ink-3)',fontFamily:'var(--mono)',fontSize:'11px'} }, 'View →')),
+      ));
+    }
+    tbl.appendChild(tb);
+    tblWrap.appendChild(tbl);
+    wrap.appendChild(tblWrap);
+
+    return wrap;
+  }
+
+  function renderAuditingCampaignDetail(mount) {
+    const D = _audData();
+    const c = D.getCampaign(aState.selectedCampaignId);
+    const wrap = h('div', { style:{display:'flex',flexDirection:'column',gap:'18px'} });
+    if (!c) {
+      wrap.appendChild(h('div', null, 'Campaign not found.'));
+      return wrap;
+    }
+
+    wrap.appendChild(h('div', { style:{display:'flex',alignItems:'center',gap:'12px',flexWrap:'wrap'} },
+      h('button.tab', { on:{click:()=>{ aState.selectedCampaignId=null; window.RERENDER_PAGE(mount); }}}, '← Back to campaigns'),
+      h('span', { style:{fontFamily:'var(--display)',fontSize:'22px',color:'var(--ink)'} }, c.name),
+      c.status === 'active'
+        ? h('span.badge.warn', null, h('span.dot'), 'Active')
+        : h('span.badge.ok', null, h('span.dot'), 'Closed'),
+    ));
+
+    const meta = h('div', { style:{display:'flex',flexWrap:'wrap',gap:'20px',fontFamily:'var(--mono)',fontSize:'11.5px',color:'var(--ink-2)'} },
+      h('span', null, 'Application: ', h('b', { style:{color:'var(--ink)'} }, c.application_name)),
+      h('span', null, 'Due: ', h('b', { style:{color:'var(--ink)'} }, _fmtDate(c.due_at))),
+      h('span', null, 'Launched: ', h('b', { style:{color:'var(--ink)'} }, _fmtDateTime(c.created_at))),
+      h('span', null, 'By: ', h('b', { style:{color:'var(--ink)'} }, c.created_by)),
+      c.closed_at ? h('span', null, 'Closed: ', h('b', { style:{color:'var(--ink)'} }, _fmtDateTime(c.closed_at))) : null,
+    );
+    wrap.appendChild(meta);
+
+    const tblWrap = h('div.table-wrap');
+    const tbl = h('table.op');
+    tbl.appendChild(h('thead', null, h('tr', null,
+      h('th', null, 'Group'),
+      h('th', null, 'Owner(s)'),
+      h('th', null, 'Status'),
+      h('th', null, 'Submitted by'),
+      h('th', null, 'Submitted at'),
+      h('th.num', null, 'Decisions'),
+      h('th', null, 'Token'),
+    )));
+    const tb = h('tbody');
+    const packets = D.getPacketsOfCampaign(c.campaign_id);
+    for (const p of packets) {
+      const owners = D.getOwnersOfGroup(p.group_dn);
+      const ownerText = owners.length
+        ? owners.map(o => o.display || o.owner_sam).join(', ')
+        : '— no owner —';
+      const submitted = !!p.submitted_at;
+      const summary = D.summarizeDecisions(p.packet_id);
+      const sevRow = submitted ? '' : '.sev-warn';
+      tb.appendChild(h('tr'+sevRow, null,
+        h('td.host', null, _shortGroup(p.group_dn)),
+        h('td.muted', null, ownerText),
+        h('td', null, submitted
+          ? h('span.badge.ok', null, h('span.dot'), 'Submitted')
+          : h('span.badge.warn', null, h('span.dot'), 'Pending')),
+        h('td.muted', null, p.submitted_by_display || '—'),
+        h('td.mono.muted', null, _fmtDateTime(p.submitted_at)),
+        h('td.num', null, submitted ? (summary.keep + ' keep / ' + summary.revoke + ' revoke') : '—'),
+        h('td', null, h('a', { href:'/attest.html?t=' + encodeURIComponent(p.token), target:'_blank', rel:'noopener',
+            style:{fontFamily:'var(--mono)',fontSize:'11px',color:'var(--ink-2)'} }, 'Open link ↗')),
+      ));
+    }
+    tbl.appendChild(tb);
+    tblWrap.appendChild(tbl);
+    wrap.appendChild(tblWrap);
+
+    return wrap;
+  }
+
+  function renderAuditingNewCampaign(mount) {
+    const D = _audData();
+    const wrap = h('div', { style:{display:'flex',flexDirection:'column',gap:'18px',maxWidth:'720px'} });
+
+    const formState = renderAuditingNewCampaign._s || (renderAuditingNewCampaign._s = {
+      application_id: D.APPLICATIONS[0].application_id,
+      name: '',
+      due_at: '',
+      fallback_to_business_owner: false,
+    });
+
+    wrap.appendChild(h('div', { style:{fontFamily:'var(--mono)',fontSize:'11.5px',color:'var(--ink-2)',lineHeight:'1.55'} },
+      'Pick an application and a due date. Phase 0: this form does NOT launch anything — it just shows what the launch UX will look like once the API is wired up.',
+    ));
+
+    const fieldStyle = { display:'flex',flexDirection:'column',gap:'6px' };
+    const labelStyle = { fontFamily:'var(--mono)',fontSize:'10px',letterSpacing:'.1em',textTransform:'uppercase',color:'var(--ink-3)' };
+    const inputStyle = { padding:'8px 10px',border:'1px solid var(--rule)',background:'var(--card)',fontFamily:'inherit',fontSize:'13px',color:'var(--ink)' };
+
+    // Application picker
+    wrap.appendChild(h('label', { style: fieldStyle },
+      h('span', { style: labelStyle }, 'Application'),
+      h('select', { 'data-fk':'audit-new-app', style: inputStyle, value: String(formState.application_id),
+        on:{change:(e)=>{ formState.application_id = parseInt(e.target.value, 10); window.RERENDER_PAGE(mount); }},
+      }, D.APPLICATIONS.map(a => h('option', { value: String(a.application_id), selected: a.application_id === formState.application_id }, a.name))),
+    ));
+
+    // Campaign name
+    wrap.appendChild(h('label', { style: fieldStyle },
+      h('span', { style: labelStyle }, 'Campaign name'),
+      h('input', { 'data-fk':'audit-new-name', type:'text', style: inputStyle, value: formState.name,
+        placeholder: 'e.g. 2026-Q2 ' + (D.getApp(formState.application_id) || {}).name + ' access review',
+        on:{input:(e)=>{ formState.name = e.target.value; }},
+      }),
+    ));
+
+    // Due date
+    wrap.appendChild(h('label', { style: fieldStyle },
+      h('span', { style: labelStyle }, 'Due date'),
+      h('input', { 'data-fk':'audit-new-due', type:'date', style: inputStyle, value: formState.due_at,
+        on:{input:(e)=>{ formState.due_at = e.target.value; }},
+      }),
+    ));
+
+    // Owner preview for selected application
+    const app = D.getApp(formState.application_id);
+    if (app) {
+      const ownerMap = new Map(); // owner_sam -> { user, groups: [dn,...] }
+      let ownerless = 0;
+      app.bindings.forEach(dn => {
+        const owners = D.getOwnersOfGroup(dn);
+        if (!owners.length) ownerless++;
+        owners.forEach(o => {
+          if (!ownerMap.has(o.owner_sam)) ownerMap.set(o.owner_sam, { user: o, groups: [] });
+          ownerMap.get(o.owner_sam).groups.push(dn);
+        });
+      });
+      const preview = h('div', { style:{border:'1px solid var(--rule)',background:'var(--paper-2)',padding:'14px 16px',display:'flex',flexDirection:'column',gap:'8px'} },
+        h('div', { style:{fontFamily:'var(--mono)',fontSize:'10px',letterSpacing:'.1em',textTransform:'uppercase',color:'var(--ink-3)'} }, 'Launch preview'),
+        h('div', { style:{fontFamily:'var(--mono)',fontSize:'11.5px',color:'var(--ink-2)'} },
+          h('b', { style:{color:'var(--ink)'} }, String(app.bindings.length)), ' bound groups · ',
+          h('b', { style:{color: ownerless ? 'var(--crit)' : 'var(--ink)'} }, String(ownerless)), ' without owners · ',
+          h('b', { style:{color:'var(--ink)'} }, String(ownerMap.size)), ' distinct owners will receive emails',
+        ),
+      );
+      if (ownerMap.size) {
+        const list = h('div', { style:{display:'flex',flexDirection:'column',gap:'4px',marginTop:'4px'} });
+        for (const { user, groups } of ownerMap.values()) {
+          list.appendChild(h('div', { style:{fontFamily:'var(--mono)',fontSize:'11.5px',color:'var(--ink-2)'} },
+            h('b', { style:{color:'var(--ink)'} }, user.display || user.owner_sam),
+            ' → ', String(groups.length), ' packet' + (groups.length === 1 ? '' : 's'),
+            h('span', { style:{color:'var(--ink-4)',marginLeft:'8px'} }, groups.map(_shortGroup).join(', ')),
+          ));
+        }
+        preview.appendChild(list);
+      }
+      if (ownerless) {
+        preview.appendChild(h('label', { style:{display:'flex',alignItems:'center',gap:'8px',marginTop:'6px',fontFamily:'var(--mono)',fontSize:'11.5px',color:'var(--ink-2)',cursor:'pointer'} },
+          h('input', { type:'checkbox', checked: formState.fallback_to_business_owner,
+            on:{change:(e)=>{ formState.fallback_to_business_owner = e.target.checked; window.RERENDER_PAGE(mount); }},
+          }),
+          'Route ownerless groups to ',
+          h('b', { style:{color:'var(--ink)'} }, (D.getUser(app.business_owner) || {}).display || app.business_owner),
+          ' (business owner) for this campaign',
+        ));
+      }
+      wrap.appendChild(preview);
+    }
+
+    // Launch button (demo only)
+    const canLaunch = !!app && (!app.bindings.some(dn => D.getOwnersOfGroup(dn).length === 0) || formState.fallback_to_business_owner);
+    const launchBtn = h('button.tab' + (canLaunch ? '.on' : ''), {
+      style:{alignSelf:'flex-start',cursor: canLaunch ? 'pointer' : 'not-allowed', opacity: canLaunch ? 1 : 0.5},
+      on:{click:()=>{
+        if (!canLaunch) return;
+        alert('Phase 0 prototype — not actually launching. In Phase 1 this POSTs to /api/auditing/campaigns and sends emails via MailKit.');
+      }},
+    }, 'Launch campaign (demo)');
+    wrap.appendChild(launchBtn);
+
+    return wrap;
+  }
+
+  // ================================================================
   // Expose
   // ================================================================
   window.RENDER_SERVERS       = renderServersPage;
@@ -3251,4 +3888,5 @@
   window.RENDER_PATCHING      = renderPatchingPage;
   window.RENDER_PATCHMGMT     = renderPatchMgmtPage;
   window.RENDER_DISKS         = renderDiskMonitoringPage;
+  window.RENDER_AUDITING      = renderAuditingPage;
 })();

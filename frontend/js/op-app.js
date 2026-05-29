@@ -278,6 +278,9 @@
         ['06','End of Life','eol'],
         ['07','Disk Monitoring','disks'],
       ]},
+      { label: 'Governance', items: [
+        ['08','Auditing','auditing'],
+      ]},
     ];
     const active = (window.ROUTER && window.ROUTER.currentRoute()) || 'health';
 
@@ -501,6 +504,30 @@
             h('span.piece'+(warn?'.warn':''), null, h('b', null, String(warn)), ' warning'),
             h('span.piece.ok', null, h('b', null, String(ok)), ' healthy'),
             h('span.piece', null, h('b', null, String(items.length)), ' total disks'),
+          ],
+        };
+      }
+      case 'auditing': {
+        const A = window.AUDITING_DATA || null;
+        if (!A) {
+          return { tag: '— AUDITING SURFACE · DEMO', word: 'demo data not loaded', pieces: [] };
+        }
+        const apps = A.APPLICATIONS.length;
+        const ownerless = A.APPLICATIONS.filter(a => a.bindings.some(dn => A.getOwnersOfGroup(dn).length === 0)).length;
+        const active = A.CAMPAIGNS.filter(c => c.status === 'active').length;
+        const overdue = A.APPLICATIONS.filter(a => A.getAuditStatus(a.application_id).status === 'overdue').length;
+        const word = overdue > 0 ? overdue + ' audit' + (overdue===1?'':'s') + ' overdue'
+                   : ownerless > 0 ? 'owner coverage gap'
+                   : active > 0 ? 'campaign in flight'
+                   : 'Operational';
+        return {
+          tag: '— AUDITING SURFACE · '+sc.label.toUpperCase(),
+          word,
+          pieces: [
+            h('span.piece', null, h('b', null, String(apps)), ' applications'),
+            h('span.piece'+(overdue?'.crit':''), null, h('b', null, String(overdue)), ' overdue'),
+            h('span.piece'+(ownerless?'.warn':''), null, h('b', null, String(ownerless)), ' ownerless'),
+            h('span.piece'+(active?'.warn':''), null, h('b', null, String(active)), ' active campaign' + (active === 1 ? '' : 's')),
           ],
         };
       }
@@ -1126,6 +1153,7 @@
       case 'patching':  if (window.RENDER_PATCHING)  window.RENDER_PATCHING(mount);  else mountHealth(mount); break;
       case 'patchmgmt': if (window.RENDER_PATCHMGMT) window.RENDER_PATCHMGMT(mount); else mountHealth(mount); break;
       case 'disks':     if (window.RENDER_DISKS)     window.RENDER_DISKS(mount);     else mountHealth(mount); break;
+      case 'auditing':  if (window.RENDER_AUDITING)  window.RENDER_AUDITING(mount);  else mountHealth(mount); break;
       default:          mountHealth(mount);
     }
 
