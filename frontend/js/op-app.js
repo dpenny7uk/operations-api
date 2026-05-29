@@ -277,9 +277,10 @@
         ['05','Certificates','certs'],
         ['06','End of Life','eol'],
         ['07','Disk Monitoring','disks'],
+        ['08','Licensing','licensing'],
       ]},
       { label: 'Governance', items: [
-        ['08','Auditing','auditing'],
+        ['09','Auditing','auditing'],
       ]},
     ];
     const active = (window.ROUTER && window.ROUTER.currentRoute()) || 'health';
@@ -504,6 +505,35 @@
             h('span.piece'+(warn?'.warn':''), null, h('b', null, String(warn)), ' warning'),
             h('span.piece.ok', null, h('b', null, String(ok)), ' healthy'),
             h('span.piece', null, h('b', null, String(items.length)), ' total disks'),
+          ],
+        };
+      }
+      case 'licensing': {
+        const L = window.LICENSING_DATA || null;
+        if (!L) {
+          return { tag: '— LICENSING SURFACE · DEMO', word: 'demo data not loaded', pieces: [] };
+        }
+        const counts = L.getCounts();
+        const expired = counts.expired;
+        const under30 = counts.under30;
+        const under3mo = counts.under3mo;
+        const under6mo = counts.under6mo;
+        const total = L.LICENCES.length;
+        const word = expired > 0 ? expired + ' licence' + (expired===1?'':'s') + ' expired'
+                   : under30 > 0 ? under30 + ' expiring in 30 days'
+                   : under3mo > 0 ? 'review near-term renewals'
+                   : under6mo > 0 ? 'procurement runway shrinking'
+                   : 'Operational';
+        return {
+          tag: '— LICENSING SURFACE · '+sc.label.toUpperCase(),
+          word,
+          pieces: [
+            h('span.piece'+(expired?'.crit':''), null, h('b', null, String(expired)), ' expired'),
+            h('span.piece'+(under30?'.crit':''), null, h('b', null, String(under30)), ' ≤ 30d'),
+            h('span.piece'+(under3mo?'.warn':''), null, h('b', null, String(under3mo)), ' ≤ 3mo'),
+            h('span.piece'+(under6mo?'.warn':''), null, h('b', null, String(under6mo)), ' ≤ 6mo'),
+            h('span.piece.ok', null, h('b', null, String(counts.healthy)), ' healthy'),
+            h('span.piece', null, h('b', null, String(total)), ' tracked'),
           ],
         };
       }
@@ -1153,6 +1183,7 @@
       case 'patching':  if (window.RENDER_PATCHING)  window.RENDER_PATCHING(mount);  else mountHealth(mount); break;
       case 'patchmgmt': if (window.RENDER_PATCHMGMT) window.RENDER_PATCHMGMT(mount); else mountHealth(mount); break;
       case 'disks':     if (window.RENDER_DISKS)     window.RENDER_DISKS(mount);     else mountHealth(mount); break;
+      case 'licensing': if (window.RENDER_LICENSING) window.RENDER_LICENSING(mount); else mountHealth(mount); break;
       case 'auditing':  if (window.RENDER_AUDITING)  window.RENDER_AUDITING(mount);  else mountHealth(mount); break;
       default:          mountHealth(mount);
     }
