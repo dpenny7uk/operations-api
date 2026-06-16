@@ -296,7 +296,7 @@
           h('span.idx', null, idx),
           h('span.label', null, label));
         const flag = railFlagFor(rid);
-        if (flag) li.appendChild(h('span.flag.'+flag.tone, null, flag.text));
+        if (flag) li.appendChild(h('span.chip.sm'+(flag.tone==='crit'?'.solid.crit':'.'+flag.tone), null, flag.text));
         nav.appendChild(li);
       }
       return h('div.rail-group', null,
@@ -366,6 +366,29 @@
           try { if (window.OC_API && window.OC_API.retry) await window.OC_API.retry(); }
           finally { btn.disabled = false; }
         }} }, h('span.dot'), 'Refresh')),
+    );
+  }
+
+  const ROUTE_NAMES = {
+    health: 'Health', servers: 'Servers', patching: 'Patching Schedules',
+    patchmgmt: 'Patch Management', certs: 'Certificates', eol: 'End of Life',
+    disks: 'Disk Monitoring', licensing: 'Licensing', auditing: 'Auditing',
+  };
+  // (Step 10.6) Slim sticky context bar: page name + a clone of the statusline
+  // telegram + a Refresh action. Revealed via body.scrolled once the hero scrolls off.
+  function Ctxbar(statusline) {
+    const route = (window.ROUTER && window.ROUTER.currentRoute()) || 'health';
+    const tele = (statusline && statusline.querySelector) ? statusline.querySelector('.telegram') : null;
+    const pieces = tele ? tele.cloneNode(true) : h('div.telegram');
+    return h('div#ctxbar', null,
+      h('span.cx-name', null, ROUTE_NAMES[route] || 'Console'),
+      pieces,
+      h('span.cx-spacer'),
+      h('button.refresh', { on:{ click: async (e) => {
+        const btn = e.currentTarget; btn.disabled = true;
+        try { if (window.OC_API && window.OC_API.retry) await window.OC_API.retry(); }
+        finally { btn.disabled = false; }
+      }} }, h('span.dot'), 'Refresh'),
     );
   }
 
@@ -778,7 +801,7 @@
     card.appendChild(h('div.mc-head', null,
       h('span.mc-title', null, 'Servers'),
       h('span.mc-total', null, srv.total.toLocaleString(), h('small', null, 'total')),
-      stale ? h('span.stale-chip', null, 'stale') : null,
+      stale ? h('span.chip.warn.sm.stale-gap', null, 'stale') : null,
     ));
     const list = h('div.env-bars');
     if (!srv.env.length) {
@@ -814,7 +837,7 @@
       h('span.mc-title', null, 'Patching'),
       h('span.mc-total', null, totalServers.toLocaleString(), h('small', null, 'servers')),
       h('span.mc-sub', null, inWeek.length ? ('this week · ' + fmtDate(weekStart) + '–' + fmtDate(weekEndDisplay)) : 'no cycles this week'),
-      stale ? h('span.stale-chip', null, 'cached') : null,
+      stale ? h('span.chip.warn.sm.stale-gap', null, 'cached') : null,
     ));
 
     const list = h('div.patch-list');
@@ -911,7 +934,7 @@
       const lastStr = s.last ? s.last.toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '—';
       tb.appendChild(h('tr'+(sevRow?'.'+sevRow:''), null,
         h('td.host', null, s.name),
-        h('td', null, h('span.badge.'+badgeCls, null, h('span.dot'), String(s.status||'').toUpperCase() || '—')),
+        h('td', null, h('span.chip.'+badgeCls, null, h('span.dot'), String(s.status||'').toUpperCase() || '—')),
         h('td.mono.muted', null, lastStr),
         h('td.num', null, (s.records||0).toLocaleString()),
         h('td.num', { style:{color: s.failures? 'var(--crit)':'var(--ink-3)'} }, String(s.failures||0)),
@@ -949,10 +972,10 @@
         const stateCls = r.state === 'overdue' ? '.sev-crit' : r.state === 'expiring' || r.state === 'expiring-soon' ? '.sev-warn' : '';
         tb.appendChild(h('tr'+stateCls, null,
           h('td.host', null, r.server || r.fqdn || '—'),
-          h('td', null, r.group ? h('span.badge', null, h('span.dot'), r.group) : '—'),
+          h('td', null, r.group ? h('span.chip', null, h('span.dot'), r.group) : '—'),
           h('td.muted', null, r.service || '—'),
           h('td.muted', null, r.func || '—'),
-          h('td', null, r.env ? h('span.env-tag', null, r.env) : '—'),
+          h('td', null, r.env ? h('span.chip.sm', null, r.env) : '—'),
           h('td.mono.muted', null, r.requested || '—'),
           h('td.mono', null, r.until || '—'),
           h('td.muted', null, r.notes || r.reason || '—'),
@@ -981,7 +1004,7 @@
       for (const r of rows.slice(0, 6)) {
         tb.appendChild(h('tr', null,
           h('td.host', null, r.name),
-          h('td', null, h('span.env-tag', null, r.env)),
+          h('td', null, h('span.chip.sm', null, r.env)),
           h('td.mono.muted', null, r.lastSeen),
           h('td.mono', null, r.duration || '—'),
         ));
@@ -1007,7 +1030,7 @@
       for (const r of rows) {
         tb.appendChild(h('tr', null,
           h('td.host', null, r.raw),
-          h('td', null, h('span.badge.neutral', null, r.source)),
+          h('td', null, h('span.chip.neutral', null, r.source)),
           h('td.mono.muted', null, r.firstSeen),
         ));
       }
@@ -1023,7 +1046,7 @@
       feed.appendChild(h('div.feed-item.info', null,
         h('div.when', null, '—'),
         h('div.what', null, h('b', { style:{color:'var(--ink)'} }, 'No recent alerts'), h('small', null, 'Nothing surfaced by /api/alerts/recent.')),
-        h('span.badge.info', null, 'Info'),
+        h('span.chip.info', null, 'Info'),
       ));
       return feed;
     }
@@ -1031,7 +1054,7 @@
       feed.appendChild(h('div.feed-item.'+a.tone, null,
         h('div.when', null, a.when),
         h('div.what', null, h('b', { style:{color:'var(--ink)'} }, a.id), ' · ', a.sub, h('small', null, a.detail)),
-        h('span.badge.'+(a.tone==='crit'?'crit':a.tone==='warn'?'warn':'info'), null, a.tone==='crit'?'Critical':a.tone==='warn'?'Warning':'Info'),
+        h('span.chip.'+(a.tone==='crit'?'crit':a.tone==='warn'?'warn':'info'), null, a.tone==='crit'?'Critical':a.tone==='warn'?'Warning':'Info'),
       ));
     }
     return feed;
@@ -1137,7 +1160,8 @@
     const shell = h('div.shell');
     shell.appendChild(Rail());
     const stage = h('main.stage');
-    stage.appendChild(Statusline());
+    const statusline = Statusline();
+    stage.appendChild(statusline);
     const pageMount = h('div.page-mount');
     stage.appendChild(pageMount);
     try {
@@ -1154,11 +1178,16 @@
       ));
     }
     shell.appendChild(stage);
+    shell.appendChild(Ctxbar(statusline));   // (Step 10.6) fixed context bar; hidden until body.scrolled
     root.innerHTML = '';
     root.appendChild(shell);
+    document.body.classList.toggle('scrolled', window.scrollY > 150);
 
     if (window.__opAppReady) return;
     window.addEventListener('hashchange', () => render());
+    window.addEventListener('scroll', () => {
+      document.body.classList.toggle('scrolled', window.scrollY > 150);
+    }, { passive: true });
     window.__opAppReady = true;
   }
 

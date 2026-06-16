@@ -4,9 +4,9 @@
 
 :root {
   /* Tweakable */
-  --accent-h: 35;
-  --accent-c: 0.17;
-  --accent-l: 0.58;
+  --accent-h: 245;   /* default accent: blue, off the warning hues (was 35 amber) */
+  --accent-c: 0.16;
+  --accent-l: 0.52;
   --surface-h: 85;
   --surface-c: 0.008;
   --density: 1;
@@ -24,9 +24,10 @@
   --rule:         oklch(0.88 0.01 var(--surface-h));
   --rule-2:       oklch(0.80 0.012 var(--surface-h));
 
-  --signal:       oklch(var(--accent-l) var(--accent-c) var(--accent-h));
-  --signal-2:     oklch(calc(var(--accent-l) - 0.08) var(--accent-c) var(--accent-h));
-  --signal-wash:  oklch(0.95 calc(var(--accent-c) * 0.4) var(--accent-h));
+  /* --signal* are derived on <body> (see the `body` rule below), not here:
+     declaring them on :root bakes in the amber default permanently, so a
+     body-level --accent-* override (accent Tweak / dark theme) never
+     re-resolves them. */
 
   --ok:           oklch(0.55 0.10 160);
   --warn:         oklch(0.68 0.14 75);
@@ -38,15 +39,40 @@
   --crit-wash:    oklch(0.95 0.06 25);
   --info-wash:    oklch(0.95 0.04 245);
 
-  --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-  --sans: 'Inter Tight', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-  --display: 'Fraunces', 'Inter Tight', serif;
+  /* tone-on-wash text colours (Change 7): darker than the marker colours so
+     small semantic text on its own wash clears contrast. Dark theme lightens
+     them in the [data-theme="dark"] block. */
+  --ok-ink:       oklch(0.48 0.11 160);
+  --warn-ink:     oklch(0.52 0.13 75);
+  --crit-ink:     oklch(0.50 0.20 25);
+  --info-ink:     oklch(0.48 0.13 245);
+
+  --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --sans: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --display: 'IBM Plex Sans', -apple-system, system-ui, sans-serif;
+  --num-weight: 600;   /* weight for large display numerals + titles (Change 5) */
+
+  --r-sm: 3px;   /* small radius: cards, inputs, buttons, badges (Change 6) */
+  --r-md: 6px;   /* medium radius: panels, rail theme toggle */
 
   --pad: calc(20px * var(--density));
   --gap: calc(16px * var(--density));
   --row-h: calc(36px * var(--density));
 
   --t: 160ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Signal tokens are derived on <body> so that a body-level --accent-* override
+   (the accent Tweak) and the dark-theme override both re-resolve var(--accent-*)
+   correctly. The light/dark difference lives in the --signal-l / --signal-wash-*
+   helpers, which dark mode overrides below. */
+body {
+  --signal-l:      var(--accent-l);
+  --signal-wash-l: 0.95;
+  --signal-wash-c: calc(var(--accent-c) * 0.4);
+  --signal:        oklch(var(--signal-l) var(--accent-c) var(--accent-h));
+  --signal-2:      oklch(calc(var(--signal-l) - 0.08) var(--accent-c) var(--accent-h));
+  --signal-wash:   oklch(var(--signal-wash-l) var(--signal-wash-c) var(--accent-h));
 }
 
 /* Alternate accent hues selectable via Tweaks */
@@ -80,9 +106,10 @@ body[data-theme="dark"] {
   --rule:         oklch(0.28 0.015 260);
   --rule-2:       oklch(0.36 0.018 260);
 
-  --signal:       oklch(calc(var(--accent-l) + 0.10) var(--accent-c) var(--accent-h));
-  --signal-2:     oklch(calc(var(--accent-l) + 0.02) var(--accent-c) var(--accent-h));
-  --signal-wash:  oklch(0.28 calc(var(--accent-c) * 0.5) var(--accent-h));
+  /* override only the light/dark helpers; --signal* themselves derive on <body> */
+  --signal-l:      calc(var(--accent-l) + 0.10);
+  --signal-wash-l: 0.28;
+  --signal-wash-c: calc(var(--accent-c) * 0.5);
 
   --ok:           oklch(0.72 0.14 160);
   --warn:         oklch(0.78 0.16 75);
@@ -93,6 +120,11 @@ body[data-theme="dark"] {
   --warn-wash:    oklch(0.30 0.08 75);
   --crit-wash:    oklch(0.30 0.09 25);
   --info-wash:    oklch(0.28 0.07 245);
+
+  --ok-ink:       oklch(0.78 0.14 160);
+  --warn-ink:     oklch(0.82 0.16 75);
+  --crit-ink:     oklch(0.76 0.20 25);
+  --info-ink:     oklch(0.78 0.14 245);
 }
 
 body[data-theme="dark"] .refresh:hover { background: var(--paper-2); }
@@ -132,7 +164,7 @@ input, select, textarea { font: inherit; color: inherit; }
 @media (max-width: 1100px) {
   .shell { grid-template-columns: 72px 1fr; }
   .rail { padding: 20px 12px; }
-  .rail .brand .mark, .rail .brand .sub, .rail-section-label, .rail-footer, .nav-item .label, .nav-item .flag { display: none; }
+  .rail .brand .mark, .rail .brand .sub, .rail-section-label, .rail-footer, .nav-item .label, .nav-item .chip { display: none; }
   .nav-item { grid-template-columns: 1fr; justify-items: center; padding: 14px 0; }
   .nav-item .idx { font-size: 12px; }
   .kpi-grid { grid-template-columns: 1fr 1fr; }

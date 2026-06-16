@@ -33,7 +33,7 @@
   grid-template-columns: 1.4fr 1fr 1fr;
   gap: 0;
   border: 1px solid var(--rule);
-  border-radius: 2px;
+  border-radius: var(--r-sm);
   background: var(--card);
   overflow: hidden;
 }
@@ -58,7 +58,7 @@
 .kpi .k-value {
   font-family: var(--display);
   font-size: 52px;
-  font-weight: 400;
+  font-weight: var(--num-weight);
   letter-spacing: -0.03em;
   line-height: 1;
   font-variant-numeric: tabular-nums;
@@ -66,7 +66,8 @@
 .kpi .k-sub {
   font-size: 12.5px;
   color: var(--ink-3);
-  font-family: var(--mono);
+  font-family: var(--sans);
+  letter-spacing: 0;
 }
 .kpi.hero {
   background: linear-gradient(180deg, var(--paper-2), var(--card));
@@ -91,7 +92,7 @@
 /* micro bar */
 .kpi .microbar {
   height: 6px;
-  border-radius: 2px;
+  border-radius: var(--r-sm);
   background: var(--paper-2);
   margin-top: auto;
   overflow: hidden;
@@ -103,8 +104,16 @@
 .table-wrap {
   border: 1px solid var(--rule);
   background: var(--card);
-  border-radius: 2px;
-  overflow: hidden;
+  border-radius: var(--r-sm);
+  overflow: visible;   /* (Step 10.1) visible lets thead position:sticky work at wide widths */
+}
+/* (Step 10.1 fix) Below 1500px the wide tables (Servers = 7 cols) don't fit, so
+   switch the wrap to horizontal scroll instead of letting them spill. overflow-x
+   forces overflow-y to auto, which disables the sticky header — an acceptable
+   trade at narrow widths where the table has to scroll anyway. Above 1500px the
+   tables fit and headers stay sticky. */
+@media (max-width: 1500px) {
+  .table-wrap { overflow-x: auto; }
 }
 
 table.op {
@@ -126,7 +135,12 @@ table.op thead th {
   white-space: nowrap;
   font-weight: 500;
   user-select: none;
+  position: sticky;          /* (Step 10.1) keep headers visible while scrolling long tables */
+  top: var(--thead-top, 0);  /* (Step 10.6) tucks below the context bar when it's showing */
+  z-index: 5;
 }
+table.op thead th:first-child { border-top-left-radius: var(--r-sm); }
+table.op thead th:last-child  { border-top-right-radius: var(--r-sm); }
 table.op thead th.sortable { cursor: pointer; }
 table.op thead th.sortable:hover { color: var(--ink); }
 table.op thead th.num { text-align: right; }
@@ -138,7 +152,7 @@ table.op thead th .caret {
 table.op thead th.sorted .caret { color: var(--signal); }
 
 table.op tbody td {
-  padding: calc(10px * var(--density)) 16px;
+  padding: calc(8px * var(--density)) 16px;   /* (Step 10.7) compact rows by default — ~20% more per screen */
   font-size: 13px;
   border-bottom: 1px solid var(--rule);
   color: var(--ink-2);
@@ -162,59 +176,79 @@ table.op td.num {
 table.op td.strong { color: var(--ink); font-weight: 500; }
 table.op td.muted  { color: var(--ink-3); }
 
-table.op .env-tag {
-  font-family: var(--mono);
-  font-size: 10.5px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--ink-3);
-}
-
 /* selection accent hover for table rows */
 table.op tbody tr { cursor: default; }
 table.op tbody tr td:first-child { border-left: 2px solid transparent; }
 table.op tbody tr:hover td:first-child { border-left-color: var(--signal); }
 
-/* ── BADGES / DOTS ───────────────────────────────────── */
-.badge {
+/* (Step 10.2) clickable-row affordance — rows that drill into a detail view get
+   a pointer cursor and a chevron that reveals on hover. */
+table.op tbody tr.clickable { cursor: pointer; }
+table.op tbody tr.clickable td:last-child { position: relative; padding-right: 30px; }
+table.op tbody tr.clickable td:last-child::after {
+  content: '\203A';
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--ink-4);
+  font-size: 16px;
+  opacity: 0;
+  transition: opacity var(--t);
+}
+table.op tbody tr.clickable:hover td:last-child::after { opacity: 1; }
+
+/* ── UNIFIED CHIP SYSTEM (STEP 9) ─────────────────────────
+   One chip scale replacing the old label zoo: .badge, .nav-item .flag,
+   .affected-chip, .env-tag, .stale-chip and inline state "stamps". Tone via
+   .ok/.warn/.crit/.info (text uses the --*-ink tokens for contrast); .sm for
+   dense table rows / rail flags; .solid for states that must shout (overdue,
+   offline, expired). Markup is unchanged — only class names moved to .chip. */
+.chip {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   font-family: var(--mono);
   font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  letter-spacing: 0.1em;
-  padding: 3px 8px 2px;
-  border-radius: 2px;
+  padding: 3px 9px;
+  border-radius: var(--r-sm);
   border: 1px solid var(--rule-2);
   color: var(--ink-2);
   background: var(--paper);
   white-space: nowrap;
+  line-height: 1.3;
+  vertical-align: middle;
 }
-.badge .dot {
-  width: 6px; height: 6px; border-radius: 999px;
-  background: var(--ink-3);
-}
-.badge.ok   { color: var(--ok); background: var(--ok-wash); border-color: transparent; }
-.badge.ok   .dot { background: var(--ok); }
-.badge.warn { color: var(--warn); background: var(--warn-wash); border-color: transparent; }
-.badge.warn .dot { background: var(--warn); }
-.badge.crit { color: var(--crit); background: var(--crit-wash); border-color: transparent; }
-.badge.crit .dot { background: var(--crit); }
-.badge.info { color: var(--info); background: var(--info-wash); border-color: transparent; }
-.badge.info .dot { background: var(--info); }
-.badge.neutral { color: var(--ink-2); }
+.chip .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: 0.85; }
+
+.chip.ok   { color: var(--ok-ink);   background: var(--ok-wash);   border-color: transparent; }
+.chip.warn { color: var(--warn-ink); background: var(--warn-wash); border-color: transparent; }
+.chip.crit { color: var(--crit-ink); background: var(--crit-wash); border-color: transparent; }
+.chip.info { color: var(--info-ink); background: var(--info-wash); border-color: transparent; }
+
+.chip.sm { font-size: 9.5px; padding: 2px 7px; }
+
+.chip.solid.crit { background: var(--crit); color: oklch(0.99 0 0); border-color: transparent; }
+.chip.solid.warn { background: var(--warn); color: oklch(0.18 0 0); border-color: transparent; }
+.chip.solid.ok   { background: var(--ok);   color: oklch(0.99 0 0); border-color: transparent; }
+.chip.solid .dot { opacity: 0.9; }
+
+.chip.dashed { background: transparent; border: 1px dashed var(--rule-2); color: var(--ink-4); }
 
 /* Row-action buttons (inside table cells) — match the filter-bar vocabulary
    but sized down for per-row use. */
 table.op td .btn {
-  font-family: var(--mono);
-  font-size: 10.5px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-family: var(--sans);
+  font-size: 11.5px;
+  letter-spacing: 0.01em;
+  text-transform: none;
+  font-weight: 500;
   padding: 5px 14px;
   border: 1px solid var(--rule-2);
-  border-radius: 2px;
+  border-radius: var(--r-sm);
   background: var(--card);
   color: var(--ink-2);
   transition: all var(--t);
@@ -265,8 +299,9 @@ table.op td .btn.danger:hover {
 .feed-item .what small {
   display: block;
   color: var(--ink-3);
-  font-family: var(--mono);
-  font-size: 11px;
+  font-family: var(--sans);
+  font-size: 12px;
+  letter-spacing: 0;
   margin-top: 3px;
 }
 .feed-item.crit { border-left: 3px solid var(--crit); }
@@ -317,14 +352,16 @@ table.op td .btn.danger:hover {
 .sync-row .pulse span.miss { background: var(--paper-3); }
 
 .sync-row .when {
-  font-family: var(--mono);
-  font-size: 11.5px;
+  font-family: var(--sans);
+  font-size: 12px;
+  letter-spacing: 0;
   color: var(--ink-2);
   text-align: right;
 }
 .sync-row .rec {
-  font-family: var(--mono);
-  font-size: 11.5px;
+  font-family: var(--sans);
+  font-size: 12px;
+  letter-spacing: 0;
   color: var(--ink-3);
   text-align: right;
 }
@@ -344,7 +381,7 @@ table.op td .btn.danger:hover {
   gap: 12px;
   padding: 8px 10px 8px 12px;
   cursor: pointer;
-  border-radius: 2px;
+  border-radius: var(--r-sm);
   transition: background var(--t);
   min-width: 0;
 }
@@ -448,28 +485,28 @@ table.op td .btn.danger:hover {
    state. Values are hand-balanced against --paper / --card so
    no row dominates at rest, but a selected row is obvious.
    ──────────────────────────────────────────────────────── */
-.env-row.env-production     { --env-accent:#1f2a44; --env-ink:#111827; --env-wash:#eef1fa; }
-.env-row.env-development    { --env-accent:#2b6cb0; --env-ink:#1b4878; --env-wash:#e8f1fb; }
-.env-row.env-uat            { --env-accent:#b7791f; --env-ink:#7b4f0a; --env-wash:#fbf3e3; }
-.env-row.env-staging        { --env-accent:#805ad5; --env-ink:#553c9a; --env-wash:#f1ebfb; }
-.env-row.env-shared-services{ --env-accent:#38a169; --env-ink:#22543d; --env-wash:#e6f4ec; }
-.env-row.env-systest        { --env-accent:#d69e2e; --env-ink:#7b5a11; --env-wash:#faf1d9; }
-.env-row.env-live-support   { --env-accent:#c53030; --env-ink:#742020; --env-wash:#fbe6e6; }
-.env-row.env-proof-of-concept { --env-accent:#00a3a3; --env-ink:#115e5e; --env-wash:#e1f3f3; }
-.env-row.env-continuous-integration { --env-accent:#dd6b20; --env-ink:#7c3d0f; --env-wash:#fbebde; }
-.env-row.env-training       { --env-accent:#718096; --env-ink:#3c4653; --env-wash:#eef1f4; }
+.env-row.env-production     { --env-accent:oklch(0.56 0.125 265); --env-ink:oklch(0.42 0.10 265); --env-wash:oklch(0.95 0.03 265); }
+.env-row.env-development    { --env-accent:oklch(0.56 0.125 245); --env-ink:oklch(0.42 0.10 245); --env-wash:oklch(0.95 0.03 245); }
+.env-row.env-uat            { --env-accent:oklch(0.56 0.125 75);  --env-ink:oklch(0.42 0.10 75);  --env-wash:oklch(0.95 0.03 75); }
+.env-row.env-staging        { --env-accent:oklch(0.56 0.125 300); --env-ink:oklch(0.42 0.10 300); --env-wash:oklch(0.95 0.03 300); }
+.env-row.env-shared-services{ --env-accent:oklch(0.56 0.125 155); --env-ink:oklch(0.42 0.10 155); --env-wash:oklch(0.95 0.03 155); }
+.env-row.env-systest        { --env-accent:oklch(0.56 0.125 95);  --env-ink:oklch(0.42 0.10 95);  --env-wash:oklch(0.95 0.03 95); }
+.env-row.env-live-support   { --env-accent:oklch(0.56 0.125 25);  --env-ink:oklch(0.42 0.10 25);  --env-wash:oklch(0.95 0.03 25); }
+.env-row.env-proof-of-concept { --env-accent:oklch(0.56 0.125 195); --env-ink:oklch(0.42 0.10 195); --env-wash:oklch(0.95 0.03 195); }
+.env-row.env-continuous-integration { --env-accent:oklch(0.56 0.125 45); --env-ink:oklch(0.42 0.10 45); --env-wash:oklch(0.95 0.03 45); }
+.env-row.env-training       { --env-accent:oklch(0.56 0.125 285); --env-ink:oklch(0.42 0.10 285); --env-wash:oklch(0.95 0.03 285); }
 
-/* Dark-theme tints — brighter accents, subtler washes */
-[data-theme="dark"] .env-row.env-production     { --env-accent:#9aa7c7; --env-ink:#cdd4e4; --env-wash:rgba(154,167,199,0.14); }
-[data-theme="dark"] .env-row.env-development    { --env-accent:#63b3ed; --env-ink:#bee3f8; --env-wash:rgba(99,179,237,0.14); }
-[data-theme="dark"] .env-row.env-uat            { --env-accent:#ecc94b; --env-ink:#faf089; --env-wash:rgba(236,201,75,0.14); }
-[data-theme="dark"] .env-row.env-staging        { --env-accent:#b794f4; --env-ink:#d6bcfa; --env-wash:rgba(183,148,244,0.14); }
-[data-theme="dark"] .env-row.env-shared-services{ --env-accent:#68d391; --env-ink:#9ae6b4; --env-wash:rgba(104,211,145,0.14); }
-[data-theme="dark"] .env-row.env-systest        { --env-accent:#f6ad55; --env-ink:#fbd38d; --env-wash:rgba(246,173,85,0.14); }
-[data-theme="dark"] .env-row.env-live-support   { --env-accent:#fc8181; --env-ink:#feb2b2; --env-wash:rgba(252,129,129,0.14); }
-[data-theme="dark"] .env-row.env-proof-of-concept { --env-accent:#4fd1c5; --env-ink:#81e6d9; --env-wash:rgba(79,209,197,0.14); }
-[data-theme="dark"] .env-row.env-continuous-integration { --env-accent:#f6ad55; --env-ink:#fbd38d; --env-wash:rgba(246,173,85,0.14); }
-[data-theme="dark"] .env-row.env-training       { --env-accent:#a0aec0; --env-ink:#cbd5e0; --env-wash:rgba(160,174,192,0.14); }
+/* Dark-theme tints (Change 2): same hue map, lighter accent/ink, low-alpha wash */
+[data-theme="dark"] .env-row.env-production     { --env-accent:oklch(0.74 0.13 265); --env-ink:oklch(0.84 0.10 265); --env-wash:oklch(0.74 0.13 265 / 0.14); }
+[data-theme="dark"] .env-row.env-development    { --env-accent:oklch(0.74 0.13 245); --env-ink:oklch(0.84 0.10 245); --env-wash:oklch(0.74 0.13 245 / 0.14); }
+[data-theme="dark"] .env-row.env-uat            { --env-accent:oklch(0.74 0.13 75);  --env-ink:oklch(0.84 0.10 75);  --env-wash:oklch(0.74 0.13 75 / 0.14); }
+[data-theme="dark"] .env-row.env-staging        { --env-accent:oklch(0.74 0.13 300); --env-ink:oklch(0.84 0.10 300); --env-wash:oklch(0.74 0.13 300 / 0.14); }
+[data-theme="dark"] .env-row.env-shared-services{ --env-accent:oklch(0.74 0.13 155); --env-ink:oklch(0.84 0.10 155); --env-wash:oklch(0.74 0.13 155 / 0.14); }
+[data-theme="dark"] .env-row.env-systest        { --env-accent:oklch(0.74 0.13 95);  --env-ink:oklch(0.84 0.10 95);  --env-wash:oklch(0.74 0.13 95 / 0.14); }
+[data-theme="dark"] .env-row.env-live-support   { --env-accent:oklch(0.74 0.13 25);  --env-ink:oklch(0.84 0.10 25);  --env-wash:oklch(0.74 0.13 25 / 0.14); }
+[data-theme="dark"] .env-row.env-proof-of-concept { --env-accent:oklch(0.74 0.13 195); --env-ink:oklch(0.84 0.10 195); --env-wash:oklch(0.74 0.13 195 / 0.14); }
+[data-theme="dark"] .env-row.env-continuous-integration { --env-accent:oklch(0.74 0.13 45); --env-ink:oklch(0.84 0.10 45); --env-wash:oklch(0.74 0.13 45 / 0.14); }
+[data-theme="dark"] .env-row.env-training       { --env-accent:oklch(0.74 0.13 285); --env-ink:oklch(0.84 0.10 285); --env-wash:oklch(0.74 0.13 285 / 0.14); }
 
 /* Tiny button variant used beside section labels */
 .btn.xs {
@@ -602,7 +639,7 @@ select.bu-scope {
   height: 32px;
   padding: 0 24px 0 8px;
   border: 1px solid var(--rule-2);
-  border-radius: 2px;
+  border-radius: var(--r-sm);
   background: var(--card);
   color: var(--ink);
   /* Sans-serif (vs the mono used elsewhere in the rail) so longer BU names
@@ -635,10 +672,10 @@ select.bu-scope option {
 .bu-scope-note {
   margin-top: 8px;
   padding: 0 2px;
-  font-family: var(--mono);
-  font-size: 10.5px;
+  font-family: var(--sans);
+  font-size: 12px;
   color: var(--ink-3);
-  letter-spacing: 0.02em;
+  letter-spacing: 0;
   line-height: 1.4;
 }
 .bu-scope-note b { color: var(--ink); font-weight: 600; }
@@ -656,7 +693,7 @@ select.bu-scope option {
   gap: 8px;
   padding: 0 12px;
   border: 1px solid var(--rule-2);
-  border-radius: 4px;
+  border-radius: var(--r-md);
   background: transparent;
   color: var(--ink-2);
   font-family: var(--mono);
@@ -707,7 +744,7 @@ select.bu-scope option {
 .sd-card-title {
   font-family: var(--display);
   font-size: 22px;
-  font-weight: 400;
+  font-weight: var(--num-weight);
   letter-spacing: -0.01em;
   color: var(--ink);
 }
@@ -739,10 +776,11 @@ select.bu-scope option {
   margin-bottom: 22px;
 }
 .sd-actions .btn {
-  font-family: var(--mono);
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.10em;
+  font-family: var(--sans);
+  font-size: 12.5px;
+  text-transform: none;
+  letter-spacing: 0.01em;
+  font-weight: 500;
 }
 .sd-grid {
   display: grid;
@@ -774,7 +812,7 @@ select.bu-scope option {
   height: 34px;
   padding: 0 12px;
   border: 1px solid var(--rule-2);
-  border-radius: 2px;
+  border-radius: var(--r-sm);
   background: var(--card);
   font-size: 13px;
   color: var(--ink);
@@ -801,12 +839,13 @@ select.bu-scope option {
   height: 34px;
   padding: 0 14px;
   border: 1px solid var(--rule-2);
-  border-radius: 2px;
+  border-radius: var(--r-sm);
   background: var(--card);
-  font-size: 12px;
-  font-family: var(--mono);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+  font-size: 12.5px;
+  font-family: var(--sans);
+  text-transform: none;
+  letter-spacing: 0.01em;
+  font-weight: 500;
   transition: all var(--t);
 }
 .filters .btn:hover { border-color: var(--ink); }
@@ -829,13 +868,14 @@ select.bu-scope option {
   height: 34px;
   padding: 0 14px;
   border: 1px solid var(--rule-2);
-  border-radius: 2px;
+  border-radius: var(--r-sm);
   background: var(--card);
   color: var(--ink);
-  font-size: 12px;
-  font-family: var(--mono);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+  font-size: 12.5px;
+  font-family: var(--sans);
+  text-transform: none;
+  letter-spacing: 0.01em;
+  font-weight: 500;
   cursor: pointer;
   transition: all var(--t);
 }
@@ -877,7 +917,7 @@ select.bu-scope option {
   line-height: 0.9;
   letter-spacing: -0.04em;
   color: var(--signal);
-  font-weight: 400;
+  font-weight: var(--num-weight);
 }
 .patch-banner .countdown .unit {
   font-family: var(--mono);
@@ -901,7 +941,7 @@ select.bu-scope option {
 .patch-banner .meta .d {
   font-family: var(--display);
   font-size: 26px;
-  font-weight: 400;
+  font-weight: var(--num-weight);
   letter-spacing: -0.01em;
 }
 .patch-banner .meta .sub {
@@ -969,7 +1009,7 @@ select.bu-scope option {
   width: 300px;
   background: var(--card);
   border: 1px solid var(--rule-2);
-  border-radius: 4px;
+  border-radius: var(--r-md);
   box-shadow: 0 20px 60px rgba(0,0,0,0.14);
   padding: 16px;
   display: flex;
@@ -1034,11 +1074,11 @@ select.bu-scope option {
   align-items: center;
   padding: 12px 16px;
   border-top: 1px solid var(--rule);
-  font-family: var(--mono);
-  font-size: 11px;
+  font-family: var(--sans);
+  font-size: 12px;
   color: var(--ink-3);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
 }
 .pagination .pages { display: flex; gap: 4px; }
 .pagination button {
@@ -1072,7 +1112,7 @@ select.bu-scope option {
   color: var(--ink-4);
   padding: 3px 8px;
   border: 1px dashed var(--rule-2);
-  border-radius: 2px;
+  border-radius: var(--r-sm);
 }
 
 /* ── DRILL-DOWN DRAWER ──────────────────────────────── */
@@ -1124,21 +1164,21 @@ select.bu-scope option {
   font-family: var(--display);
   font-size: 32px;
   letter-spacing: -0.015em;
-  font-weight: 400;
+  font-weight: var(--num-weight);
   line-height: 1.1;
   color: var(--ink);
   margin: 0;
 }
 .drawer-head h2 em {
-  font-style: italic;
+  font-style: normal;
   color: var(--signal);
 }
 .drawer-head .subtitle {
   margin-top: 10px;
-  font-family: var(--mono);
-  font-size: 11.5px;
+  font-family: var(--sans);
+  font-size: 12px;
   color: var(--ink-3);
-  letter-spacing: 0.02em;
+  letter-spacing: 0;
 }
 .drawer-close {
   font-family: var(--mono);
@@ -1149,7 +1189,7 @@ select.bu-scope option {
   border: 1px solid var(--rule-2);
   background: var(--card);
   color: var(--ink-2);
-  border-radius: 2px;
+  border-radius: var(--r-sm);
   cursor: pointer;
 }
 .drawer-close:hover { border-color: var(--ink); color: var(--ink); }
@@ -1184,7 +1224,7 @@ select.bu-scope option {
 .drawer-kpis .val {
   font-family: var(--display);
   font-size: 26px;
-  font-weight: 500;
+  font-weight: var(--num-weight);
   letter-spacing: -0.015em;
   color: var(--ink);
   line-height: 1;
@@ -1250,7 +1290,7 @@ select.bu-scope option {
   padding: 2px 6px;
   background: var(--wash);
   color: var(--ink-2);
-  border-radius: 2px;
+  border-radius: var(--r-sm);
   letter-spacing: 0.05em;
 }
 .detail-list .row .right {
@@ -1305,7 +1345,7 @@ select.bu-scope option {
 }
 .hist-rail .h-cell:last-child { border-right: none; }
 .hist-rail .h-cell .date { color: var(--ink-3); font-size: 10px; }
-.hist-rail .h-cell .ct { color: var(--ink); font-size: 18px; font-family: var(--display); font-weight: 500; margin: 4px 0 2px; }
+.hist-rail .h-cell .ct { color: var(--ink); font-size: 18px; font-family: var(--display); font-weight: var(--num-weight); margin: 4px 0 2px; }
 .hist-rail .h-cell .st { color: var(--ok); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; }
 .hist-rail .h-cell .st.fail { color: var(--crit); }
 
@@ -1324,7 +1364,7 @@ select.bu-scope option {
   padding: 8px 30px 8px 26px;
   background: var(--card);
   border: 1px solid var(--rule);
-  border-radius: 2px;
+  border-radius: var(--r-sm);
   color: var(--ink);
   letter-spacing: 0;
 }
@@ -1390,17 +1430,23 @@ select.bu-scope option {
    more hardcoded column widths — the grid uses repeat(auto-fit) so
    any count of cells lines up cleanly.
    ───────────────────────────────────────────────────────────────── */
+/* Flex (not grid) so cells grow to fill each row — a wrapped/last cell expands to
+   fill its row instead of orphaning at a fixed 220px with empty space beside it.
+   The 1px flex gaps over the strip's --rule background act as the hairline
+   dividers, so they stay clean at any cell count (3-6) and any width. */
 .crit-strip {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1px;
   border: 1px solid var(--rule);
-  background: var(--card);
-  overflow: hidden;
+  border-radius: var(--r-sm);
+  background: var(--rule);     /* shows through the 1px gaps as dividers */
+  overflow: hidden;            /* clip cells to the rounded corners */
 }
 .crit-strip .cs-cell {
+  flex: 1 1 220px;             /* grow to fill the row; wraps below ~220px */
+  background: var(--card);     /* opaque so the gaps read as dividers */
   padding: 20px 22px 18px;
-  border-right: 1px solid var(--rule);
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -1408,8 +1454,7 @@ select.bu-scope option {
   transition: background 120ms;
   position: relative;
 }
-.crit-strip .cs-cell:last-child { border-right: none; }
-.crit-strip .cs-cell:hover { background: var(--wash); }
+.crit-strip .cs-cell:hover { background: var(--paper-2); }
 .crit-strip .cs-cell .cs-label {
   font-family: var(--mono);
   font-size: 10.5px;
@@ -1420,7 +1465,7 @@ select.bu-scope option {
 .crit-strip .cs-cell .cs-value {
   font-family: var(--display);
   font-size: 38px;
-  font-weight: 400;
+  font-weight: var(--num-weight);
   letter-spacing: -0.02em;
   color: var(--ink);
   line-height: 1;
@@ -1438,16 +1483,18 @@ select.bu-scope option {
   color: var(--ink-3);
 }
 .crit-strip .cs-cell .cs-sub {
-  font-family: var(--mono);
-  font-size: 11px;
+  font-family: var(--sans);
+  font-size: 12px;
+  letter-spacing: 0;
   color: var(--ink-3);
   margin-top: 4px;
 }
 .crit-strip .cs-cell .cs-link {
-  font-family: var(--mono);
-  font-size: 10.5px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-family: var(--sans);
+  font-size: 12px;
+  letter-spacing: 0.01em;
+  text-transform: none;
+  font-weight: 500;
   color: var(--signal);
   margin-top: 8px;
   display: inline-flex;
@@ -1472,31 +1519,19 @@ select.bu-scope option {
 .crit-strip .cs-cell.crit::before { background: var(--crit); }
 .crit-strip .cs-cell.info::before { background: var(--signal); }
 
-.crit-strip .cs-cell.ok .cs-value   { color: var(--ok); }
-.crit-strip .cs-cell.crit .cs-value { color: var(--crit); }
-.crit-strip .cs-cell.warn .cs-value { color: var(--warn); }
+.crit-strip .cs-cell.ok .cs-value   { color: var(--ok-ink); }
+.crit-strip .cs-cell.crit .cs-value { color: var(--crit-ink); }
+.crit-strip .cs-cell.warn .cs-value { color: var(--warn-ink); }
 
 /* status cell — larger on left */
 .crit-strip .cs-cell.status-cell .cs-value {
   font-size: 30px;
   font-family: var(--display);
-  font-style: italic;
 }
 
-@media (max-width: 1100px) {
-  .crit-strip { grid-template-columns: 1fr 1fr; }
-  .crit-strip .cs-cell { border-right: none; border-bottom: 1px solid var(--rule); }
-  .crit-strip .cs-cell:nth-child(odd) { border-right: 1px solid var(--rule); }
-}
-
-/* 6-cell Health strip: avoid 5+1 orphan on intermediate widths (Surface,
-   1366x768 laptops) by stepping to a clean 3x2 grid. Bounded above 1100px
-   so the existing 2-col fallback still wins on narrower viewports. */
-@media (min-width: 1101px) and (max-width: 1500px) {
-  .crit-strip-6 { grid-template-columns: repeat(3, 1fr); }
-  .crit-strip-6 .cs-cell:nth-child(3n) { border-right: none; }
-  .crit-strip-6 .cs-cell:nth-child(-n+3) { border-bottom: 1px solid var(--rule); }
-}
+/* Responsiveness is handled by flex-wrap above — cells reflow and grow to fill
+   each row at every width, so the old grid-column breakpoints are no longer
+   needed. (.crit-strip-6 is now a no-op class; harmless if still emitted.) */
 
 /* ── TABS (Patching Schedules, Patch Management) ─────── */
 .tabs {
@@ -1547,7 +1582,7 @@ select.bu-scope option {
   padding: 0 6px;
   background: var(--paper-2);
   border: 1px solid var(--rule-2);
-  border-radius: 2px;
+  border-radius: var(--r-sm);
   font-family: var(--mono);
   font-size: 10px;
   font-weight: 600;
@@ -1568,4 +1603,20 @@ select.bu-scope option {
   text-transform: uppercase;
   color: var(--ink-3);
   font-weight: 500;
+}
+
+/* ── KEYBOARD FOCUS RINGS (Change 4) ──────────────────────
+   Visible focus for keyboard users on clickable rows/cells/controls.
+   (.env-row keeps its env-coloured focus ring defined above.) */
+.nav-item:focus-visible,
+.cs-cell[role="button"]:focus-visible,
+.feed-item[role="button"]:focus-visible,
+.btn:focus-visible,
+.filters .btn:focus-visible,
+table.op td .btn:focus-visible,
+.tabs .tab:focus-visible,
+.pagination button:focus-visible,
+.drawer-close:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: -2px;
 }

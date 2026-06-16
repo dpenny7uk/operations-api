@@ -147,10 +147,6 @@
     return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' }) +
       ' at ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
   }
-  function shortGroup(dn) {
-    const m = /^CN=([^,]+)/i.exec(dn || '');
-    return m ? m[1] : (dn || '');
-  }
   function showToast(msg) {
     const el = document.getElementById('toast');
     el.textContent = msg;
@@ -183,19 +179,26 @@
   }
 
   const campaign = D.getCampaign(packet.campaign_id);
-  const group = D.getGroup(packet.group_dn);
-  const members = D.getMembersOfGroup(packet.group_dn);
-  const owners = D.getOwnersOfGroup(packet.group_dn);
-  const isCompleted = !!packet.submitted_at;
+  // Subjects come from the packet's own list (line_manager mode: this manager's
+  // direct reports who are in the app's bound groups; nominees mode: the full
+  // app roster, same for every nominee).
+  const subjects = (packet.subjects || []).map(sam => D.getUser(sam)).filter(Boolean);
 
-  // Local in-memory decisions state (Phase 0 — never POSTed).
+  // Submission state: either this packet itself was submitted, OR the campaign
+  // was closed by another packet in nominees mode (ANY-closes semantics).
+  const ownPacketSubmitted = !!packet.submitted_at;
+  const closingPacket = D.getClosingPacket(packet.campaign_id);
+  const closedByOther = !ownPacketSubmitted && !!closingPacket;
+  const isCompleted = ownPacketSubmitted || closedByOther;
+
+  // Decisions to show: if our packet was submitted, its own; if closed by
+  // another nominee, surface the closing packet's decisions read-only.
   const decisions = {};
-  members.forEach(m => { decisions[m.sam] = null; });
+  subjects.forEach(s => { decisions[s.sam] = null; });
   const comments = {};
-
-  // Pre-populate from stored decisions if completed.
   if (isCompleted) {
-    D.getDecisionsByPacket(packet.packet_id).forEach(d => {
+    const sourcePacketId = ownPacketSubmitted ? packet.packet_id : closingPacket.packet_id;
+    D.getDecisionsByPacket(sourcePacketId).forEach(d => {
       decisions[d.subject_sam] = d.decision;
       if (d.comment) comments[d.subject_sam] = d.comment;
     });
@@ -210,35 +213,44 @@
       h('span', null, 'Phase 0 prototype — this page does not send your submission. Use ?t=demo-pending or ?t=demo-completed to test the two states.'),
     ));
 
-    // Header
+    // Header — addressed to the recipient with their routing context.
+    const recipientGreeting = packet.recipient_kind === 'nominee'
+      ? 'You have been nominated to attest access for this application.'
+      : 'You have been asked to attest access for your direct reports.';
+
     root.appendChild(h('div.attest-header', null,
       h('div.brand', null, 'OPERATIONS CONSOLE · ACCESS ATTESTATION'),
       h('h1', null, campaign ? campaign.name : 'Access Attestation'),
-      h('div.sub', null,
-        'Please review members of ',
-        h('b', { style: { color: 'var(--ink)' } }, shortGroup(packet.group_dn)),
-        ' and confirm whether each person still needs this access.'),
+      h('div.sub', null, recipientGreeting),
     ));
 
-    // Meta line
+    // Meta line — recipient + application + routing + due + CC
     root.appendChild(h('div.attest-meta', null,
+      h('span', null, 'For: ', h('b', null, packet.recipient_display + (packet.role_note ? ' (' + packet.role_note + ')' : ''))),
       campaign ? h('span', null, 'Application: ', h('b', null, campaign.application_name)) : null,
-      h('span', null, 'AD group: ', h('b', null, shortGroup(packet.group_dn))),
-      h('span', null, 'Group type: ', h('b', null, (group && group.type) || 'Security')),
+      h('span', null, 'Routing: ', h('b', null, packet.recipient_kind === 'nominee' ? 'Nominee' : 'Line manager')),
       campaign ? h('span', null, 'Due: ', h('b', null, (campaign.due_at || '—').slice(0, 10))) : null,
-      h('span', null, 'Owners: ',
-        h('b', null, owners.length ? owners.map(o => o.display || o.owner_sam).join(', ') : '—')),
+      campaign && campaign.cc_audit_mailbox ? h('span', null, 'CC: ', h('b', null, campaign.cc_audit_mailbox)) : null,
     ));
 
-    // Completed banner (if applicable)
+    // Completed / closed-by-other banner
     if (isCompleted) {
+      let title, subFrag;
+      if (ownPacketSubmitted) {
+        title = 'This attestation has already been completed.';
+        subFrag = ['Submitted by ', h('b', { style: { color: 'var(--ink)' } }, packet.submitted_by_display),
+                   ' on ', fmtDateTime(packet.submitted_at), '. Decisions are shown below as a record.'];
+      } else {
+        title = 'This campaign was closed by another nominee.';
+        subFrag = ['Submitted by ', h('b', { style: { color: 'var(--ink)' } }, closingPacket.submitted_by_display),
+                   ' on ', fmtDateTime(closingPacket.submitted_at),
+                   '. The decisions they recorded are shown below for your records.'];
+      }
       root.appendChild(h('div.completed-banner', null,
         h('span.icon', null, '✓'),
         h('div.text', null,
-          h('div.title', null, 'This attestation has already been completed.'),
-          h('div.sub', null,
-            'Submitted by ', h('b', { style: { color: 'var(--ink)' } }, packet.submitted_by_display),
-            ' on ', fmtDateTime(packet.submitted_at), '. Decisions are shown below as a record.'),
+          h('div.title', null, title),
+          h('div.sub', null, ...subFrag),
         ),
       ));
     } else {
@@ -250,8 +262,8 @@
         h('b', { style: { color: 'var(--crit)' } }, 'Revoke'),
         ' if their access should be removed. ',
         'Add a comment if useful. Submit when you have decided every row. ',
-        owners.length > 1
-          ? h('span', null, 'Note: this group has multiple owners. The first to submit closes the attestation for everyone.')
+        packet.recipient_kind === 'nominee'
+          ? h('span', null, 'Note: as a nominee, the first nominee to submit closes the attestation for everyone.')
           : null,
       ));
     }
@@ -259,17 +271,17 @@
     // Decision summary
     const sumKeep = Object.values(decisions).filter(v => v === 'keep').length;
     const sumRevoke = Object.values(decisions).filter(v => v === 'revoke').length;
-    const sumPending = members.length - sumKeep - sumRevoke;
+    const sumPending = subjects.length - sumKeep - sumRevoke;
 
     const tableWrap = h('div.subjects-table');
     tableWrap.appendChild(h('div.decision-summary', null,
       h('span.keep', null, h('b', null, String(sumKeep)), ' to keep'),
       h('span.revoke', null, h('b', null, String(sumRevoke)), ' to revoke'),
       isCompleted ? null : h('span', { style: { color: 'var(--ink-3)' } }, h('b', null, String(sumPending)), ' pending'),
-      h('span', { style: { marginLeft: 'auto', color: 'var(--ink-3)' } }, members.length + ' members total'),
+      h('span', { style: { marginLeft: 'auto', color: 'var(--ink-3)' } }, subjects.length + ' subject' + (subjects.length === 1 ? '' : 's') + ' total'),
     ));
 
-    members.forEach(m => {
+    subjects.forEach(m => {
       const row = h('div.row' + (m.enabled ? '' : '.disabled-user'));
       const nameCell = h('div.subj-name', null,
         h('span.display', null, m.display),
@@ -330,7 +342,7 @@
       }, 'Submit attestation');
       root.appendChild(h('div.actions', null,
         submitBtn,
-        h('span.hint', null, canSubmit ? 'All ' + members.length + ' decisions ready to submit' : sumPending + ' decision' + (sumPending === 1 ? '' : 's') + ' still pending'),
+        h('span.hint', null, canSubmit ? 'All ' + subjects.length + ' decisions ready to submit' : sumPending + ' decision' + (sumPending === 1 ? '' : 's') + ' still pending'),
       ));
     }
   }

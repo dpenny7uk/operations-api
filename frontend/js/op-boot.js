@@ -426,6 +426,10 @@ async function fetchAllServers(bu) {
 // ── Boot ─────────────────────────────────────────────────────────────
 
 async function boot() {
+  // (Step 10.3) shimmer the data modules until the first fetch wave settles.
+  // Only on initial boot; OC_API.retry/refresh call runFetches() directly and
+  // skip the skeleton so a manual refresh doesn't blank the page.
+  document.body.classList.add('loading');
   // Attach the apiErrors listener exactly once per page load. window.OC_API.retry
   // re-runs runFetches() without re-attaching — the listener stays wired.
   setApiErrorsListener(() => {
@@ -433,6 +437,7 @@ async function boot() {
     if (window.RERENDER_SHELL) window.RERENDER_SHELL();
   });
   await runFetches();
+  document.body.classList.remove('loading');
 }
 
 // The fetch wave — initial boot and retry both call this. Each fetch's

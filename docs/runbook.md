@@ -1,7 +1,7 @@
 # Operations API — Production Runbook
 
-**Version:** 1.1
-**Last Updated:** 2026-03-11
+**Version:** 1.2
+**Last Updated:** 2026-05-18
 **Audience:** Operations Engineers, DevOps Engineers, On-Call Engineers
 **Scope:** Production environment — Operations API platform
 
@@ -29,7 +29,7 @@
 
 ### Purpose
 
-The Operations API is an internal platform that centralises server inventory, patching schedules, SSL/TLS certificate monitoring, and end-of-life software tracking. It provides a REST API and web frontend consumed by the Operations and Security teams, and is the authoritative source for server health data used during monthly patch cycles.
+The Operations API is an internal platform that centralises server inventory, patching schedules, SSL/TLS certificate monitoring, end-of-life software tracking, and disk capacity monitoring. It provides a REST API and web frontend consumed by the Operations and Security teams, and is the authoritative source for server health data used during monthly patch cycles.
 
 ### Tech Stack
 
@@ -61,44 +61,52 @@ The Operations API is an internal platform that centralises server inventory, pa
 ## 2. Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                     AZURE DEVOPS                                 │
-│  ops-api-build ──► ops-api-deploy ──► ops-api-rollback          │
-│  ops-sync-* (scheduled daily) ──► ops-health-alert              │
-└────────────────────────┬────────────────────────────────────────┘
-                         │
-              ┌──────────▼──────────┐
-              │   IIS (Windows)     │
-              │   OperationsApi     │
-              │   .NET 10 API       │
-              │   Static Frontend   │
-              └──────────┬──────────┘
-                         │ psycopg2 / ADO.NET
-              ┌──────────▼──────────┐
-              │   PostgreSQL 18     │
-              │   ops_platform DB   │
-              │                     │
-              │  shared.*           │  ◄── Server inventory
-              │  certificates.*     │  ◄── TLS certificate data
-              │  patching.*         │  ◄── Patch schedules & issues
-              │  eol.*              │  ◄── EOL software data
-              │  system.*           │  ◄── Health, sync tracking
-              └─────────────────────┘
-                         ▲
-         ┌───────────────┼───────────────────────┐
-         │               │                       │
-┌────────┴───────┐ ┌─────┴──────────┐ ┌─────────┴────────┐
-│   Databricks   │ │  Confluence    │ │  Patching HTML   │
-│  master_server │ │  Known Issues  │ │  Schedule page   │
-│  EOL software  │ │  parent page   │ │  (Shavlik/HTML)  │
-└────────────────┘ └────────────────┘ └──────────────────┘
-         ▲
-┌────────┴───────┐
-│  Certificate   │
-│  scan targets  │
-│ (servers.txt + │
-│  endpoints.csv)│
-└────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│                          AZURE DEVOPS                                 │
+│  ops-api-build ──► ops-api-deploy ──► ops-api-rollback               │
+│  ops-sync-{servers,eol,certificates,patching-schedule,confluence}    │
+│         (daily, scheduled) ──► ops-health-alert (daily 08:00)        │
+│  ops-sync-disks (hourly) ──► ops-alert-disk-breaches (4-hourly, M-F) │
+│  ops-cleanup-disk-snapshots (daily 02:00)                            │
+└─────────────────────────────┬────────────────────────────────────────┘
+                              │
+                   ┌──────────▼──────────┐
+                   │   IIS (Windows)     │
+                   │   OperationsApi     │
+                   │   .NET 10 API       │
+                   │   Static Frontend   │
+                   └──────────┬──────────┘
+                              │ psycopg2 / Npgsql
+                   ┌──────────▼──────────┐
+                   │   PostgreSQL 18     │
+                   │   ops_platform DB   │
+                   │                     │
+                   │  shared.*           │  ◄── Server inventory
+                   │  certificates.*     │  ◄── TLS certificate data
+                   │  patching.*         │  ◄── Patch schedules & issues
+                   │  eol.*              │  ◄── EOL software data
+                   │  monitoring.*       │  ◄── Disk snapshots + alerts
+                   │  system.*           │  ◄── Health, sync tracking
+                   └─────────────────────┘
+                              ▲
+       ┌─────────────┬────────┼────────┬───────────────┐
+       │             │        │        │               │
+┌──────┴───────┐ ┌───┴──────┐ ┌┴────────────────┐ ┌───┴─────────────┐
+│  Databricks  │ │Confluence│ │  Patching HTML  │ │ SolarWinds Orion│
+│ master_server│ │  Known   │ │  Schedule page  │ │     (MSSQL)     │
+│ EOL software │ │  Issues  │ │  (Shavlik/HTML) │ │ Nodes + Volumes │
+└──────────────┘ └──────────┘ └─────────────────┘ └─────────────────┘
+       ▲
+┌──────┴───────┐
+│ Certificate  │
+│ scan targets │
+│(servers.txt +│
+│ endpoints.csv│
+└──────────────┘
+
+Data-collection scope: estate-wide (all BUs).
+Teams alerts (disk breaches, cert expiry): scoped to business_unit = 'Contoso Group Support'.
+See section "Alert Scope" below.
 ```
 
 ### Data Flow
@@ -108,7 +116,18 @@ The Operations API is an internal platform that centralises server inventory, pa
 3. **Certificates:** PowerShell TLS scan → CSV → `sync_certificates.py` → `certificates.inventory`
 4. **Patching schedule:** Internal HTML page → `sync_patching_schedule.py` → `patching.patch_schedule`
 5. **Known issues:** Confluence REST API → `sync_confluence_issues.py` → `patching.known_issues`
-6. **Frontend/API consumers:** `GET /api/*` — reads from PostgreSQL, served via IIS
+6. **Disk capacity:** SolarWinds Orion (MSSQL) → `sync_solarwinds_disks.py` → `monitoring.disk_snapshots` / `monitoring.disk_current`
+7. **Frontend/API consumers:** `GET /api/*` — reads from PostgreSQL, served via IIS
+
+### Alert Scope (Data vs Notifications)
+
+The platform deliberately separates *what is collected* from *what gets paged*:
+
+- **Data collection is estate-wide.** Disk and certificate sync pipelines pull the full Hiscox/Contoso estate from their source systems (SolarWinds, server scans). The original BU caption filter from the upstream Tableau workbook was deliberately dropped — see `sync_solarwinds_disks.py` SOURCE_QUERY comment. The dashboard and `/api/*` endpoints surface all of it.
+- **Teams alerts are scoped to servers we operate.** `alert_disk_breaches.py` and `alert_cert_expiry.py` filter on `business_unit = 'Contoso Group Support'` so the on-call channel only receives notifications for servers Group Support is paged for. Other BUs run their own monitoring.
+- **Endpoint certs from `certificate-endpoints.csv` are always alerted on** (the CSV is curated by this team, so everything in it is by construction "ours" — the cert query handles this via `OR c.server_id IS NULL`).
+
+The BU label is held in a single module-level `ALERT_BU` constant in each alert script. To re-scope, change the constant.
 
 ### External Dependencies
 
@@ -118,6 +137,7 @@ The Operations API is an internal platform that centralises server inventory, pa
 | Confluence | Issues sync | Known issues go stale; patching view loses issue links |
 | Patching schedule HTML | Patching sync | Schedule data stale for that patch cycle |
 | Certificate scan targets | Cert sync | Cert data stale; expiry alerts may not fire |
+| SolarWinds Orion (MSSQL) | Disk sync | Disk capacity data stale; breach alerts stop firing |
 | Teams webhook | All alerts | Alerts silently fail; no on-call notification |
 
 ---
@@ -128,13 +148,16 @@ All times are UTC. Pipelines are defined in Azure DevOps and triggered on a cron
 
 | UTC Time | Pipeline | Script | Purpose | Success Criteria |
 |----------|----------|--------|---------|-----------------|
+| 02:00 | `ops-cleanup-disk-snapshots` | `sync/disks/cleanup_disk_snapshots.py` | Delete `disk_snapshots` rows older than 90 days | Retention applied; row count drops |
 | 04:00 | `ops-sync-confluence` | `sync/confluence/sync_confluence_issues.py` | Sync known patching issues from Confluence | `sync_history` row with `status = 'success'`; `patching.known_issues` updated |
 | 05:00 | `ops-sync-servers` | `sync/servers/sync_server_list.py` | Sync server inventory from Databricks | >0 servers processed; no safety-check abort |
 | 05:30 | `ops-sync-eol` | `sync/eol/sync_eol_software.py` | Sync EOL software metadata from Databricks | `eol.end_of_life_software` rows updated |
-| 06:00 | `ops-sync-certificates` | PowerShell scan → `sync/certificates/sync_certificates.py` → `alert_cert_expiry.py` | Scan servers for TLS certs; alert on expiring certs | CSV produced; certs upserted; Teams alert if certs critical |
+| 06:00 | `ops-sync-certificates` | PowerShell scan → `sync/certificates/sync_certificates.py` → `alert_cert_expiry.py` | Scan servers for TLS certs; alert on expiring certs (Group Support + endpoint certs) | CSV produced; certs upserted; Teams alert if certs critical |
 | 06:30 | `ops-sync-patching-schedule` | `sync/patching/sync_patching_schedule.py` | Sync patching schedule from HTML page | `patching.patch_schedule` rows updated for current cycle |
 | 07:00 | `ops-alert-unmatched` | `sync/alerts/alert_unmatched_spike.py` | Alert if ≥5 new unmatched servers in last 25h | Teams card posted if threshold exceeded |
 | 08:00 | `ops-health-alert` | `sync/alerts/sync_health_alert.py` | Check health of all syncs; alert if degraded | Teams card posted if any sync is error/stale/warning |
+| 08:00, 12:00, 16:00 (Mon-Fri) | `ops-alert-disk-breaches` | `sync/alerts/alert_disk_breaches.py` | Alert on Group Support disks at warn/crit threshold; resolve previously-alerted disks that returned to healthy | Teams card posted if breaches/resolutions exist (24h cooldown per disk) |
+| Hourly (top of hour) | `ops-sync-disks` | `sync/disks/sync_solarwinds_disks.py` | Pull disk capacity from SolarWinds; refresh `monitoring.disk_current` | `disk_snapshots` rows inserted; `disk_current` view current |
 
 ### Checking Whether Today's Syncs Ran Successfully
 
@@ -433,10 +456,21 @@ The `-c` flag drops existing objects before recreating them (clean restore). Che
 
 **Source:** `alert_cert_expiry.py`
 **Triggers when:** Any certificate has `days_until_expiry ≤ 14`
+**Scope:** Servers in `shared.servers` where `business_unit = 'Contoso Group Support'`, plus all endpoint certs from `certificate-endpoints.csv` (rows with `server_id IS NULL`). Other BUs' server certs are visible on the dashboard but do not page us.
 **Card shows:** Certificate CN, server, environment, app, days remaining, expiry date
-**Note:** Alerts are deduplicated — each cert only alerted once until renewed
+**Note:** Alerts are deduplicated — each cert only alerted once per 7-day window until renewed
 
 **First response:** Check [Incident Response — Cert Expiry Alert](#93-cert-expiry-alert).
+
+#### Disk Threshold Breach Alert (08:00 / 12:00 / 16:00 UTC, Mon-Fri)
+
+**Source:** `alert_disk_breaches.py`
+**Triggers when:** Any disk has `alert_status >= 2` (warning or critical, based on per-disk `threshold_warn_pct` / `threshold_crit_pct`)
+**Scope:** Servers where `monitoring.disk_current.business_unit = 'Contoso Group Support'`. The dashboard `/api/disks` still shows the whole estate; only the Teams page is BU-scoped.
+**Card shows:** Server, disk label, environment, percent used, used/size GB, threshold colour band; resolutions for previously-alerted disks that have returned to healthy
+**Cooldown:** A given (server, disk) is only alerted once per 24h while in breach. The cooldown is hardcoded to 24h — if you need to override it, add `DISK_ALERT_COOLDOWN_HOURS` to the `operations-api-prod` variable group and restore the `env:` line in `ops-alert-disk-breaches.yml`.
+
+**First response:** Check [Incident Response — Disk Threshold Breach](#910-disk-threshold-breach).
 
 #### Unmatched Server Spike Alert (07:00 UTC daily)
 
@@ -621,6 +655,8 @@ Either wait for the next scheduled run or trigger manually. Confirm `status = 's
 ### 9.3 Cert Expiry Alert
 
 **Symptoms:** Teams card from `alert_cert_expiry.py` listing certificates with ≤14 days remaining.
+
+**Scope note:** The Teams alert only lists Group Support servers + endpoint certs from `certificate-endpoints.csv`. The query below is *unscoped* so you can see the full estate during triage; filter on `s.business_unit` if you want to mirror the alert's view exactly.
 
 **Step 1 — Review the full expiry list**
 
@@ -919,6 +955,83 @@ The dump was created before any migration ran, so this returns the DB to a known
 
 ---
 
+### 9.10 Disk Threshold Breach
+
+**Symptoms:** Teams card from `alert_disk_breaches.py` listing one or more disks at warn (status 2, amber) or crit (status 3, red) threshold on Group Support servers.
+
+**Scope reminder:** Only Group Support disks generate Teams pages. The dashboard at `/api/disks` (and the Disks page in the SPA) still shows the whole estate — if someone reports "I see a red disk but didn't get a Teams alert", confirm BU first via the query in Step 1.
+
+**Step 1 — Review the full breach list (unscoped, to mirror dashboard)**
+
+```sql
+SELECT
+    server_name,
+    disk_label,
+    environment,
+    technical_owner,
+    business_unit,
+    percent_used,
+    used_gb,
+    volume_size_gb,
+    threshold_warn_pct,
+    threshold_crit_pct,
+    alert_status
+FROM monitoring.disk_current
+WHERE alert_status >= 2
+ORDER BY alert_status DESC, percent_used DESC, server_name, disk_label;
+```
+
+To see only what the alert would page you on, add `AND business_unit = 'Contoso Group Support'`.
+
+**Step 2 — Categorise**
+
+- `alert_status = 3` (CRITICAL, red) → escalate to the technical owner today; capacity exhaustion is imminent.
+- `alert_status = 2` (WARNING, amber) → raise a capacity request with the owner; no immediate outage but trending.
+- `percent_used >= 95` regardless of band → treat as critical even if thresholds are lenient.
+
+**Step 3 — Check whether it's already been actioned**
+
+```sql
+SELECT alert_id, server_name, disk_label, alert_type, percent_used_at_send,
+       notification_sent_at, resolved, resolved_at
+FROM monitoring.alerts
+WHERE server_name = '<server>' AND disk_label = '<label>'
+ORDER BY notification_sent_at DESC
+LIMIT 5;
+```
+
+If the most recent row has `resolved = TRUE` the disk has since recovered; the resolution card will have followed in the next run.
+
+**Step 4 — Suppress a known-noisy disk**
+
+If a disk is intentionally over-threshold (legacy app, log volume that's tracked elsewhere), mark its latest open alert resolved with a note:
+
+```sql
+UPDATE monitoring.alerts
+SET resolved = TRUE,
+    resolved_at = CURRENT_TIMESTAMP,
+    notes = 'Suppressed — tracked outside Operations API; owner = <name>'
+WHERE server_name = '<server>'
+  AND disk_label = '<label>'
+  AND NOT resolved;
+```
+
+Note: this suppresses *one* breach period. If the disk drops below threshold and comes back, the next run will alert again — that's intentional.
+
+**Step 5 — If you stop getting any disk alerts at all**
+
+The sync may be stalled. Check:
+
+```sql
+SELECT MAX(captured_at) AS last_snapshot,
+       NOW() - MAX(captured_at) AS lag
+FROM monitoring.disk_snapshots;
+```
+
+If `lag > 2 hours` the hourly `ops-sync-disks` pipeline has failed — see [Incident Response — Sync Failed](#91-sync-failed-single-or-repeated) and check the SolarWinds MSSQL connection.
+
+---
+
 ## 10. Common Operational Queries
 
 ### Current Sync Status
@@ -1135,9 +1248,12 @@ All secrets are stored in the Azure DevOps variable group **`operations-api-prod
 | `ops-run-tests` | Manual only | No | — | Run .NET unit tests on demand |
 | `ops-sync-servers` | Daily 05:00 UTC | No | — | Sync server list from Databricks |
 | `ops-sync-eol` | Daily 05:30 UTC | No | — | Sync EOL data from Databricks |
-| `ops-sync-certificates` | Daily 06:00 UTC | No | — | Scan certs; alert expiring |
+| `ops-sync-certificates` | Daily 06:00 UTC | No | — | Scan certs; alert expiring (Group Support + endpoint certs) |
 | `ops-sync-patching-schedule` | Daily 06:30 UTC | No | — | Sync patching schedule from HTML |
 | `ops-sync-confluence` | Daily 04:00 UTC | No | — | Sync known issues from Confluence |
+| `ops-sync-disks` | Hourly (top of hour) | No | — | Pull disk capacity from SolarWinds |
+| `ops-cleanup-disk-snapshots` | Daily 02:00 UTC | No | — | Drop `disk_snapshots` rows older than 90 days |
+| `ops-alert-disk-breaches` | 08:00 / 12:00 / 16:00 UTC, Mon-Fri | No | — | Alert on Group Support disks at warn/crit (24h per-disk cooldown) |
 | `ops-alert-unmatched` | Daily 07:00 UTC | No | — | Alert on unmatched server spike |
 | `ops-health-alert` | Daily 08:00 UTC | No | — | Alert on sync health degradation |
 

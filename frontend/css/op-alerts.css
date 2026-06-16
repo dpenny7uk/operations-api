@@ -410,7 +410,7 @@ body[data-alert-style="v5"] .alert .a-sev .lg {
   letter-spacing: -0.02em;
   color: var(--tone);
   text-transform: none;
-  font-style: italic;
+  font-style: normal;
 }
 body[data-alert-style="v5"] .alert .a-sev .sm {
   font-family: var(--mono);
@@ -433,25 +433,7 @@ body[data-alert-style="v5"] .alert .a-body .a-title { font-size: 16px; }
 body[data-alert-style="v5"] .alert .a-actions { align-self: center; flex-direction: column; min-width: 140px; }
 body[data-alert-style="v5"] .alert .a-actions button { padding: 9px 14px; }
 
-/* =========================================================
-   TABLE row severity: severity chip in first column
-   ========================================================= */
-table.op td .affected-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  padding: 2px 8px;
-  border-radius: 2px;
-  border: 1px solid var(--rule-2);
-  color: var(--ink-3);
-}
-table.op td .affected-chip.crit { color: var(--crit); background: var(--crit-wash); border-color: transparent; }
-table.op td .affected-chip.warn { color: var(--warn); background: var(--warn-wash); border-color: transparent; }
-table.op td .affected-chip.ok { color: var(--ok); background: var(--ok-wash); border-color: transparent; }
+/* table-row severity chips now use the unified .chip system (op-components.css) */
 
 /* row severity border on affected rows */
 table.op tbody tr.sev-crit td:first-child { border-left: 3px solid var(--crit) !important; }
