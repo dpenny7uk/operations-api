@@ -1218,19 +1218,33 @@
 
   // Demo defaults. op-boot.js overwrites window.EXCLUSIONS with real data.
   // Render-time reads always go through window.EXCLUSIONS so they pick up updates.
-  window.EXCLUSIONS = window.EXCLUSIONS || [
-    {id:'EX-0412', server:'PR0604-26002-00', fqdn:'kandr_sanctions.contoso.com', group:'2A', service:'fcrm',        func:'Sanctions screening',    reason:'Vendor advisory \u2014 pending hotfix', until:'Apr 22, 2026', requester:'r.kapoor',   requested:'Mar 28, 2026', state:'expiring-soon'},
-    {id:'EX-0411', server:'PR0702-11102-01', fqdn:'alteryx.contoso.com',         group:'7A', service:'alteryx',     func:'Analytics engine',       reason:'Application change-freeze',            until:'Apr 20, 2026', requester:'l.becker',requested:'Apr 02, 2026', state:'expiring-soon'},
-    {id:'EX-0410', server:'PR0605-14001-00', fqdn:'signal.contoso.de',           group:'5A', service:'signal',      func:'Regulatory reporting',   reason:'Regulatory window',                     until:'Apr 30, 2026', requester:'n.harris',   requested:'Apr 01, 2026', state:'active'},
-    {id:'EX-0406', server:'PR0308-22034-00', fqdn:'app.contoso.com',             group:'3A', service:'webmethods',  func:'Customer portal',        reason:'Customer-facing release period',        until:'Apr 17, 2026', requester:'d.zhao',    requested:'Mar 30, 2026', state:'overdue'},
-    {id:'EX-0405', server:'PR0308-22035-00', fqdn:'app.contoso.com',             group:'3A', service:'webmethods',  func:'Customer portal',        reason:'Customer-facing release period',        until:'Apr 17, 2026', requester:'d.zhao',    requested:'Mar 30, 2026', state:'overdue'},
-    {id:'EX-0403', server:'DV0402-11201-02', fqdn:'dv-db.contoso.com',           group:'4A', service:'sql',         func:'Database node',          reason:'Database migration in-flight',          until:'May 15, 2026', requester:'o.silva', requested:'Apr 04, 2026', state:'active'},
-    {id:'EX-0402', server:'PR0801-14404-00', fqdn:'thunderhead.contoso.com',     group:'7B', service:'thunderhead', func:'Document composition',   reason:'Hardware refresh in progress',          until:'May 02, 2026', requester:'e.adeyemi',   requested:'Apr 01, 2026', state:'active'},
-    {id:'EX-0399', server:'PR0604-26003-00', fqdn:'kandr_sanctions.contoso.com', group:'2A', service:'fcrm',        func:'Sanctions screening',    reason:'Vendor advisory \u2014 pending hotfix', until:'Apr 22, 2026', requester:'r.kapoor',   requested:'Mar 28, 2026', state:'expiring-soon'},
-    {id:'EX-0397', server:'PR0605-14002-00', fqdn:'signal.contoso.de',           group:'5A', service:'signal',      func:'Regulatory reporting',   reason:'Other',                                  until:'Jun 01, 2026', requester:'c.fischer', requested:'Apr 03, 2026', state:'active'},
-    {id:'EX-0394', server:'DV0402-11201-03', fqdn:'dv-db.contoso.com',           group:'4A', service:'sql',         func:'Database node',          reason:'Database migration in-flight',          until:'May 15, 2026', requester:'o.silva', requested:'Apr 04, 2026', state:'active'},
-    {id:'EX-0388', server:'PR0308-22036-00', fqdn:'app.contoso.com',             group:'3A', service:'webmethods',  func:'Customer portal',        reason:'Customer-facing release period',        until:'Apr 17, 2026', requester:'d.zhao',    requested:'Mar 30, 2026', state:'overdue'},
-  ];
+  // until/requested are anchored to "today" via day-offsets so the offline view stays
+  // realistic; state is derived from the offset with the same rule the backend uses.
+  window.EXCLUSIONS = window.EXCLUSIONS || (function () {
+    const today = todayLocal();
+    const rows = [
+      {id:'EX-0412', server:'PR0604-26002-00', fqdn:'kandr_sanctions.contoso.com', group:'2A', service:'fcrm',        func:'Sanctions screening',    reason:'Vendor advisory \u2014 pending hotfix', untilOff:4,   reqOff:-81, requester:'r.kapoor'},
+      {id:'EX-0411', server:'PR0702-11102-01', fqdn:'alteryx.contoso.com',         group:'7A', service:'alteryx',     func:'Analytics engine',       reason:'Application change-freeze',            untilOff:2,   reqOff:-76, requester:'l.becker'},
+      {id:'EX-0410', server:'PR0605-14001-00', fqdn:'signal.contoso.de',           group:'5A', service:'signal',      func:'Regulatory reporting',   reason:'Regulatory window',                     untilOff:16,  reqOff:-77, requester:'n.harris'},
+      {id:'EX-0406', server:'PR0308-22034-00', fqdn:'app.contoso.com',             group:'3A', service:'webmethods',  func:'Customer portal',        reason:'Customer-facing release period',        untilOff:-3,  reqOff:-79, requester:'d.zhao'},
+      {id:'EX-0405', server:'PR0308-22035-00', fqdn:'app.contoso.com',             group:'3A', service:'webmethods',  func:'Customer portal',        reason:'Customer-facing release period',        untilOff:-3,  reqOff:-79, requester:'d.zhao'},
+      {id:'EX-0403', server:'DV0402-11201-02', fqdn:'dv-db.contoso.com',           group:'4A', service:'sql',         func:'Database node',          reason:'Database migration in-flight',          untilOff:30,  reqOff:-74, requester:'o.silva'},
+      {id:'EX-0402', server:'PR0801-14404-00', fqdn:'thunderhead.contoso.com',     group:'7B', service:'thunderhead', func:'Document composition',   reason:'Hardware refresh in progress',          untilOff:21,  reqOff:-77, requester:'e.adeyemi'},
+      {id:'EX-0399', server:'PR0604-26003-00', fqdn:'kandr_sanctions.contoso.com', group:'2A', service:'fcrm',        func:'Sanctions screening',    reason:'Vendor advisory \u2014 pending hotfix', untilOff:6,   reqOff:-81, requester:'r.kapoor'},
+      {id:'EX-0397', server:'PR0605-14002-00', fqdn:'signal.contoso.de',           group:'5A', service:'signal',      func:'Regulatory reporting',   reason:'Other',                                 untilOff:45,  reqOff:-75, requester:'c.fischer'},
+      {id:'EX-0394', server:'DV0402-11201-03', fqdn:'dv-db.contoso.com',           group:'4A', service:'sql',         func:'Database node',          reason:'Database migration in-flight',          untilOff:30,  reqOff:-74, requester:'o.silva'},
+      {id:'EX-0388', server:'PR0308-22036-00', fqdn:'app.contoso.com',             group:'3A', service:'webmethods',  func:'Customer portal',        reason:'Customer-facing release period',        untilOff:-8,  reqOff:-79, requester:'d.zhao'},
+    ];
+    return rows.map(function (r) {
+      const until = fmtUntil(addDays(today, r.untilOff));
+      const requested = fmtUntil(addDays(today, r.reqOff));
+      return {
+        id:r.id, server:r.server, fqdn:r.fqdn, group:r.group, service:r.service, func:r.func,
+        reason:r.reason, until:until, requester:r.requester, requested:requested,
+        state:deriveState(until, today),
+      };
+    });
+  })();
   // Live getter — recomputes on each access so it stays in sync with window.EXCLUSIONS.
   Object.defineProperty(window, 'EXCL_COUNTS', {
     configurable: true,
@@ -1873,6 +1887,24 @@
   function fmtUntil(d) {
     return d.toLocaleDateString('en-GB', {day:'numeric', month:'short', year:'numeric'});
   }
+  // Date at local midnight today — anchor for relative offsets and "is it past" checks.
+  function todayLocal() {
+    const n = new Date();
+    return new Date(n.getFullYear(), n.getMonth(), n.getDate());
+  }
+  function addDays(base, n) {
+    return new Date(base.getFullYear(), base.getMonth(), base.getDate() + n);
+  }
+  // Mirrors the backend's hold-state rule (PatchExclusionService.StateClauseFor):
+  // overdue = until < today; expiring-soon = today <= until < today+7d; active otherwise.
+  function deriveState(until, today) {
+    const u = parseUntil(until);
+    if (!u || !today) return 'active';
+    const days = Math.round((u - today) / 86400000);
+    if (days < 0) return 'overdue';
+    if (days < 7) return 'expiring-soon';
+    return 'active';
+  }
   function sameDay(a, b) {
     return a && b && a.getFullYear()===b.getFullYear() && a.getMonth()===b.getMonth() && a.getDate()===b.getDate();
   }
@@ -2149,16 +2181,25 @@
       panel.appendChild(h('div', {style:{fontFamily:'var(--display)',fontSize:'22px',letterSpacing:'-0.01em',color:'var(--ink)',fontWeight:'400'}}, 'How long should this hold last?'));
       panel.appendChild(h('div', {style:{fontSize:'13px',color:'var(--ink-2)',maxWidth:'60ch'}}, 'Pick a specific date or one of the common windows. After this date, the server returns to the next scheduled cycle automatically — you\u2019ll see it in Expiring renewals the week before.'));
 
-      const today = new Date(2026, 3, 21); // April 21, 2026 — matches the rest of the prototype
+      const today = todayLocal();
       const fmt = (d) => d.toLocaleDateString('en-GB', {day:'numeric', month:'short', year:'numeric'});
       const presets = [
         {label:'Next week',      days:7},
         {label:'2 weeks',        days:14},
-        {label:'This cycle only (until Apr 26)', fixed:'Apr 26, 2026'},
         {label:'1 month',        days:30},
-        {label:'Next cycle (May 28)', fixed:'May 28, 2026'},
         {label:'1 quarter',      days:90},
       ];
+      // "This cycle only" is grounded in the live imminent cycle date (window.PATCH_NEXT_CYCLE,
+      // populated by op-boot.js from /api/patching/next). The cycle AFTER it isn't reliably
+      // knowable - group coverage is HTML-scrape driven with no cadence rule - so there is no
+      // "Next cycle" preset. Omit this one entirely when the date is unknown, stale, or past.
+      const nextCycle = window.PATCH_NEXT_CYCLE;
+      if (nextCycle && nextCycle.cycleDate && !nextCycle.isStale) {
+        const cd = parseUntil(nextCycle.cycleDate);
+        if (cd && cd >= today) {
+          presets.push({label:'This cycle only (until ' + fmtUntil(cd) + ')', fixed: fmt(cd)});
+        }
+      }
       const presetGrid = h('div', {style:{display:'grid',gridTemplateColumns:'repeat(3, 1fr)',gap:'8px'}});
       presets.forEach(p => {
         const val = p.fixed || fmt(new Date(today.getTime() + p.days*86400000));
@@ -2351,7 +2392,7 @@
     panel.appendChild(form);
 
     // Calendar picker for bulk "hold until"
-    const today = new Date(2026, 3, 21);
+    const today = todayLocal();
     panel.appendChild(h('div', {style:{fontFamily:'var(--mono)',fontSize:'10px',letterSpacing:'0.14em',textTransform:'uppercase',color:'var(--ink-3)'}}, 'Hold-until date'));
     panel.appendChild(renderCalendarPicker(today, mount, pmState.bulk));
 
