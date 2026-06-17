@@ -183,7 +183,7 @@ body.loading .cert-strip > *, body.loading .patch-banner > *,
 body.loading .env-bars > *, body.loading .feed > * { visibility: hidden; }
 body.loading .crit-strip, body.loading .kpi-grid, body.loading .metric-card,
 body.loading .table-wrap, body.loading .cert-strip, body.loading .patch-banner,
-body.loading .env-bars, body.loading .feed { background: var(--paper-2); }
+body.loading .env-bars, body.loading .feed { background: var(--paper-2); pointer-events: none; }
 @media (prefers-reduced-motion: no-preference) {
   body.loading .crit-strip, body.loading .kpi-grid, body.loading .metric-card,
   body.loading .table-wrap, body.loading .cert-strip, body.loading .patch-banner,

@@ -1219,17 +1219,17 @@
   // Demo defaults. op-boot.js overwrites window.EXCLUSIONS with real data.
   // Render-time reads always go through window.EXCLUSIONS so they pick up updates.
   window.EXCLUSIONS = window.EXCLUSIONS || [
-    {id:'EX-0412', server:'PR0604-26002-00', fqdn:'kandr_sanctions.contoso.com', group:'2A', reason:'Vendor advisory \u2014 pending hotfix', until:'Apr 22, 2026', requester:'r.kapoor',   requested:'Mar 28, 2026', state:'expiring-soon'},
-    {id:'EX-0411', server:'PR0702-11102-01', fqdn:'alteryx.contoso.com',         group:'7A', reason:'Application change-freeze',            until:'Apr 20, 2026', requester:'l.becker',requested:'Apr 02, 2026', state:'expiring-soon'},
-    {id:'EX-0410', server:'PR0605-14001-00', fqdn:'signal.contoso.de',           group:'5A', reason:'Regulatory window',                     until:'Apr 30, 2026', requester:'n.harris',   requested:'Apr 01, 2026', state:'active'},
-    {id:'EX-0406', server:'PR0308-22034-00', fqdn:'app.contoso.com',             group:'3A', reason:'Customer-facing release period',        until:'Apr 17, 2026', requester:'d.zhao',    requested:'Mar 30, 2026', state:'overdue'},
-    {id:'EX-0405', server:'PR0308-22035-00', fqdn:'app.contoso.com',             group:'3A', reason:'Customer-facing release period',        until:'Apr 17, 2026', requester:'d.zhao',    requested:'Mar 30, 2026', state:'overdue'},
-    {id:'EX-0403', server:'DV0402-11201-02', fqdn:'dv-db.contoso.com',           group:'4A', reason:'Database migration in-flight',          until:'May 15, 2026', requester:'o.silva', requested:'Apr 04, 2026', state:'active'},
-    {id:'EX-0402', server:'PR0801-14404-00', fqdn:'thunderhead.contoso.com',     group:'7B', reason:'Hardware refresh in progress',          until:'May 02, 2026', requester:'e.adeyemi',   requested:'Apr 01, 2026', state:'active'},
-    {id:'EX-0399', server:'PR0604-26003-00', fqdn:'kandr_sanctions.contoso.com', group:'2A', reason:'Vendor advisory \u2014 pending hotfix', until:'Apr 22, 2026', requester:'r.kapoor',   requested:'Mar 28, 2026', state:'expiring-soon'},
-    {id:'EX-0397', server:'PR0605-14002-00', fqdn:'signal.contoso.de',           group:'5A', reason:'Other',                                  until:'Jun 01, 2026', requester:'c.fischer', requested:'Apr 03, 2026', state:'active'},
-    {id:'EX-0394', server:'DV0402-11201-03', fqdn:'dv-db.contoso.com',           group:'4A', reason:'Database migration in-flight',          until:'May 15, 2026', requester:'o.silva', requested:'Apr 04, 2026', state:'active'},
-    {id:'EX-0388', server:'PR0308-22036-00', fqdn:'app.contoso.com',             group:'3A', reason:'Customer-facing release period',        until:'Apr 17, 2026', requester:'d.zhao',    requested:'Mar 30, 2026', state:'overdue'},
+    {id:'EX-0412', server:'PR0604-26002-00', fqdn:'kandr_sanctions.contoso.com', group:'2A', service:'fcrm',        func:'Sanctions screening',    reason:'Vendor advisory \u2014 pending hotfix', until:'Apr 22, 2026', requester:'r.kapoor',   requested:'Mar 28, 2026', state:'expiring-soon'},
+    {id:'EX-0411', server:'PR0702-11102-01', fqdn:'alteryx.contoso.com',         group:'7A', service:'alteryx',     func:'Analytics engine',       reason:'Application change-freeze',            until:'Apr 20, 2026', requester:'l.becker',requested:'Apr 02, 2026', state:'expiring-soon'},
+    {id:'EX-0410', server:'PR0605-14001-00', fqdn:'signal.contoso.de',           group:'5A', service:'signal',      func:'Regulatory reporting',   reason:'Regulatory window',                     until:'Apr 30, 2026', requester:'n.harris',   requested:'Apr 01, 2026', state:'active'},
+    {id:'EX-0406', server:'PR0308-22034-00', fqdn:'app.contoso.com',             group:'3A', service:'webmethods',  func:'Customer portal',        reason:'Customer-facing release period',        until:'Apr 17, 2026', requester:'d.zhao',    requested:'Mar 30, 2026', state:'overdue'},
+    {id:'EX-0405', server:'PR0308-22035-00', fqdn:'app.contoso.com',             group:'3A', service:'webmethods',  func:'Customer portal',        reason:'Customer-facing release period',        until:'Apr 17, 2026', requester:'d.zhao',    requested:'Mar 30, 2026', state:'overdue'},
+    {id:'EX-0403', server:'DV0402-11201-02', fqdn:'dv-db.contoso.com',           group:'4A', service:'sql',         func:'Database node',          reason:'Database migration in-flight',          until:'May 15, 2026', requester:'o.silva', requested:'Apr 04, 2026', state:'active'},
+    {id:'EX-0402', server:'PR0801-14404-00', fqdn:'thunderhead.contoso.com',     group:'7B', service:'thunderhead', func:'Document composition',   reason:'Hardware refresh in progress',          until:'May 02, 2026', requester:'e.adeyemi',   requested:'Apr 01, 2026', state:'active'},
+    {id:'EX-0399', server:'PR0604-26003-00', fqdn:'kandr_sanctions.contoso.com', group:'2A', service:'fcrm',        func:'Sanctions screening',    reason:'Vendor advisory \u2014 pending hotfix', until:'Apr 22, 2026', requester:'r.kapoor',   requested:'Mar 28, 2026', state:'expiring-soon'},
+    {id:'EX-0397', server:'PR0605-14002-00', fqdn:'signal.contoso.de',           group:'5A', service:'signal',      func:'Regulatory reporting',   reason:'Other',                                  until:'Jun 01, 2026', requester:'c.fischer', requested:'Apr 03, 2026', state:'active'},
+    {id:'EX-0394', server:'DV0402-11201-03', fqdn:'dv-db.contoso.com',           group:'4A', service:'sql',         func:'Database node',          reason:'Database migration in-flight',          until:'May 15, 2026', requester:'o.silva', requested:'Apr 04, 2026', state:'active'},
+    {id:'EX-0388', server:'PR0308-22036-00', fqdn:'app.contoso.com',             group:'3A', service:'webmethods',  func:'Customer portal',        reason:'Customer-facing release period',        until:'Apr 17, 2026', requester:'d.zhao',    requested:'Mar 30, 2026', state:'overdue'},
   ];
   // Live getter — recomputes on each access so it stays in sync with window.EXCLUSIONS.
   Object.defineProperty(window, 'EXCL_COUNTS', {
@@ -1657,9 +1657,9 @@
     page: 1,
     per: 20,
     // add-exclusion wizard
-    add: { step: 1, serverQuery: '', selectedServers: [], reason: '', until: '', notes: '', calOffset: 0 },
+    add: { step: 1, serverQuery: '', selectedServers: [], reason: '', otherReason: '', until: '', notes: '', calOffset: 0 },
     // bulk
-    bulk: { scope: 'group', group: 'GROUP0', env: 'Production', reason: '', until: '', calOffset: 0 },
+    bulk: { scope: 'group', group: 'GROUP0', env: 'Production', reason: '', otherReason: '', until: '', calOffset: 0 },
   };
 
   function renderPatchMgmtPage(mount) {
@@ -1733,7 +1733,8 @@
     // reads window.SELECTED_BU from the global rail selector).
     if (q) rows = rows.filter(r =>
       r.server.toLowerCase().includes(q) ||
-      r.fqdn.toLowerCase().includes(q) ||
+      (r.service || '').toLowerCase().includes(q) ||
+      (r.func || '').toLowerCase().includes(q) ||
       r.reason.toLowerCase().includes(q) ||
       r.requester.toLowerCase().includes(q) ||
       r.group.toLowerCase().includes(q) ||
@@ -1780,7 +1781,7 @@
       if (!refetched) window.RERENDER_PAGE(mount);
     };
 
-    const q = h('input', {'data-fk':'patchmgmt-search', type:'text', placeholder:'Filter by server, FQDN, reason, requester…', value: pmState.q,
+    const q = h('input', {'data-fk':'patchmgmt-search', type:'text', placeholder:'Filter by server, service, function, reason, requester…', value: pmState.q,
       on:{input:(e)=>{ pmState.q=e.target.value; pmState.page=1; window.RERENDER_PAGE(mount); }}});
     const stateSel = h('select', { on:{change: async (e)=>{
       pmState.stateFilter=e.target.value; pmState.page=1; await refetchExclusions();
@@ -1814,9 +1815,10 @@
     table.appendChild(h('thead', null, h('tr', null,
       sortableTh('id','ID'),
       sortableTh('server','Server'),
-      sortableTh('fqdn','FQDN'),
       sortableTh('group','Group'),
       sortableTh('bu','Business unit'),
+      sortableTh('service','Service'),
+      sortableTh('func','Function'),
       sortableTh('reason','Reason'),
       sortableTh('until','Hold until'),
       sortableTh('requester','Requester'),
@@ -1833,9 +1835,10 @@
       tbody.appendChild(h('tr'+rowCls, null,
         h('td.host', null, mark(r.id, qq)),
         h('td.host', null, mark(r.server, qq)),
-        h('td.muted', null, mark(r.fqdn, qq)),
         h('td', null, h('span.chip', null, h('span.dot'), mark(r.group, qq))),
         h('td.muted', null, mark(r.bu || 'Unknown', qq)),
+        h('td', null, mark(r.service || '—', qq)),
+        h('td.muted', null, mark(r.func || '—', qq)),
         h('td.muted', null, mark(r.reason, qq)),
         h('td'+(r.state==='overdue'?'.strong':''), {style: r.state==='overdue'?{color:'var(--crit)',fontWeight:'600'}:r.state==='expiring-soon'?{color:'var(--warn)',fontWeight:'600'}:null}, r.until),
         h('td.muted', null, mark(r.requester, qq)),
@@ -1852,7 +1855,7 @@
         )),
       ));
     });
-    if (paged.length === 0) tbody.appendChild(h('tr', null, h('td', {colspan:10}, h('div.no-hits', null, 'No exclusions match filter'))));
+    if (paged.length === 0) tbody.appendChild(h('tr', null, h('td', {colspan:11}, h('div.no-hits', null, 'No exclusions match filter'))));
     table.appendChild(tbody);
     tbl.appendChild(table);
     tbl.appendChild(paginationBar(pag, p => { pmState.page=p; window.RERENDER_PAGE(mount); }));
@@ -2117,11 +2120,27 @@
       });
       panel.appendChild(grid);
 
+      // When "Other" is picked, capture the free-text reason inline. It becomes
+      // the reason stored on the audit trail (backend accepts free text up to
+      // 2000 chars; the slug resolves to 'custom'). Re-render on input so the
+      // Next button's enabled state tracks the field — data-fk preserves focus.
+      if (pmState.add.reason === 'Other') {
+        panel.appendChild(h('div', {style:{fontFamily:'var(--mono)',fontSize:'10px',letterSpacing:'0.14em',textTransform:'uppercase',color:'var(--ink-3)',marginTop:'4px'}}, 'Describe the reason'));
+        panel.appendChild(h('input', {'data-fk':'add-excl-other-reason', type:'text', maxlength:'2000',
+          placeholder:'Add patch exclusion reason',
+          value: pmState.add.otherReason || '',
+          style:{height:'44px',padding:'0 16px',border:'1px solid var(--rule-2)',fontSize:'14px',background:'var(--paper)',color:'var(--ink)',fontFamily:'var(--mono)'},
+          on:{input:(e)=>{ pmState.add.otherReason = e.target.value; window.RERENDER_PAGE(mount); }},
+        }));
+        panel.appendChild(h('div', {style:{fontSize:'12px',color:'var(--ink-3)'}}, 'This text is stored as the exclusion reason on the audit trail.'));
+      }
+
       footer.appendChild(h('button.btn', { on:{click:()=>{ pmState.add.step=1; window.RERENDER_PAGE(mount); }}}, '← Back'));
+      const canNext = !!pmState.add.reason && (pmState.add.reason !== 'Other' || (pmState.add.otherReason || '').trim().length > 0);
       const cont = h('button.btn.primary', {
-        disabled: !pmState.add.reason,
-        style: pmState.add.reason ? null : {opacity:'0.4',cursor:'not-allowed'},
-        on:{click:()=>{ if (pmState.add.reason) { pmState.add.step=3; window.RERENDER_PAGE(mount); }}},
+        disabled: !canNext,
+        style: canNext ? null : {opacity:'0.4',cursor:'not-allowed'},
+        on:{click:()=>{ if (canNext) { pmState.add.step=3; window.RERENDER_PAGE(mount); }}},
       }, 'Next · Hold-until →');
       footer.appendChild(cont);
     }
@@ -2173,6 +2192,10 @@
       const servers = pmState.add.selectedServers || [];
       const isBulk = servers.length > 1;
       const first = servers[0];
+      // For "Other", the typed free-text is the reason that gets stored.
+      const effectiveReason = pmState.add.reason === 'Other'
+        ? ((pmState.add.otherReason || '').trim() || 'Other')
+        : pmState.add.reason;
       panel.appendChild(h('div', {style:{fontFamily:'var(--display)',fontSize:'22px',letterSpacing:'-0.01em',color:'var(--ink)',fontWeight:'400'}},
         isBulk ? 'Confirm '+servers.length+' exclusions' : 'Confirm this exclusion'));
 
@@ -2204,7 +2227,7 @@
         row('Environment',   first ? first.env  : '—').forEach(x => kv.appendChild(x));
         row('Patch group',   first ? first.pg   : '—').forEach(x => kv.appendChild(x));
       }
-      row('Reason',        pmState.add.reason || '—').forEach(x => kv.appendChild(x));
+      row('Reason',        effectiveReason || '—').forEach(x => kv.appendChild(x));
       row('Hold until',    pmState.add.until  || '—').forEach(x => kv.appendChild(x));
       row('Requester',     window.CURRENT_USER && window.CURRENT_USER.username
                               ? 'you (' + window.CURRENT_USER.username + ')'
@@ -2224,12 +2247,12 @@
       const submit = h('button.btn.primary', { on:{click:()=>{
         const payload = {
           servers: servers.slice(),
-          reason: pmState.add.reason,
+          reason: effectiveReason,
           until: pmState.add.until,
           notes: pmState.add.notes,
         };
         const reset = () => {
-          pmState.add = { step: 1, serverQuery: '', selectedServers: [], reason: '', until: '', notes: '', calOffset: 0 };
+          pmState.add = { step: 1, serverQuery: '', selectedServers: [], reason: '', otherReason: '', until: '', notes: '', calOffset: 0 };
           pmState.tab = 'excluded';
           window.RERENDER_PAGE(mount);
         };
@@ -2306,6 +2329,17 @@
     }, [h('option', {value:''}, 'Pick a reason…'), ...EXCLUSION_REASONS.map(r => h('option', {value:r, selected: pmState.bulk.reason===r}, r))]);
     field('Reason', reasonSel);
 
+    // When "Other" is picked, capture the free-text reason inline (same backend
+    // contract as the single-server wizard: free text, slug 'custom').
+    if (pmState.bulk.reason === 'Other') {
+      field('Describe the reason', h('input', {'data-fk':'bulk-excl-other-reason', type:'text', maxlength:'2000',
+        placeholder:'Add patch exclusion reason',
+        value: pmState.bulk.otherReason || '',
+        style:{height:'44px',padding:'0 14px',border:'1px solid var(--rule-2)',fontSize:'14px',background:'var(--paper)',color:'var(--ink)',fontFamily:'var(--mono)'},
+        on:{input:(e)=>{ pmState.bulk.otherReason = e.target.value; window.RERENDER_PAGE(mount); }},
+      }));
+    }
+
     // show current pick as a disabled-looking readout to fill the 2nd grid column
     const untilReadout = h('div', {style:{
       height:'44px',padding:'0 14px',border:'1px solid var(--rule-2)',background:'var(--paper)',
@@ -2334,21 +2368,27 @@
       h('span.chip.sm.warn', null, 'REVERSIBLE'),
     ));
 
-    // Action
+    // Action — for "Other", the typed free-text is the reason that gets stored.
+    const bulkEffectiveReason = pmState.bulk.reason === 'Other'
+      ? ((pmState.bulk.otherReason || '').trim() || 'Other')
+      : pmState.bulk.reason;
+    const bulkReasonOk = !!pmState.bulk.reason
+      && (pmState.bulk.reason !== 'Other' || (pmState.bulk.otherReason || '').trim().length > 0);
+    const bulkReady = bulkReasonOk && !!pmState.bulk.until;
     const btn = h('button.btn.primary', {
-      disabled: !pmState.bulk.reason || !pmState.bulk.until,
-      style: (!pmState.bulk.reason || !pmState.bulk.until) ? {opacity:'0.4',cursor:'not-allowed',alignSelf:'flex-start'} : {alignSelf:'flex-start'},
+      disabled: !bulkReady,
+      style: !bulkReady ? {opacity:'0.4',cursor:'not-allowed',alignSelf:'flex-start'} : {alignSelf:'flex-start'},
       on:{click:()=>{
-        if (pmState.bulk.reason && pmState.bulk.until) {
+        if (bulkReady) {
           const payload = {
             kind: pmState.bulk.scope, // 'group' | 'env'
             target: pmState.bulk.scope === 'group' ? pmState.bulk.group : pmState.bulk.env,
-            reason: pmState.bulk.reason,
+            reason: bulkEffectiveReason,
             until: pmState.bulk.until,
             affectedCount: affectedCount,
           };
           const reset = () => {
-            pmState.bulk = { scope: 'group', group: 'GROUP0', env: 'Production', reason: '', until: '', calOffset: 0 };
+            pmState.bulk = { scope: 'group', group: 'GROUP0', env: 'Production', reason: '', otherReason: '', until: '', calOffset: 0 };
             pmState.tab = 'excluded';
             window.RERENDER_PAGE(mount);
           };
@@ -2407,7 +2447,7 @@
           h('span', {style:{fontFamily:'var(--mono)',fontSize:'11px',color:tone==='crit'?'var(--crit)':'var(--warn)',fontWeight:'600'}}, 'until '+r.until),
         ),
         h('div', {style:{fontFamily:'var(--display)',fontSize:'20px',letterSpacing:'-0.005em',color:'var(--ink)',fontWeight:'400'}}, r.server),
-        h('div', {style:{fontFamily:'var(--mono)',fontSize:'11.5px',color:'var(--ink-2)'}}, r.fqdn+' · '+r.group),
+        h('div', {style:{fontFamily:'var(--mono)',fontSize:'11.5px',color:'var(--ink-2)'}}, r.group+' · '+(r.service||'—')+' · '+(r.func||'—')),
         h('div', {style:{display:'flex',flexDirection:'column',gap:'4px',paddingTop:'8px',borderTop:'1px dashed var(--rule)'}},
           h('span', {style:{fontFamily:'var(--mono)',fontSize:'10px',letterSpacing:'0.14em',textTransform:'uppercase',color:'var(--ink-3)'}}, 'Reason'),
           h('span', {style:{fontSize:'13px',color:'var(--ink)'}}, r.reason),

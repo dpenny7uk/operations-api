@@ -292,6 +292,9 @@
         const li = h('li.nav-item'+cls, {
           on:{click:()=>{ if (window.ROUTER) window.ROUTER.goto(rid); }},
           role:'button', tabindex:'0',
+          // Accessible name + hover tooltip — survives the <1100px rail collapse
+          // where the visible label is hidden and only the number remains.
+          title: label, 'aria-label': label,
         },
           h('span.idx', null, idx),
           h('span.label', null, label));
@@ -306,7 +309,7 @@
     }
 
     const api = consoleState().apiState;
-    return h('aside.rail', null,
+    return h('nav.rail', { 'aria-label': 'Console sections' },
       h('div.brand', null,
         h('div.mark', null, 'Service Ops'),
         h('div.sub', null, 'operations dashboard')),
@@ -352,7 +355,7 @@
     const headerInner = heroCopy.headerNode
       ? heroCopy.headerNode
       : ['Status ', h('em', null, heroCopy.word)];
-    return h('header.statusline', null,
+    return h('header.statusline', { role: 'region', 'aria-label': 'Page status' },
       h('div', null,
         h('div.tag', null, heroCopy.tag),
         h('h1', null, ...(Array.isArray(headerInner) ? headerInner : [headerInner])),

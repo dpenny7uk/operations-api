@@ -105,20 +105,23 @@
   border: 1px solid var(--rule);
   background: var(--card);
   border-radius: var(--r-sm);
-  overflow: visible;   /* (Step 10.1) visible lets thead position:sticky work at wide widths */
-}
-/* (Step 10.1 fix) Below 1500px the wide tables (Servers = 7 cols) don't fit, so
-   switch the wrap to horizontal scroll instead of letting them spill. overflow-x
-   forces overflow-y to auto, which disables the sticky header — an acceptable
-   trade at narrow widths where the table has to scroll anyway. Above 1500px the
-   tables fit and headers stay sticky. */
-@media (max-width: 1500px) {
-  .table-wrap { overflow-x: auto; }
+  /* Scroll-region: the wrap scrolls in both axes so the sticky thead pins to its
+     top at every width — sticky + horizontal scroll can't coexist on the page
+     itself. max-height only bites on tall tables; short ones stay content-height
+     with no scrollbar. (Tune the offset against the hero/section-label above.) */
+  overflow: auto;
+  max-height: calc(100vh - 220px);
 }
 
 table.op {
   width: 100%;
-  border-collapse: collapse;
+  /* (Step 10.1) `separate` (not `collapse`) is required for sticky headers: with
+     collapsed borders the row separators belong to the table grid, not the cell,
+     so they don't travel with the pinned thead and rows bleed through above/below
+     it as you scroll. `separate` + zero spacing keeps the look identical while the
+     header's own border moves with it and fully occludes the rows behind it. */
+  border-collapse: separate;
+  border-spacing: 0;
   font-variant-numeric: tabular-nums;
 }
 
@@ -136,11 +139,15 @@ table.op thead th {
   font-weight: 500;
   user-select: none;
   position: sticky;          /* (Step 10.1) keep headers visible while scrolling long tables */
-  top: var(--thead-top, 0);  /* (Step 10.6) tucks below the context bar when it's showing */
+  top: 0;                    /* pins to the .table-wrap scroll-region top */
   z-index: 5;
 }
 table.op thead th:first-child { border-top-left-radius: var(--r-sm); }
 table.op thead th:last-child  { border-top-right-radius: var(--r-sm); }
+/* Expanded server sub-table (`table.op.inner`) sticks its own header inside a
+   nested 420px scroll region. Keep it beneath the parent table's sticky header
+   so it can never overlap the group-columns header while the outer list scrolls. */
+table.op.inner thead th { z-index: 1; }
 table.op thead th.sortable { cursor: pointer; }
 table.op thead th.sortable:hover { color: var(--ink); }
 table.op thead th.num { text-align: right; }
@@ -1092,7 +1099,7 @@ select.bu-scope option {
 }
 .pagination button:hover { border-color: var(--ink); color: var(--ink); }
 .pagination button:disabled { opacity: 0.35; cursor: not-allowed; }
-.pagination button.on { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.pagination button.on { background: var(--ink); color: var(--paper); border-color: var(--ink); font-weight: 600; }
 
 .empty {
   padding: 40px 20px;
@@ -1609,6 +1616,7 @@ select.bu-scope option {
    Visible focus for keyboard users on clickable rows/cells/controls.
    (.env-row keeps its env-coloured focus ring defined above.) */
 .nav-item:focus-visible,
+table.op tbody tr.clickable:focus-visible,
 .cs-cell[role="button"]:focus-visible,
 .feed-item[role="button"]:focus-visible,
 .btn:focus-visible,

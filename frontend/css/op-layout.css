@@ -307,7 +307,9 @@
 body.scrolled #ctxbar { transform: translateY(0); opacity: 1; pointer-events: auto; }
 body.scrolled { --thead-top: 44px; }   /* sticky table headers tuck under the bar */
 #ctxbar .cx-name { font-weight: 600; font-size: 13px; white-space: nowrap; color: var(--ink); }
-#ctxbar .telegram { display: flex; gap: 16px; margin: 0; flex-wrap: nowrap; overflow: hidden; font-family: var(--sans); font-size: 12px; }
+#ctxbar .telegram { display: flex; gap: 16px; margin: 0; flex-wrap: nowrap; overflow: hidden; font-family: var(--sans); font-size: 12px;
+  -webkit-mask-image: linear-gradient(to right, #000 90%, transparent);
+  mask-image: linear-gradient(to right, #000 90%, transparent); }
 #ctxbar .telegram .piece { border: none; margin: 0; padding: 0; }
 #ctxbar .cx-spacer { flex: 1; }
 @media (max-width: 1100px) { #ctxbar { left: 72px; padding: 0 24px; } }
