@@ -436,8 +436,13 @@ async function boot() {
     window.API_ERRORS = apiErrors.slice();
     if (window.RERENDER_SHELL) window.RERENDER_SHELL();
   });
-  await runFetches();
-  document.body.classList.remove('loading');
+  // finally: never leave the page stuck in the skeleton shimmer if the first
+  // fetch wave throws before its own per-fetch error handling catches.
+  try {
+    await runFetches();
+  } finally {
+    document.body.classList.remove('loading');
+  }
 }
 
 // The fetch wave — initial boot and retry both call this. Each fetch's
@@ -661,7 +666,7 @@ function _demoServer(id, seed) {
   const name = (seed && seed.name) || ('demo-srv-' + id);
   const fqdn = (seed && seed.fqdn) || (name + '.example.local');
   const env = (seed && seed.env) || 'Production';
-  const bu = (seed && seed.bu) || 'Hiscox UK';
+  const bu = (seed && seed.bu) || 'Contoso UK';
   const pg = (seed && seed.pg && seed.pg !== 'NO PATCH GROUP FOUND') ? seed.pg : 'Group A';
   const lastSeen = (seed && seed.lastSeen) || new Date(Date.now() - 30 * 60 * 1000).toISOString();
   return {
@@ -954,38 +959,43 @@ window.OC_API = {
 // ── OC_ACTIONS: wizard submit hooks (op-pages.js calls these) ─────
 
 window.OC_ACTIONS = {
-  // { servers: [{id,name}], reason, until, notes } + cb()
-  addExclusion: async (payload, onDone) => {
-    // Translate design's formatted "Apr 22, 2026" → ISO yyyy-mm-dd
-    const iso = toIsoDate(payload.until);
-    if (!iso) { alert('Hold-until date is required.'); return; }
+  // { servers: [{id,name}], reason, reasonSlug, until, untilIso, notes } + onDone() + onError(msg)
+  // onError surfaces failures as an inline wizard banner; falls back to alert()
+  // if the caller didn't supply one.
+  addExclusion: async (payload, onDone, onError) => {
+    const fail = (m) => { if (onError) onError(m); else alert(m); };
+    // Prefer the canonical ISO from the wizard; fall back to parsing the
+    // display string only if an older caller didn't supply untilIso.
+    const iso = payload.untilIso || toIsoDate(payload.until);
+    if (!iso) { fail('Hold-until date is required.'); return; }
     const body = {
       serverIds: (payload.servers || []).map(s => s.id).filter(Boolean),
       reason: payload.reason || 'Exclusion',
-      reasonSlug: slugify(payload.reason),
+      reasonSlug: payload.reasonSlug || slugify(payload.reason),
       notes: payload.notes || null,
       heldUntil: iso,
     };
-    if (body.serverIds.length === 0) { alert('No servers selected.'); return; }
+    if (body.serverIds.length === 0) { fail('No servers selected.'); return; }
     const res = await apiPost('/patching/exclusions', body);
-    if (!res.ok) { alert('Could not exclude (' + res.status + '): ' + (res.error || 'unknown error')); return; }
+    if (!res.ok) { fail('Could not exclude (' + res.status + '): ' + (res.error || 'unknown error')); return; }
     await refetchExclusions();
     if (onDone) onDone();
   },
 
-  // { kind: 'group'|'env', target, reason, until, affectedCount } + cb()
-  bulkExclude: async (payload, onDone) => {
-    const iso = toIsoDate(payload.until);
-    if (!iso) { alert('Hold-until date is required.'); return; }
+  // { kind: 'group'|'env', target, reason, reasonSlug, until, untilIso, affectedCount } + onDone() + onError(msg)
+  bulkExclude: async (payload, onDone, onError) => {
+    const fail = (m) => { if (onError) onError(m); else alert(m); };
+    const iso = payload.untilIso || toIsoDate(payload.until);
+    if (!iso) { fail('Hold-until date is required.'); return; }
     const body = {
       kind: payload.kind,
       target: payload.target,
       reason: payload.reason || 'Bulk exclusion',
-      reasonSlug: slugify(payload.reason),
+      reasonSlug: payload.reasonSlug || slugify(payload.reason),
       heldUntil: iso,
     };
     const res = await apiPost('/patching/exclusions/bulk', body);
-    if (!res.ok) { alert('Bulk exclude failed (' + res.status + '): ' + (res.error || 'unknown error')); return; }
+    if (!res.ok) { fail('Bulk exclude failed (' + res.status + '): ' + (res.error || 'unknown error')); return; }
     await refetchExclusions();
     if (onDone) onDone();
   },
@@ -1027,7 +1037,13 @@ async function refetchExclusions() {
 }
 
 function toIsoDate(formatted) {
-  // Accept "Apr 22, 2026" (design format) or ISO "2026-04-22".
+  // Accepts ISO "2026-04-22" or the en-GB display string fmtUntil() emits,
+  // e.g. "22 Apr 2026" / "1 Sept 2026". Canonical parsing lives in
+  // op-datekit.js so the frontend and tests share one implementation that
+  // does not depend on the engine's implementation-defined Date() parser.
+  // The submit path now sends payload.untilIso directly; this stays as a
+  // defensive fallback for any caller still passing a display string.
+  if (window.OP_DATEKIT) return window.OP_DATEKIT.toIsoDate(formatted);
   if (!formatted) return null;
   if (/^\d{4}-\d{2}-\d{2}$/.test(formatted)) return formatted;
   const d = new Date(formatted);

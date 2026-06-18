@@ -123,7 +123,7 @@ See section "Alert Scope" below.
 
 The platform deliberately separates *what is collected* from *what gets paged*:
 
-- **Data collection is estate-wide.** Disk and certificate sync pipelines pull the full Hiscox/Contoso estate from their source systems (SolarWinds, server scans). The original BU caption filter from the upstream Tableau workbook was deliberately dropped — see `sync_solarwinds_disks.py` SOURCE_QUERY comment. The dashboard and `/api/*` endpoints surface all of it.
+- **Data collection is estate-wide.** Disk and certificate sync pipelines pull the full Contoso estate from their source systems (SolarWinds, server scans). The original BU caption filter from the upstream Tableau workbook was deliberately dropped — see `sync_solarwinds_disks.py` SOURCE_QUERY comment. The dashboard and `/api/*` endpoints surface all of it.
 - **Teams alerts are scoped to servers we operate.** `alert_disk_breaches.py` and `alert_cert_expiry.py` filter on `business_unit = 'Contoso Group Support'` so the on-call channel only receives notifications for servers Group Support is paged for. Other BUs run their own monitoring.
 - **Endpoint certs from `certificate-endpoints.csv` are always alerted on** (the CSV is curated by this team, so everything in it is by construction "ours" — the cert query handles this via `OR c.server_id IS NULL`).
 

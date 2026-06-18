@@ -11,6 +11,11 @@
       const v = props[k]; if (v == null || v === false) continue;
       if (k === 'style' && typeof v === 'object') Object.assign(el.style, v);
       else if (k === 'on' && typeof v === 'object') for (const ev in v) el.addEventListener(ev, v[ev]);
+      // SECURITY: `html` is a raw innerHTML sink. Only pass trusted, developer-
+      // authored strings (static copy or numbers). NEVER pass server data, user
+      // input, or anything interpolated from them - use a text child or the
+      // `text` prop (createTextNode/textContent, escaped). For user-controlled
+      // strings such as a free-text reason, use mark()/text children.
       else if (k === 'html') el.innerHTML = v;
       else if (k === 'text') el.textContent = v;
       else if (k in el) { try { el[k] = v; } catch { el.setAttribute(k, v); } } else el.setAttribute(k, v);

@@ -16,7 +16,7 @@ public class CertificatesController : ControllerBase
     public CertificatesController(ICertificateService svc) => _svc = svc;
 
     /// <summary>Get certificate summary with cross-facet counts by alert level + business unit.</summary>
-    /// <param name="businessUnit">Optional canonical business-unit filter (e.g. "Hiscox Group Support").</param>
+    /// <param name="businessUnit">Optional canonical business-unit filter (e.g. "Contoso Group Support").</param>
     /// <param name="level">Optional alert-level filter ('expired' | 'crit' | 'warn' | 'ok').</param>
     [HttpGet("summary")]
     [ResponseCache(Duration = 60, Location = ResponseCacheLocation.Client)]

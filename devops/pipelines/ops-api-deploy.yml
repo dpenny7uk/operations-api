@@ -319,7 +319,7 @@ stages:
                       }
 
                       if ([string]::IsNullOrWhiteSpace($env:OPS_ADMIN_ROLE)) {
-                          Write-Error "OPS_ADMIN_ROLE not set — add it to the operations-api-prod variable group (e.g. 'HISCOX\App_ServiceOps_Admin')"
+                          Write-Error "OPS_ADMIN_ROLE not set — add it to the operations-api-prod variable group (e.g. 'CONTOSO\App_ServiceOps_Admin')"
                           exit 1
                       }
 

@@ -1236,12 +1236,12 @@
       {id:'EX-0388', server:'PR0308-22036-00', fqdn:'app.contoso.com',             group:'3A', service:'webmethods',  func:'Customer portal',        reason:'Customer-facing release period',        untilOff:-8,  reqOff:-79, requester:'d.zhao'},
     ];
     return rows.map(function (r) {
-      const until = fmtUntil(addDays(today, r.untilOff));
-      const requested = fmtUntil(addDays(today, r.reqOff));
+      const untilDate = addDays(today, r.untilOff);
       return {
         id:r.id, server:r.server, fqdn:r.fqdn, group:r.group, service:r.service, func:r.func,
-        reason:r.reason, until:until, requester:r.requester, requested:requested,
-        state:deriveState(until, today),
+        reason:r.reason, until:fmtUntil(untilDate), requester:r.requester,
+        requested:fmtUntil(addDays(today, r.reqOff)),
+        state:deriveState(untilDate, today), // pass the Date, not a re-parsed display string
       };
     });
   })();
@@ -1670,10 +1670,12 @@
     sortDir: 1,
     page: 1,
     per: 20,
-    // add-exclusion wizard
-    add: { step: 1, serverQuery: '', selectedServers: [], reason: '', otherReason: '', until: '', notes: '', calOffset: 0 },
+    // add-exclusion wizard. untilIso is the canonical yyyy-mm-dd (what gets
+    // submitted); until is the en-GB display string. error holds the last
+    // submit failure for the inline banner.
+    add: { step: 1, serverQuery: '', selectedServers: [], reason: '', otherReason: '', until: '', untilIso: '', notes: '', calOffset: 0, error: null },
     // bulk
-    bulk: { scope: 'group', group: 'GROUP0', env: 'Production', reason: '', otherReason: '', until: '', calOffset: 0 },
+    bulk: { scope: 'group', group: 'GROUP0', env: 'Production', reason: '', otherReason: '', until: '', untilIso: '', calOffset: 0, error: null },
   };
 
   function renderPatchMgmtPage(mount) {
@@ -1746,14 +1748,14 @@
     // BU filter is applied server-side via OC_API.fetchExclusions (which
     // reads window.SELECTED_BU from the global rail selector).
     if (q) rows = rows.filter(r =>
-      r.server.toLowerCase().includes(q) ||
+      (r.server || '').toLowerCase().includes(q) ||
       (r.service || '').toLowerCase().includes(q) ||
       (r.func || '').toLowerCase().includes(q) ||
-      r.reason.toLowerCase().includes(q) ||
-      r.requester.toLowerCase().includes(q) ||
-      r.group.toLowerCase().includes(q) ||
+      (r.reason || '').toLowerCase().includes(q) ||
+      (r.requester || '').toLowerCase().includes(q) ||
+      (r.group || '').toLowerCase().includes(q) ||
       (r.bu || '').toLowerCase().includes(q) ||
-      r.id.toLowerCase().includes(q));
+      (r.id || '').toLowerCase().includes(q));
     const key = pmState.sort;
     const dir = pmState.sortDir;
     rows.sort((a, b) => {
@@ -1796,7 +1798,14 @@
     };
 
     const q = h('input', {'data-fk':'patchmgmt-search', type:'text', placeholder:'Filter by server, service, function, reason, requester…', value: pmState.q,
-      on:{input:(e)=>{ pmState.q=e.target.value; pmState.page=1; window.RERENDER_PAGE(mount); }}});
+      on:{input:(e)=>{
+        pmState.q=e.target.value; pmState.page=1;
+        // Debounce: filtering/sorting/paginating the full exclusions list on
+        // every keystroke is the main render cost on this page. data-fk keeps
+        // caret/focus across the re-render.
+        clearTimeout(pmState._qTimer);
+        pmState._qTimer = setTimeout(()=>window.RERENDER_PAGE(mount), 160);
+      }}});
     const stateSel = h('select', { on:{change: async (e)=>{
       pmState.stateFilter=e.target.value; pmState.page=1; await refetchExclusions();
     }}},
@@ -1878,32 +1887,59 @@
   }
 
   // ---------- Calendar date picker ----------
-  // Parses values like "Apr 26, 2026" back into a Date (also handles ISO-ish strings).
+  // Canonical date parsing/derivation lives in op-datekit.js (window.OP_DATEKIT,
+  // loaded before this script) so the frontend and the Node tests share one
+  // implementation and the en-GB display string <-> Date round-trip can't fail
+  // silently (e.g. the CLDR-42 "Sept" form that new Date() rejects). The inline
+  // fallbacks below only run if that module somehow failed to load.
   function parseUntil(s) {
+    if (window.OP_DATEKIT) return window.OP_DATEKIT.parseLoose(s);
     if (!s) return null;
     const d = new Date(s);
     return isNaN(d.getTime()) ? null : d;
   }
+  // Date -> canonical "yyyy-mm-dd" from LOCAL components (no UTC drift).
+  function isoLocal(d) {
+    if (window.OP_DATEKIT) return window.OP_DATEKIT.isoLocal(d);
+    const p = n => String(n).padStart(2, '0');
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+  }
   function fmtUntil(d) {
     return d.toLocaleDateString('en-GB', {day:'numeric', month:'short', year:'numeric'});
   }
-  // Date at local midnight today — anchor for relative offsets and "is it past" checks.
+  // Date at local midnight today - anchor for relative offsets and "is it past" checks.
   function todayLocal() {
+    if (window.OP_DATEKIT) return window.OP_DATEKIT.todayLocal();
     const n = new Date();
     return new Date(n.getFullYear(), n.getMonth(), n.getDate());
   }
+  // Calendar arithmetic (not ms) so it stays correct across DST transitions.
   function addDays(base, n) {
+    if (window.OP_DATEKIT) return window.OP_DATEKIT.addDays(base, n);
     return new Date(base.getFullYear(), base.getMonth(), base.getDate() + n);
   }
   // Mirrors the backend's hold-state rule (PatchExclusionService.StateClauseFor):
   // overdue = until < today; expiring-soon = today <= until < today+7d; active otherwise.
+  // Accepts a Date or any string parseUntil understands for `until`.
   function deriveState(until, today) {
+    if (window.OP_DATEKIT) return window.OP_DATEKIT.deriveState(until, today);
     const u = parseUntil(until);
     if (!u || !today) return 'active';
     const days = Math.round((u - today) / 86400000);
     if (days < 0) return 'overdue';
     if (days < 7) return 'expiring-soon';
     return 'active';
+  }
+  // Inline, dismissible error banner used by the exclusion wizards instead of
+  // window.alert() - keeps the user in flow and is announced via role=alert.
+  function wizardError(msg, onDismiss) {
+    return h('div', {role:'alert', style:{
+      display:'flex',alignItems:'center',gap:'12px',padding:'12px 14px',marginBottom:'4px',
+      border:'1px solid var(--crit)',background:'var(--crit-wash, rgba(200,40,40,0.08))',borderLeft:'3px solid var(--crit)',
+    }},
+      h('span', {style:{fontSize:'13px',color:'var(--ink)'}}, msg),
+      h('button.btn', {style:{marginLeft:'auto'}, on:{click:onDismiss}}, 'Dismiss'),
+    );
   }
   function sameDay(a, b) {
     return a && b && a.getFullYear()===b.getFullYear() && a.getMonth()===b.getMonth() && a.getDate()===b.getDate();
@@ -1935,7 +1971,8 @@
     // Two-month grid
     const grid = h('div', {style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'24px'}});
     months.forEach(m => grid.appendChild(renderMonthGrid(m, sel, minDate, maxDate, (d) => {
-      stateObj.until = fmtUntil(d);
+      stateObj.until = fmtUntil(d);     // display
+      stateObj.untilIso = isoLocal(d);  // canonical wire value (no string round-trip)
       window.RERENDER_PAGE(mount);
     })));
     wrap.appendChild(grid);
@@ -2154,15 +2191,19 @@
 
       // When "Other" is picked, capture the free-text reason inline. It becomes
       // the reason stored on the audit trail (backend accepts free text up to
-      // 2000 chars; the slug resolves to 'custom'). Re-render on input so the
-      // Next button's enabled state tracks the field — data-fk preserves focus.
+      // 2000 chars; the slug resolves to 'custom'). data-fk preserves focus; the Next gate is toggled in place as you type (no full re-render).
       if (pmState.add.reason === 'Other') {
         panel.appendChild(h('div', {style:{fontFamily:'var(--mono)',fontSize:'10px',letterSpacing:'0.14em',textTransform:'uppercase',color:'var(--ink-3)',marginTop:'4px'}}, 'Describe the reason'));
         panel.appendChild(h('input', {'data-fk':'add-excl-other-reason', type:'text', maxlength:'2000',
           placeholder:'Add patch exclusion reason',
           value: pmState.add.otherReason || '',
           style:{height:'44px',padding:'0 16px',border:'1px solid var(--rule-2)',fontSize:'14px',background:'var(--paper)',color:'var(--ink)',fontFamily:'var(--mono)'},
-          on:{input:(e)=>{ pmState.add.otherReason = e.target.value; window.RERENDER_PAGE(mount); }},
+          on:{input:(e)=>{
+            pmState.add.otherReason = e.target.value;
+            // Toggle the Next gate in place - no full-page re-render per keystroke.
+            const ok = e.target.value.trim().length > 0;
+            if (cont) { cont.disabled = !ok; cont.style.opacity = ok ? '' : '0.4'; cont.style.cursor = ok ? '' : 'not-allowed'; }
+          }},
         }));
         panel.appendChild(h('div', {style:{fontSize:'12px',color:'var(--ink-3)'}}, 'This text is stored as the exclusion reason on the audit trail.'));
       }
@@ -2184,10 +2225,10 @@
       const today = todayLocal();
       const fmt = (d) => d.toLocaleDateString('en-GB', {day:'numeric', month:'short', year:'numeric'});
       const presets = [
-        {label:'Next week',      days:7},
-        {label:'2 weeks',        days:14},
-        {label:'1 month',        days:30},
-        {label:'1 quarter',      days:90},
+        {label:'Next week',      date: addDays(today, 7)},
+        {label:'2 weeks',        date: addDays(today, 14)},
+        {label:'1 month',        date: addDays(today, 30)},
+        {label:'1 quarter',      date: addDays(today, 90)},
       ];
       // "This cycle only" is grounded in the live imminent cycle date (window.PATCH_NEXT_CYCLE,
       // populated by op-boot.js from /api/patching/next). The cycle AFTER it isn't reliably
@@ -2197,19 +2238,20 @@
       if (nextCycle && nextCycle.cycleDate && !nextCycle.isStale) {
         const cd = parseUntil(nextCycle.cycleDate);
         if (cd && cd >= today) {
-          presets.push({label:'This cycle only (until ' + fmtUntil(cd) + ')', fixed: fmt(cd)});
+          presets.push({label:'This cycle only (until ' + fmtUntil(cd) + ')', date: cd});
         }
       }
       const presetGrid = h('div', {style:{display:'grid',gridTemplateColumns:'repeat(3, 1fr)',gap:'8px'}});
       presets.forEach(p => {
-        const val = p.fixed || fmt(new Date(today.getTime() + p.days*86400000));
+        const val = fmt(p.date);
+        const iso = isoLocal(p.date);
         const isSel = pmState.add.until === val;
         presetGrid.appendChild(h('div', {style:{
           padding:'14px 16px',border:'1px solid var(--rule)',
           background: isSel ? 'var(--signal-wash)' : 'var(--paper-2)',
           borderLeft: isSel ? '3px solid var(--signal)' : '3px solid var(--rule-2)',
           cursor:'pointer',display:'flex',flexDirection:'column',gap:'4px',
-        }, on:{click:()=>{ pmState.add.until = val; window.RERENDER_PAGE(mount); }}},
+        }, on:{click:()=>{ pmState.add.until = val; pmState.add.untilIso = iso; window.RERENDER_PAGE(mount); }}},
           h('span', {style:{fontSize:'13.5px',color:'var(--ink)',fontWeight:'500'}}, p.label),
           h('span', {style:{fontFamily:'var(--mono)',fontSize:'11px',color:'var(--ink-3)'}}, val),
         ));
@@ -2237,6 +2279,12 @@
       const effectiveReason = pmState.add.reason === 'Other'
         ? ((pmState.add.otherReason || '').trim() || 'Other')
         : pmState.add.reason;
+      // Slug is driven by the selected category, not a free-text scan, so an
+      // "Other" free text can never collide with a keyword (-> always 'custom').
+      const reasonSlug = window.OP_DATEKIT
+        ? window.OP_DATEKIT.slugifyReason(pmState.add.reason, pmState.add.reason === 'Other')
+        : undefined;
+      if (pmState.add.error) panel.appendChild(wizardError(pmState.add.error, () => { pmState.add.error = null; window.RERENDER_PAGE(mount); }));
       panel.appendChild(h('div', {style:{fontFamily:'var(--display)',fontSize:'22px',letterSpacing:'-0.01em',color:'var(--ink)',fontWeight:'400'}},
         isBulk ? 'Confirm '+servers.length+' exclusions' : 'Confirm this exclusion'));
 
@@ -2286,20 +2334,24 @@
 
       footer.appendChild(h('button.btn', { on:{click:()=>{ pmState.add.step=3; window.RERENDER_PAGE(mount); }}}, '← Back'));
       const submit = h('button.btn.primary', { on:{click:()=>{
+        pmState.add.error = null;
         const payload = {
           servers: servers.slice(),
           reason: effectiveReason,
+          reasonSlug: reasonSlug,
           until: pmState.add.until,
+          untilIso: pmState.add.untilIso, // canonical wire value
           notes: pmState.add.notes,
         };
         const reset = () => {
-          pmState.add = { step: 1, serverQuery: '', selectedServers: [], reason: '', otherReason: '', until: '', notes: '', calOffset: 0 };
+          pmState.add = { step: 1, serverQuery: '', selectedServers: [], reason: '', otherReason: '', until: '', untilIso: '', notes: '', calOffset: 0, error: null };
           pmState.tab = 'excluded';
           window.RERENDER_PAGE(mount);
         };
+        const fail = (msg) => { pmState.add.error = msg; window.RERENDER_PAGE(mount); };
         const act = window.OC_ACTIONS && window.OC_ACTIONS.addExclusion;
         if (act) {
-          act(payload, reset);
+          act(payload, reset, fail);
         } else {
           toast(isBulk ? 'Created '+servers.length+' exclusions (demo)' : 'Exclusion created for '+(first?first.name:'')+' (demo)');
           reset();
@@ -2377,7 +2429,12 @@
         placeholder:'Add patch exclusion reason',
         value: pmState.bulk.otherReason || '',
         style:{height:'44px',padding:'0 14px',border:'1px solid var(--rule-2)',fontSize:'14px',background:'var(--paper)',color:'var(--ink)',fontFamily:'var(--mono)'},
-        on:{input:(e)=>{ pmState.bulk.otherReason = e.target.value; window.RERENDER_PAGE(mount); }},
+        on:{input:(e)=>{
+          pmState.bulk.otherReason = e.target.value;
+          // Toggle the Create gate in place - no full-page re-render per keystroke.
+          const ready = e.target.value.trim().length > 0 && !!pmState.bulk.until;
+          if (btn) { btn.disabled = !ready; btn.style.opacity = ready ? '' : '0.4'; btn.style.cursor = ready ? '' : 'not-allowed'; }
+        }},
       }));
     }
 
@@ -2409,33 +2466,42 @@
       h('span.chip.sm.warn', null, 'REVERSIBLE'),
     ));
 
-    // Action — for "Other", the typed free-text is the reason that gets stored.
+    // Action - for "Other", the typed free-text is the reason that gets stored.
     const bulkEffectiveReason = pmState.bulk.reason === 'Other'
       ? ((pmState.bulk.otherReason || '').trim() || 'Other')
       : pmState.bulk.reason;
+    // Slug driven by the selected category, never a free-text scan.
+    const bulkReasonSlug = window.OP_DATEKIT
+      ? window.OP_DATEKIT.slugifyReason(pmState.bulk.reason, pmState.bulk.reason === 'Other')
+      : undefined;
     const bulkReasonOk = !!pmState.bulk.reason
       && (pmState.bulk.reason !== 'Other' || (pmState.bulk.otherReason || '').trim().length > 0);
     const bulkReady = bulkReasonOk && !!pmState.bulk.until;
+    if (pmState.bulk.error) panel.appendChild(wizardError(pmState.bulk.error, () => { pmState.bulk.error = null; window.RERENDER_PAGE(mount); }));
     const btn = h('button.btn.primary', {
       disabled: !bulkReady,
       style: !bulkReady ? {opacity:'0.4',cursor:'not-allowed',alignSelf:'flex-start'} : {alignSelf:'flex-start'},
       on:{click:()=>{
         if (bulkReady) {
+          pmState.bulk.error = null;
           const payload = {
             kind: pmState.bulk.scope, // 'group' | 'env'
             target: pmState.bulk.scope === 'group' ? pmState.bulk.group : pmState.bulk.env,
             reason: bulkEffectiveReason,
+            reasonSlug: bulkReasonSlug,
             until: pmState.bulk.until,
+            untilIso: pmState.bulk.untilIso, // canonical wire value
             affectedCount: affectedCount,
           };
           const reset = () => {
-            pmState.bulk = { scope: 'group', group: 'GROUP0', env: 'Production', reason: '', otherReason: '', until: '', calOffset: 0 };
+            pmState.bulk = { scope: 'group', group: 'GROUP0', env: 'Production', reason: '', otherReason: '', until: '', untilIso: '', calOffset: 0, error: null };
             pmState.tab = 'excluded';
             window.RERENDER_PAGE(mount);
           };
+          const fail = (msg) => { pmState.bulk.error = msg; window.RERENDER_PAGE(mount); };
           const act = window.OC_ACTIONS && window.OC_ACTIONS.bulkExclude;
           if (act) {
-            act(payload, reset);
+            act(payload, reset, fail);
           } else {
             toast('Bulk exclusion created for '+affectedCount+' servers (demo)');
             reset();
@@ -2894,8 +2960,8 @@
           { role:'button', 'aria-pressed':String(isActive), tabindex:'0',
             style:{
               display: 'grid',
-              // Generous name column to avoid wrap on 'HISCOX GROUP SUPPORT' /
-              // 'HISCOX LONDON MARKET' / 'CONTINUOUS INTEGRATION'.
+              // Generous name column to avoid wrap on 'CONTOSO GROUP SUPPORT' /
+              // 'CONTOSO LONDON MARKET' / 'CONTINUOUS INTEGRATION'.
               gridTemplateColumns: '170px minmax(0, 1fr) 48px',
               gap: '10px',
               alignItems: 'center',

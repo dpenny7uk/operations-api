@@ -59,7 +59,7 @@ public class ServersController : ControllerBase
 
     /// <summary>Get server inventory summary with cross-facet counts by environment + business unit.</summary>
     /// <param name="environment">Optional canonical environment filter (e.g. "Production").</param>
-    /// <param name="businessUnit">Optional canonical business-unit filter (e.g. "Hiscox UK").</param>
+    /// <param name="businessUnit">Optional canonical business-unit filter (e.g. "Contoso UK").</param>
     [HttpGet("summary")]
     [ProducesResponseType(200)]
     public async Task<IActionResult> Summary(

@@ -31,6 +31,10 @@ __pycache__/
 *.pyo
 *.pyd
 
+# Generated docs (source of truth is the .md; .docx are build/release artifacts,
+# not source - un-diffable and they can drift from the markdown)
+*.docx
+
 # Certificates and private keys
 *.pem
 *.key
