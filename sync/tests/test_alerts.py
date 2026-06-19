@@ -12,6 +12,10 @@ from sync_health_alert import build_adaptive_card as build_health_card
 from alert_cert_expiry import build_adaptive_card as build_cert_card, _cert_fact
 from alert_unmatched_spike import build_adaptive_card as build_unmatched_card
 from alert_patch_cycle import build_adaptive_cards as build_patch_cards, _format_date_range
+from alert_disk_breaches import (
+    build_adaptive_card as build_disk_card,
+    _dedupe_resolved,
+)
 
 
 # ── Health alert card ────────────────────────────────────────────────────────
@@ -355,3 +359,75 @@ class TestPatchCycleCard:
         cards = build_patch_cards(self._make_rows(), None)
         assert len(cards) == 2
         assert all(c['type'] == 'AdaptiveCard' for c in cards)
+
+
+# ── Disk breach card ─────────────────────────────────────────────────────────
+
+class TestDiskBreachCard:
+    def _breach(self, server='PR0607-1', label='E:\\', status=2, pct=84.0):
+        return {
+            'server_name': server, 'disk_label': label, 'environment': 'Production',
+            'technical_owner': 'team@contoso.com', 'percent_used': pct,
+            'used_gb': 479.0, 'volume_size_gb': 570.0,
+            'threshold_warn_pct': 80.0, 'threshold_crit_pct': 90.0,
+            'alert_status': status,
+        }
+
+    def _resolution(self, alert_id, server, label, current=63.5):
+        return {
+            'alert_id': alert_id, 'server_name': server, 'disk_label': label,
+            'alert_type': 'breach_warn', 'percent_used_at_send': 84.0,
+            'current_percent_used': current,
+        }
+
+    def _resolved_lines(self, card):
+        body = card['attachments'][0]['content']['body']
+        return [b['text'] for b in body
+                if b.get('type') == 'TextBlock' and b.get('text', '').startswith('✅ ')
+                and '**' not in b['text']]
+
+    def test_dedupe_collapses_same_disk(self):
+        # Same (server, disk_label) accumulated across 14 cooldown windows.
+        rows = [self._resolution(i, 'dv0603-14002-00', 'E:\\SQL_RND_01') for i in range(14)]
+        unique = _dedupe_resolved(rows)
+        assert len(unique) == 1
+        assert unique[0]['alert_id'] == 0  # first occurrence kept
+
+    def test_dedupe_keeps_distinct_disks(self):
+        # Same server, different labels — must NOT collapse (the WARNING case).
+        rows = [
+            self._resolution(1, 'pr0607-20525-01', 'E:\\ Label:DATA 068A3A22'),
+            self._resolution(2, 'pr0607-20525-01', 'E:\\ Label:DATA 68a3a22'),
+        ]
+        assert len(_dedupe_resolved(rows)) == 2
+
+    def test_card_shows_one_resolved_line_per_disk(self):
+        resolved = [self._resolution(i, 'dv0603-14002-00', 'E:\\SQL_RND_01') for i in range(14)]
+        card = build_disk_card([], [], resolved)
+        lines = self._resolved_lines(card)
+        assert len(lines) == 1
+
+    def test_resolved_header_count_is_deduped(self):
+        resolved = [self._resolution(i, 'dv0603-14002-00', 'E:\\SQL_RND_01') for i in range(14)]
+        card = build_disk_card([], [], resolved)
+        body = card['attachments'][0]['content']['body']
+        header = [b['text'] for b in body if b.get('text', '').startswith('✅ **RESOLVED')][0]
+        assert 'RESOLVED (1)' in header
+
+    def test_recovered_only_card_count_is_deduped(self):
+        resolved = [self._resolution(i, 'dv0603-14002-00', 'E:\\SQL_RND_01') for i in range(5)]
+        card = build_disk_card([], [], resolved)
+        title = card['attachments'][0]['content']['body'][0]['text']
+        assert '1 disk(s) recovered' in title
+
+    def test_breaches_unaffected_by_dedup(self):
+        # Two genuinely different warning disks on the same server stay separate.
+        warn = [
+            self._breach('pr0607-20525-01', 'E:\\ Label:DATA 068A3A22'),
+            self._breach('pr0607-20525-01', 'E:\\ Label:DATA 68a3a22'),
+        ]
+        card = build_disk_card([], warn, [])
+        body = card['attachments'][0]['content']['body']
+        col_sets = [b for b in body if b.get('type') == 'ColumnSet']
+        # 1 header row + 2 disk rows
+        assert len(col_sets) == 3

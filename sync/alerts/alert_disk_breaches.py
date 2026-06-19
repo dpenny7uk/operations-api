@@ -139,6 +139,30 @@ def _resolved_row(item: dict) -> dict:
     }
 
 
+def _dedupe_resolved(resolved: list) -> list:
+    """Collapse the resolution rows to one display line per disk.
+
+    A disk that stays breached across several cooldown windows accumulates one
+    monitoring.alerts row per window (by design — that is how it re-pages). When
+    it finally recovers, RESOLUTION_QUERY joins every one of those unresolved
+    rows to the single disk_current row, so the same disk appears N times, each
+    line identical (same server, label, and current percent_used). disk_current
+    is UNIQUE on (server_name, disk_label) (idx_disk_current_pk), so two genuinely
+    different disks can never share this key — only the alert-row accumulation
+    can. Dedup here is therefore safe: it collapses the repeats without merging
+    distinct disks. record_resolutions still marks every accumulated row
+    resolved, so nothing lingers to re-fire next run.
+    """
+    seen = set()
+    unique = []
+    for r in resolved:
+        key = (r['server_name'], r['disk_label'])
+        if key not in seen:
+            seen.add(key)
+            unique.append(r)
+    return unique
+
+
 _TABLE_HEADER = {
     "type": "ColumnSet",
     "columns": [
@@ -182,6 +206,7 @@ def build_adaptive_card(crit: list, warn: list, resolved: list) -> dict:
                 sections.extend(_disk_row(d) for d in items)
 
     if resolved:
+        resolved = _dedupe_resolved(resolved)
         if breach_total == 0:
             sections.append({
                 "type": "TextBlock",
@@ -275,9 +300,13 @@ def main():
         crit = [b for b in breaches if b['alert_status'] == 3]
         warn = [b for b in breaches if b['alert_status'] == 2]
 
+        # Resolutions can carry several alert rows per disk (one per cooldown
+        # window the disk breached through). Report recovered disks here so the
+        # count lines up with the crit/warn disk counts.
+        resolved_disks = len({(r['server_name'], r['disk_label']) for r in resolutions})
         logger.warning(
-            "Disk alert: %d crit + %d warn breach(es), %d resolution(s)",
-            len(crit), len(warn), len(resolutions)
+            "Disk alert: %d crit + %d warn breach(es), %d disk(s) recovered (%d alert row(s))",
+            len(crit), len(warn), resolved_disks, len(resolutions)
         )
 
         card = build_adaptive_card(crit, warn, resolutions)
@@ -294,7 +323,7 @@ def main():
         record_breach_alerts(conn, breaches)
         record_resolutions(conn, resolutions)
         logger.info(
-            "Recorded %d breach alert(s) and %d resolution(s) in monitoring.alerts",
+            "Recorded %d breach alert(s); marked %d alert row(s) resolved in monitoring.alerts",
             len(breaches), len(resolutions)
         )
     finally:
