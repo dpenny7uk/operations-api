@@ -42,6 +42,9 @@ public class DiskAlertStatusCount
 public class Disk
 {
     public string ServerName { get; set; } = "";
+    // Best-effort FQDN from shared.servers (Databricks inventory); null when the
+    // SolarWinds server has no matching inventory row.
+    public string? Fqdn { get; set; }
     public string DiskLabel { get; set; } = "";
     public string? Service { get; set; }
     public string? Environment { get; set; }

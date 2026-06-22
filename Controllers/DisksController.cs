@@ -19,11 +19,11 @@ public class DisksController : ControllerBase
     [ResponseCache(Duration = 60, Location = ResponseCacheLocation.Client)]
     [ProducesResponseType(200)]
     public async Task<IActionResult> GetSummary(
-        [FromQuery] string? environment = null,
+        [FromQuery] string[]? environment = null,
         [FromQuery] string? businessUnit = null,
         [FromQuery] int? alertStatus = null)
     {
-        var envFilter = string.IsNullOrWhiteSpace(environment) ? null : environment.Trim();
+        var envFilter = CleanEnvironments(environment);
         var buFilter = string.IsNullOrWhiteSpace(businessUnit) ? null : businessUnit.Trim();
         var statusFilter = ValidateAlertStatus(alertStatus);
         return Ok(await _svc.GetSummaryAsync(envFilter, buFilter, statusFilter));
@@ -32,7 +32,7 @@ public class DisksController : ControllerBase
     /// <summary>List current-state disks with paged response.</summary>
     /// <param name="limit">Maximum results (1-5000, default 2000).</param>
     /// <param name="offset">Skip the first N results (default 0).</param>
-    /// <param name="environment">Optional canonical environment filter (e.g. "Production").</param>
+    /// <param name="environment">Optional canonical environment filter (e.g. "Production"). Repeatable: pass one ?environment= per value to filter to a set. An empty value selects the unclassified (no-environment) group.</param>
     /// <param name="businessUnit">Optional canonical business-unit filter (e.g. "Contoso Group Support").</param>
     /// <param name="alertStatus">Optional alert-status filter (1=OK, 2=Warning, 3=Critical).</param>
     /// <param name="serverName">Optional server-name filter (partial match). Used by the server detail page.</param>
@@ -42,7 +42,7 @@ public class DisksController : ControllerBase
     public async Task<IActionResult> List(
         [FromQuery] int limit = 2000,
         [FromQuery] int offset = 0,
-        [FromQuery] string? environment = null,
+        [FromQuery] string[]? environment = null,
         [FromQuery] string? businessUnit = null,
         [FromQuery] int? alertStatus = null,
         [FromQuery] string? serverName = null)
@@ -54,7 +54,7 @@ public class DisksController : ControllerBase
         // cap; the filters shrink the working set on the SPA.
         var clampedLimit = Math.Clamp(limit, 1, 5000);
         var clampedOffset = Math.Max(offset, 0);
-        var envFilter = string.IsNullOrWhiteSpace(environment) ? null : environment.Trim();
+        var envFilter = CleanEnvironments(environment);
         var buFilter = string.IsNullOrWhiteSpace(businessUnit) ? null : businessUnit.Trim();
         var nameFilter = string.IsNullOrWhiteSpace(serverName) ? null : serverName.Trim();
         var statusFilter = ValidateAlertStatus(alertStatus);
@@ -65,6 +65,17 @@ public class DisksController : ControllerBase
     // from arbitrary integers without throwing on a stray query string.
     private static int? ValidateAlertStatus(int? alertStatus)
         => alertStatus is 1 or 2 or 3 ? alertStatus : null;
+
+    // Normalise the repeated ?environment= params into a filter list. A blank
+    // entry is preserved (it selects the unclassified / NULL-environment group);
+    // an entirely absent parameter means "no environment filter". Capped to guard
+    // against an abusive query string.
+    private static IReadOnlyList<string>? CleanEnvironments(string[]? environment)
+    {
+        if (environment is null || environment.Length == 0) return null;
+        var cleaned = environment.Where(e => e is not null).Select(e => e.Trim()).Take(32).ToList();
+        return cleaned.Count == 0 ? null : cleaned;
+    }
 
     /// <summary>Get snapshot history for a single disk (used for sparkline + growth projection).</summary>
     [HttpGet("{serverName}/{diskLabel}/history")]

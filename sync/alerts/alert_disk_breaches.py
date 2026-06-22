@@ -1,13 +1,15 @@
-"""Alert Teams when disks breach warn/crit thresholds.
+"""Alert Teams when production-class disks reach their critical threshold.
 
-Queries monitoring.disk_current for status>=2 disks and posts an Adaptive Card
-to Teams. Uses monitoring.alerts to track which notifications have been sent,
-avoiding duplicate alerts for a disk that stays breached (cooldown default 24h,
-configurable via DISK_ALERT_COOLDOWN_HOURS).
+Queries monitoring.disk_current for alert_status=3 (critical) disks in the
+production-class environments (Production / Live Support / Shared Services) and
+posts an Adaptive Card to Teams. Uses monitoring.alerts to track which
+notifications have been sent, avoiding duplicate alerts for a disk that stays
+critical (cooldown default 24h, configurable via DISK_ALERT_COOLDOWN_HOURS).
 
-Resolution path: a previously-alerted disk that has since returned to
-alert_status=1 generates a "resolved" Teams card, and its alerts row is marked
-resolved.
+Resolution path: a previously-alerted disk that has since dropped below its
+critical threshold (alert_status < 3) generates a "resolved" Teams card, and its
+alerts row is marked resolved. A disk that recovers only as far as WARNING still
+counts as resolved here because this alert is critical-only.
 
 Designed to run independently of the 15-min sync, on a less-frequent schedule
 (default every 4h during business hours via ops-alert-disk-breaches.yml).
@@ -47,7 +49,14 @@ COOLDOWN_HOURS = int(os.environ.get('DISK_ALERT_COOLDOWN_HOURS', '24'))
 # estate is paged by their respective BU teams.
 ALERT_BU = 'Contoso Group Support'
 
-# Breaches: status>=2 AND not in an unresolved alert row within the cooldown window.
+# Environment scope: the production-class environments. These are the only disks
+# we page on - dev/staging/UAT/etc. breaches are noise out of hours. The labels
+# must match the canonical values written by sync_solarwinds_disks.py
+# (_ENV_CANONICAL_MAP).
+ALERT_ENVIRONMENTS = ['Production', 'Live Support', 'Shared Services']
+
+# Breaches: critical (status=3) production-class disks not already in an
+# unresolved alert row within the cooldown window.
 BREACH_QUERY = """
     SELECT
         d.server_name,
@@ -61,8 +70,9 @@ BREACH_QUERY = """
         d.threshold_crit_pct,
         d.alert_status
     FROM monitoring.disk_current d
-    WHERE d.alert_status >= 2
+    WHERE d.alert_status = 3
       AND d.business_unit = %s
+      AND d.environment = ANY(%s)
       AND NOT EXISTS (
           SELECT 1 FROM monitoring.alerts a
           WHERE a.server_name = d.server_name
@@ -71,10 +81,14 @@ BREACH_QUERY = """
             AND NOT a.resolved
             AND a.notification_sent_at >= CURRENT_TIMESTAMP - (INTERVAL '1 hour' * %s)
       )
-    ORDER BY d.alert_status DESC, d.percent_used DESC, d.server_name, d.disk_label
+    ORDER BY d.percent_used DESC, d.server_name, d.disk_label
 """
 
-# Resolutions: any open (unresolved) alert whose disk has since returned to status=1.
+# Resolutions: any open (unresolved) alert whose disk has since dropped below its
+# critical threshold (status < 3). Because this alert is critical-only, a disk
+# that recovers only to WARNING (status=2) still counts as resolved. Not scoped
+# by environment so an open row always clears once its disk recovers, even if the
+# disk's environment tag changed since it was alerted.
 RESOLUTION_QUERY = """
     SELECT
         a.alert_id,
@@ -89,7 +103,7 @@ RESOLUTION_QUERY = """
      AND d.disk_label = a.disk_label
     WHERE a.notification_sent = TRUE
       AND NOT a.resolved
-      AND d.alert_status = 1
+      AND d.alert_status < 3
       AND d.business_unit = %s
     ORDER BY a.server_name, a.disk_label
 """
@@ -177,12 +191,12 @@ _TABLE_HEADER = {
 }
 
 
-def build_adaptive_card(crit: list, warn: list, resolved: list) -> dict:
-    """Build a single Teams Adaptive Card combining breaches and resolutions."""
+def build_adaptive_card(crit: list, resolved: list) -> dict:
+    """Build a single Teams Adaptive Card combining critical breaches and resolutions."""
     sections = []
-    breach_total = len(crit) + len(warn)
+    breach_total = len(crit)
     if breach_total > 0:
-        title = f"Disk Alert: {breach_total} disk(s) over threshold"
+        title = f"Disk Alert: {breach_total} disk(s) at critical"
         sections.append({
             "type": "TextBlock",
             "size": "medium",
@@ -191,19 +205,14 @@ def build_adaptive_card(crit: list, warn: list, resolved: list) -> dict:
             "style": "heading",
             "color": "attention"
         })
-        for icon, label, items in [
-            ("\U0001f534", "CRITICAL", crit),
-            ("\U0001f7e1", "WARNING", warn),
-        ]:
-            if items:
-                sections.append({
-                    "type": "TextBlock",
-                    "text": f"{icon} **{label} ({len(items)})**",
-                    "weight": "bolder",
-                    "spacing": "medium"
-                })
-                sections.append(_TABLE_HEADER)
-                sections.extend(_disk_row(d) for d in items)
+        sections.append({
+            "type": "TextBlock",
+            "text": f"\U0001f534 **CRITICAL ({len(crit)})**",
+            "weight": "bolder",
+            "spacing": "medium"
+        })
+        sections.append(_TABLE_HEADER)
+        sections.extend(_disk_row(d) for d in crit)
 
     if resolved:
         resolved = _dedupe_resolved(resolved)
@@ -243,7 +252,8 @@ def record_breach_alerts(conn, breaches: list):
     """Insert one row per breaching disk into monitoring.alerts."""
     with conn.cursor() as cur:
         for d in breaches:
-            alert_type = 'breach_crit' if d['alert_status'] == 3 else 'breach_warn'
+            # Critical-only alert, so every breach row is a crit.
+            alert_type = 'breach_crit'
             cur.execute("""
                 INSERT INTO monitoring.alerts
                     (server_name, disk_label, alert_type, alert_status_at_send,
@@ -272,7 +282,7 @@ def record_resolutions(conn, resolved: list):
 
 def main():
     parser = create_argument_parser(
-        'Alert Teams about disks breaching warn/crit thresholds',
+        'Alert Teams about production-class disks reaching their critical threshold',
         include_dry_run=True
     )
     args = parser.parse_args()
@@ -283,12 +293,12 @@ def main():
     _validate_teams_url(webhook_url)
 
     logger.info("Cooldown: %dh (set DISK_ALERT_COOLDOWN_HOURS to change)", COOLDOWN_HOURS)
-    logger.info("Scope: business_unit = %r", ALERT_BU)
+    logger.info("Scope: business_unit = %r, environments = %r", ALERT_BU, ALERT_ENVIRONMENTS)
 
     conn = get_database_connection(app_name='disk_breach_alert')
     try:
         with conn.cursor() as cur:
-            cur.execute(BREACH_QUERY, (ALERT_BU, COOLDOWN_HOURS))
+            cur.execute(BREACH_QUERY, (ALERT_BU, ALERT_ENVIRONMENTS, COOLDOWN_HOURS))
             breaches = [dict(r) for r in cur.fetchall()]
             cur.execute(RESOLUTION_QUERY, (ALERT_BU,))
             resolutions = [dict(r) for r in cur.fetchall()]
@@ -297,19 +307,19 @@ def main():
             logger.info("No new disk alerts and no resolutions to send")
             return
 
-        crit = [b for b in breaches if b['alert_status'] == 3]
-        warn = [b for b in breaches if b['alert_status'] == 2]
+        # Every breach is critical (BREACH_QUERY filters alert_status = 3).
+        crit = breaches
 
         # Resolutions can carry several alert rows per disk (one per cooldown
         # window the disk breached through). Report recovered disks here so the
-        # count lines up with the crit/warn disk counts.
+        # count lines up with the critical disk count.
         resolved_disks = len({(r['server_name'], r['disk_label']) for r in resolutions})
         logger.warning(
-            "Disk alert: %d crit + %d warn breach(es), %d disk(s) recovered (%d alert row(s))",
-            len(crit), len(warn), resolved_disks, len(resolutions)
+            "Disk alert: %d critical breach(es), %d disk(s) recovered (%d alert row(s))",
+            len(crit), resolved_disks, len(resolutions)
         )
 
-        card = build_adaptive_card(crit, warn, resolutions)
+        card = build_adaptive_card(crit, resolutions)
 
         if args.dry_run:
             import json

@@ -22,7 +22,7 @@ function mapServers(items) {
     name: s.serverName,
     fqdn: s.fqdn || null,
     ip: s.ipAddress || null,
-    env: s.environment || 'Unknown',
+    env: s.environment || 'Untagged',
     app: s.applicationName || '',
     service: s.service || '',
     func: s.func || '',
@@ -52,7 +52,7 @@ function mapBuBreakdown(summary) {
 function mapUnreachable(items) {
   return (items || []).map(u => ({
     name: u.serverName || '—',
-    env: u.environment || 'Unknown',
+    env: u.environment || 'Untagged',
     lastSeen: u.lastSeen ? new Date(u.lastSeen).toLocaleString('en-GB') : '—',
     duration: '', // not in current API
   }));
@@ -347,6 +347,7 @@ function mapDisks(items) {
   return (items || []).map((d, i) => ({
     id: i + 1,
     serverName: d.serverName || '',
+    fqdn: d.fqdn || null,
     diskLabel: d.diskLabel || '',
     service: d.service || '',
     environment: d.environment || '',
@@ -607,15 +608,16 @@ async function runFetches() {
       window.CURRENT_USER = v; // { username, fullName }
       rerender();
     }),
-    // Default to Production-only on initial load — non-prod is noise for the
-    // ops team. The dropdown lets users widen scope (BU + env); OC_API.fetchDisks
-    // handles the refetch.
-    api('/disks?environment=Production&limit=5000' + buQs).then(r => {
+    // Default to the production-class environments on initial load (Production /
+    // Live Support / Shared Services) — the rest of the estate is noise for the
+    // ops team. The multi-select env dropdown lets users widen or narrow scope;
+    // OC_API.fetchDisks handles the refetch.
+    api('/disks?environment=Production&environment=Live%20Support&environment=Shared%20Services&limit=5000' + buQs).then(r => {
       if (!r || !Array.isArray(r.items)) { markDemo('disks'); return; }
       window.DISKS_DATA = Object.assign({}, window.DISKS_DATA, {
         items: mapDisks(r.items),
         totalCount: r.totalCount != null ? r.totalCount : r.items.length,
-        currentEnv: 'Production',
+        currentEnvs: ['Production', 'Live Support', 'Shared Services'],
         currentBu:  bu || '__all',
       });
       rerender();
@@ -787,14 +789,19 @@ window.OC_API = {
   // alert-status filter (1=OK, 2=Warning, 3=Critical). Updates
   // window.DISKS_DATA + window.DISK_SUMMARY and triggers a rerender so the
   // KPI strip, dropdown counts, and table all reflect the new selection.
-  fetchDisks: async ({ env, bu, status } = {}) => {
+  fetchDisks: async ({ env, envs, bu, status } = {}) => {
     if (bu === undefined) bu = window.SELECTED_BU;
-    const envSet = env && env !== '__all';
+    // Env is multi-select: accept an `envs` array, or a single `env` string for
+    // back-compat. '__all' / falsy means no env filter. An empty string entry
+    // selects the untagged (no-environment) group.
+    const envList = Array.isArray(envs) ? envs.slice()
+                  : (env && env !== '__all') ? [env] : [];
+    const envSet = envList.length > 0;
     const buSet  = bu && bu !== '__all';
     const stSet  = status && status !== '__all';
     const buildParams = (includeLimit) => {
       const ps = includeLimit ? ['limit=5000'] : [];
-      if (envSet) ps.push('environment=' + encodeURIComponent(env));
+      if (envSet) envList.forEach(e => ps.push('environment=' + encodeURIComponent(e)));
       if (buSet)  ps.push('businessUnit=' + encodeURIComponent(bu));
       if (stSet)  ps.push('alertStatus=' + encodeURIComponent(status));
       return ps;
@@ -812,7 +819,7 @@ window.OC_API = {
       window.DISKS_DATA = Object.assign({}, window.DISKS_DATA, {
         items: mapDisks(listResult.items),
         totalCount: listResult.totalCount != null ? listResult.totalCount : listResult.items.length,
-        currentEnv:    envSet ? env    : '__all',
+        currentEnvs:   envSet ? envList : [],
         currentBu:     buSet  ? bu     : '__all',
         currentStatus: stSet  ? status : '__all',
       });

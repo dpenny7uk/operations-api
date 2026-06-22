@@ -364,11 +364,11 @@ class TestPatchCycleCard:
 # ── Disk breach card ─────────────────────────────────────────────────────────
 
 class TestDiskBreachCard:
-    def _breach(self, server='PR0607-1', label='E:\\', status=2, pct=84.0):
+    def _breach(self, server='PR0607-1', label='E:\\', status=3, pct=94.0):
         return {
             'server_name': server, 'disk_label': label, 'environment': 'Production',
             'technical_owner': 'team@contoso.com', 'percent_used': pct,
-            'used_gb': 479.0, 'volume_size_gb': 570.0,
+            'used_gb': 536.0, 'volume_size_gb': 570.0,
             'threshold_warn_pct': 80.0, 'threshold_crit_pct': 90.0,
             'alert_status': status,
         }
@@ -376,7 +376,7 @@ class TestDiskBreachCard:
     def _resolution(self, alert_id, server, label, current=63.5):
         return {
             'alert_id': alert_id, 'server_name': server, 'disk_label': label,
-            'alert_type': 'breach_warn', 'percent_used_at_send': 84.0,
+            'alert_type': 'breach_crit', 'percent_used_at_send': 94.0,
             'current_percent_used': current,
         }
 
@@ -403,31 +403,42 @@ class TestDiskBreachCard:
 
     def test_card_shows_one_resolved_line_per_disk(self):
         resolved = [self._resolution(i, 'dv0603-14002-00', 'E:\\SQL_RND_01') for i in range(14)]
-        card = build_disk_card([], [], resolved)
+        card = build_disk_card([], resolved)
         lines = self._resolved_lines(card)
         assert len(lines) == 1
 
     def test_resolved_header_count_is_deduped(self):
         resolved = [self._resolution(i, 'dv0603-14002-00', 'E:\\SQL_RND_01') for i in range(14)]
-        card = build_disk_card([], [], resolved)
+        card = build_disk_card([], resolved)
         body = card['attachments'][0]['content']['body']
         header = [b['text'] for b in body if b.get('text', '').startswith('✅ **RESOLVED')][0]
         assert 'RESOLVED (1)' in header
 
     def test_recovered_only_card_count_is_deduped(self):
         resolved = [self._resolution(i, 'dv0603-14002-00', 'E:\\SQL_RND_01') for i in range(5)]
-        card = build_disk_card([], [], resolved)
+        card = build_disk_card([], resolved)
         title = card['attachments'][0]['content']['body'][0]['text']
         assert '1 disk(s) recovered' in title
 
     def test_breaches_unaffected_by_dedup(self):
-        # Two genuinely different warning disks on the same server stay separate.
-        warn = [
+        # Two genuinely different critical disks on the same server stay separate.
+        crit = [
             self._breach('pr0607-20525-01', 'E:\\ Label:DATA 068A3A22'),
             self._breach('pr0607-20525-01', 'E:\\ Label:DATA 68a3a22'),
         ]
-        card = build_disk_card([], warn, [])
+        card = build_disk_card(crit, [])
         body = card['attachments'][0]['content']['body']
         col_sets = [b for b in body if b.get('type') == 'ColumnSet']
         # 1 header row + 2 disk rows
         assert len(col_sets) == 3
+
+    def test_card_is_critical_only(self):
+        # The card heads with "at critical" and has no WARNING section.
+        crit = [self._breach('pr0607-20525-01', 'E:\\', status=3, pct=95.0)]
+        card = build_disk_card(crit, [])
+        body = card['attachments'][0]['content']['body']
+        title = body[0]['text']
+        assert 'at critical' in title
+        texts = [b.get('text', '') for b in body]
+        assert any('CRITICAL' in t for t in texts)
+        assert not any('WARNING' in t for t in texts)

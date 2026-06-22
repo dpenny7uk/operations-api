@@ -50,7 +50,7 @@ public class ServerService : BaseService<ServerService>, IServerService
 
         var p = new DynamicParameters();
 
-        if (environment == "Unknown")
+        if (environment == "Untagged")
             sql += " AND s.environment IS NULL";
         else
             AddExactFilter(ref sql, p, "s.environment", "Env", environment);
@@ -84,7 +84,7 @@ public class ServerService : BaseService<ServerService>, IServerService
 
         var p = new DynamicParameters();
 
-        if (environment == "Unknown")
+        if (environment == "Untagged")
             sql += " AND s.environment IS NULL";
         else
             AddExactFilter(ref sql, p, "s.environment", "Env", environment);
@@ -167,7 +167,10 @@ public class ServerService : BaseService<ServerService>, IServerService
         };
         foreach (var row in envRows)
         {
-            var env = row.Environment ?? "Unknown";
+            // "Untagged" is the label for servers with no environment set. It also
+            // round-trips as the filter sentinel: ListServersAsync/CountServersAsync
+            // translate environment == "Untagged" back to s.environment IS NULL.
+            var env = row.Environment ?? "Untagged";
             summary.EnvironmentCounts[env] = new EnvironmentCount { Total = row.Total, Active = row.Total };
         }
         foreach (var row in buRows)

@@ -15,12 +15,12 @@ public class DisksControllerTests
     private void SetupListReturnsEmpty()
         => _svc.Setup(s => s.ListDisksAsync(
                 It.IsAny<int>(), It.IsAny<int>(),
-                It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<int?>()))
+                It.IsAny<IReadOnlyList<string>?>(), It.IsAny<string?>(), It.IsAny<int?>(), It.IsAny<string?>()))
             .ReturnsAsync(new PagedResult<Disk>());
 
     private void SetupSummaryReturnsEmpty()
         => _svc.Setup(s => s.GetSummaryAsync(
-                It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<int?>()))
+                It.IsAny<IReadOnlyList<string>?>(), It.IsAny<string?>(), It.IsAny<int?>()))
             .ReturnsAsync(new DiskSummary());
 
     [Fact]
@@ -58,9 +58,35 @@ public class DisksControllerTests
     {
         SetupListReturnsEmpty();
 
-        await Controller.List(limit: 100, offset: 0, environment: "Production");
+        await Controller.List(limit: 100, offset: 0, environment: new[] { "Production" });
 
-        _svc.Verify(s => s.ListDisksAsync(100, 0, "Production", null, null));
+        _svc.Verify(s => s.ListDisksAsync(100, 0,
+            It.Is<IReadOnlyList<string>>(l => l.Count == 1 && l[0] == "Production"), null, null));
+    }
+
+    [Fact]
+    public async Task List_passes_multiple_environments_through()
+    {
+        SetupListReturnsEmpty();
+
+        await Controller.List(limit: 100, offset: 0, environment: new[] { "Production", "Live Support" });
+
+        _svc.Verify(s => s.ListDisksAsync(100, 0,
+            It.Is<IReadOnlyList<string>>(l => l.Count == 2 && l[0] == "Production" && l[1] == "Live Support"),
+            null, null));
+    }
+
+    [Fact]
+    public async Task List_passes_blank_environment_entry_as_unclassified_group()
+    {
+        SetupListReturnsEmpty();
+
+        // A blank entry selects the unclassified (NULL-environment) group - it is
+        // preserved, not dropped as "no filter".
+        await Controller.List(limit: 100, offset: 0, environment: new[] { "" });
+
+        _svc.Verify(s => s.ListDisksAsync(100, 0,
+            It.Is<IReadOnlyList<string>>(l => l.Count == 1 && l[0] == ""), null, null));
     }
 
     [Fact]
@@ -78,20 +104,31 @@ public class DisksControllerTests
     {
         SetupListReturnsEmpty();
 
-        await Controller.List(limit: 100, offset: 0, environment: "Production", businessUnit: "Contoso UK");
+        await Controller.List(limit: 100, offset: 0, environment: new[] { "Production" }, businessUnit: "Contoso UK");
 
-        _svc.Verify(s => s.ListDisksAsync(100, 0, "Production", "Contoso UK", null));
+        _svc.Verify(s => s.ListDisksAsync(100, 0,
+            It.Is<IReadOnlyList<string>>(l => l.Count == 1 && l[0] == "Production"), "Contoso UK", null));
+    }
+
+    [Fact]
+    public async Task List_treats_null_or_empty_environment_as_no_filter()
+    {
+        SetupListReturnsEmpty();
+
+        await Controller.List(limit: 100, offset: 0, environment: System.Array.Empty<string>());
+
+        _svc.Verify(s => s.ListDisksAsync(100, 0, null, null, null));
     }
 
     [Theory]
     [InlineData(null)]
     [InlineData("")]
     [InlineData("   ")]
-    public async Task List_treats_blank_filters_as_no_filter(string? blank)
+    public async Task List_treats_blank_business_unit_as_no_filter(string? blank)
     {
         SetupListReturnsEmpty();
 
-        await Controller.List(limit: 100, offset: 0, environment: blank, businessUnit: blank);
+        await Controller.List(limit: 100, offset: 0, businessUnit: blank);
 
         _svc.Verify(s => s.ListDisksAsync(100, 0, null, null, null));
     }
@@ -128,9 +165,10 @@ public class DisksControllerTests
     {
         SetupSummaryReturnsEmpty();
 
-        await Controller.GetSummary(environment: "Production", businessUnit: "Contoso Group Support", alertStatus: 3);
+        await Controller.GetSummary(environment: new[] { "Production" }, businessUnit: "Contoso Group Support", alertStatus: 3);
 
-        _svc.Verify(s => s.GetSummaryAsync("Production", "Contoso Group Support", 3));
+        _svc.Verify(s => s.GetSummaryAsync(
+            It.Is<IReadOnlyList<string>>(l => l.Count == 1 && l[0] == "Production"), "Contoso Group Support", 3));
     }
 
     [Fact]
@@ -138,7 +176,7 @@ public class DisksControllerTests
     {
         SetupSummaryReturnsEmpty();
 
-        await Controller.GetSummary(environment: "  ", businessUnit: "");
+        await Controller.GetSummary(environment: System.Array.Empty<string>(), businessUnit: "");
 
         _svc.Verify(s => s.GetSummaryAsync(null, null, null));
     }

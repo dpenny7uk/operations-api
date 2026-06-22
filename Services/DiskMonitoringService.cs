@@ -15,17 +15,17 @@ public class DiskMonitoringService : BaseService<DiskMonitoringService>, IDiskMo
     public DiskMonitoringService(IDbConnection db, ILogger<DiskMonitoringService> logger)
         : base(db, logger) { }
 
-    public Task<DiskSummary> GetSummaryAsync(string? environment = null, string? businessUnit = null, int? alertStatus = null) => RunDbAsync(async () =>
+    public Task<DiskSummary> GetSummaryAsync(IReadOnlyList<string>? environments = null, string? businessUnit = null, int? alertStatus = null) => RunDbAsync(async () =>
     {
         // Four queries implement the cross-facet rule: each breakdown is
         // computed with all OTHER active filters, EXCLUDING its own dimension.
         // This means picking BU rescopes env + status counts, picking env
         // rescopes BU + status counts, etc. - but a dropdown's own labels stay
         // stable when you re-pick from it. Top-level totals are scoped by all.
-        var (topWhere, topArgs) = BuildDiskFilterClause(environment, businessUnit, alertStatus);
-        var (envBreakdownWhere, envBreakdownArgs) = BuildDiskFilterClause(environment, businessUnit, alertStatus, exclude: "environment");
-        var (buBreakdownWhere, buBreakdownArgs) = BuildDiskFilterClause(environment, businessUnit, alertStatus, exclude: "businessUnit");
-        var (statusBreakdownWhere, statusBreakdownArgs) = BuildDiskFilterClause(environment, businessUnit, alertStatus, exclude: "alertStatus");
+        var (topWhere, topArgs) = BuildDiskFilterClause(environments, businessUnit, alertStatus);
+        var (envBreakdownWhere, envBreakdownArgs) = BuildDiskFilterClause(environments, businessUnit, alertStatus, exclude: "environment");
+        var (buBreakdownWhere, buBreakdownArgs) = BuildDiskFilterClause(environments, businessUnit, alertStatus, exclude: "businessUnit");
+        var (statusBreakdownWhere, statusBreakdownArgs) = BuildDiskFilterClause(environments, businessUnit, alertStatus, exclude: "alertStatus");
 
         var top = await Db.QueryFirstAsync<DiskSummary>($@"
             SELECT
@@ -79,41 +79,49 @@ public class DiskMonitoringService : BaseService<DiskMonitoringService>, IDiskMo
         return top;
     });
 
-    public Task<PagedResult<Disk>> ListDisksAsync(int limit, int offset, string? environment = null, string? businessUnit = null, int? alertStatus = null, string? serverName = null) => RunDbAsync(async () =>
+    public Task<PagedResult<Disk>> ListDisksAsync(int limit, int offset, IReadOnlyList<string>? environments = null, string? businessUnit = null, int? alertStatus = null, string? serverName = null) => RunDbAsync(async () =>
     {
         // Filter clauses compose with AND. Casing matches the canonical values
         // written by the sync (_canonicalize_env / _canonicalize_bu in
         // sync_solarwinds_disks.py); equality match avoids any per-query LOWER().
         // serverName uses ILIKE %X% to mirror the certificates partial-match
         // behaviour - used by the server detail page to fetch one server's disks.
-        var (whereClause, scopedArgs) = BuildDiskFilterClause(environment, businessUnit, alertStatus, serverName: serverName);
+        // Columns are aliased d.* because the FQDN lookup joins shared.servers,
+        // which shares column names (environment, business_unit, server_name).
+        var (whereClause, scopedArgs) = BuildDiskFilterClause(environments, businessUnit, alertStatus, serverName: serverName, alias: "d.");
         scopedArgs.Add("Limit", limit);
         scopedArgs.Add("Offset", offset);
 
         var totalCount = await Db.QueryFirstAsync<int>(
-            $"SELECT COUNT(*) FROM {Sql.Tables.DiskCurrent} {whereClause}", scopedArgs);
+            $"SELECT COUNT(*) FROM {Sql.Tables.DiskCurrent} d {whereClause}", scopedArgs);
 
+        // FQDN is best-effort: shared.servers (Databricks inventory) keyed on the
+        // SolarWinds server_name. Mirrors the certificates join (UPPER both sides
+        // for case-insensitive match). SolarWinds-only nodes (e.g. ESXi hosts) have
+        // no inventory row, so Fqdn comes back NULL and the SPA renders a dash.
         var disks = (await Db.QueryAsync<Disk>($@"
             SELECT
-                server_name        AS ServerName,
-                disk_label         AS DiskLabel,
-                service            AS Service,
-                environment        AS Environment,
-                technical_owner    AS TechnicalOwner,
-                business_owner     AS BusinessOwner,
-                business_unit      AS BusinessUnit,
-                tier               AS Tier,
-                volume_size_gb     AS VolumeSizeGb,
-                used_gb            AS UsedGb,
-                free_gb            AS FreeGb,
-                percent_used       AS PercentUsed,
-                alert_status       AS AlertStatus,
-                threshold_warn_pct AS ThresholdWarnPct,
-                threshold_crit_pct AS ThresholdCritPct,
-                captured_at        AS CapturedAt
-            FROM {Sql.Tables.DiskCurrent}
+                d.server_name        AS ServerName,
+                s.fqdn               AS Fqdn,
+                d.disk_label         AS DiskLabel,
+                d.service            AS Service,
+                d.environment        AS Environment,
+                d.technical_owner    AS TechnicalOwner,
+                d.business_owner     AS BusinessOwner,
+                d.business_unit      AS BusinessUnit,
+                d.tier               AS Tier,
+                d.volume_size_gb     AS VolumeSizeGb,
+                d.used_gb            AS UsedGb,
+                d.free_gb            AS FreeGb,
+                d.percent_used       AS PercentUsed,
+                d.alert_status       AS AlertStatus,
+                d.threshold_warn_pct AS ThresholdWarnPct,
+                d.threshold_crit_pct AS ThresholdCritPct,
+                d.captured_at        AS CapturedAt
+            FROM {Sql.Tables.DiskCurrent} d
+            LEFT JOIN {Sql.Tables.Servers} s ON UPPER(s.server_name) = UPPER(d.server_name) AND s.is_active
             {whereClause}
-            ORDER BY alert_status DESC, percent_used DESC, server_name, disk_label
+            ORDER BY d.alert_status DESC, d.percent_used DESC, d.server_name, d.disk_label
             LIMIT @Limit OFFSET @Offset
         ", scopedArgs)).ToList();
 
@@ -177,29 +185,45 @@ public class DiskMonitoringService : BaseService<DiskMonitoringService>, IDiskMo
     // where each breakdown excludes its own dimension from the WHERE so the
     // dropdown's own labels stay stable when the user picks from it).
     // exclude values: "environment" | "businessUnit" | "alertStatus" | null.
+    // alias prefixes the column names (e.g. "d.") for queries that join another
+    // table sharing column names; defaults to "" for the un-joined summary queries.
     private static (string clause, DynamicParameters args) BuildDiskFilterClause(
-        string? environment, string? businessUnit, int? alertStatus, string? exclude = null, string? serverName = null)
+        IReadOnlyList<string>? environments, string? businessUnit, int? alertStatus, string? exclude = null, string? serverName = null, string alias = "")
     {
         var clauses = new List<string>();
         var args = new DynamicParameters();
-        if (!string.IsNullOrWhiteSpace(environment) && exclude != "environment")
+        if (environments is { Count: > 0 } && exclude != "environment")
         {
-            clauses.Add("environment = @Environment");
-            args.Add("Environment", environment);
+            // The unclassified group (NULL environment) is selectable via a blank
+            // entry; it can't match the ANY() array, so OR it in as IS NULL.
+            var named = environments.Where(e => !string.IsNullOrWhiteSpace(e)).Select(e => e.Trim()).ToArray();
+            var includeBlank = environments.Any(string.IsNullOrWhiteSpace);
+            var envParts = new List<string>();
+            if (named.Length > 0)
+            {
+                envParts.Add($"{alias}environment = ANY(@Environments)");
+                args.Add("Environments", named);
+            }
+            if (includeBlank)
+            {
+                envParts.Add($"{alias}environment IS NULL");
+            }
+            if (envParts.Count > 0)
+                clauses.Add(envParts.Count == 1 ? envParts[0] : "(" + string.Join(" OR ", envParts) + ")");
         }
         if (!string.IsNullOrWhiteSpace(businessUnit) && exclude != "businessUnit")
         {
-            clauses.Add("business_unit = @BusinessUnit");
+            clauses.Add($"{alias}business_unit = @BusinessUnit");
             args.Add("BusinessUnit", businessUnit);
         }
         if (alertStatus.HasValue && exclude != "alertStatus")
         {
-            clauses.Add("alert_status = @AlertStatus");
+            clauses.Add($"{alias}alert_status = @AlertStatus");
             args.Add("AlertStatus", alertStatus.Value);
         }
         if (!string.IsNullOrWhiteSpace(serverName) && exclude != "serverName")
         {
-            clauses.Add("server_name ILIKE @ServerName ESCAPE '\\'");
+            clauses.Add($"{alias}server_name ILIKE @ServerName ESCAPE '\\'");
             args.Add("ServerName", $"%{EscapeLike(serverName)}%");
         }
         var clauseText = clauses.Count == 0 ? "" : "WHERE " + string.Join(" AND ", clauses);

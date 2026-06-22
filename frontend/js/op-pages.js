@@ -2639,11 +2639,11 @@
   function buildDisks() {
     const rng = (() => { let s = 0xD15C00; return () => (s = (s*1103515245 + 12345) >>> 0) / 0x100000000; })();
     const servers = [
-      {name:'PR0603-07012-00', service:'tyme', env:'Production',  owner:'Alex Morgan',     bu:'Contoso UK'},
-      {name:'PR0603-25002-00', service:'cms',  env:'Production',  owner:'Jamie Carter', bu:'Contoso London Market'},
-      {name:'PR0603-31002-00', service:'tyche',env:'Production',  owner:'Taylor Reid', bu:'Contoso Re & ILS'},
-      {name:'DV0801-12001-00', service:'tyme', env:'Development', owner:'Alex Morgan',     bu:'Contoso UK'},
-      {name:'UT0901-04001-00', service:'cms',  env:'UAT',         owner:'Jamie Carter', bu:'Contoso London Market'},
+      {name:'PR0603-07012-00', service:'tyme', env:'Production',     owner:'Alex Morgan',  bu:'Contoso UK',            fqdn:'pr0603-07012-00.contoso.local'},
+      {name:'PR0603-25002-00', service:'cms',  env:'Live Support',   owner:'Jamie Carter', bu:'Contoso London Market', fqdn:'pr0603-25002-00.contoso.local'},
+      {name:'PR0603-31002-00', service:'tyche',env:'Shared Services',owner:'Taylor Reid',  bu:'Contoso Re & ILS',      fqdn:null},
+      {name:'DV0801-12001-00', service:'tyme', env:'Development',    owner:'Alex Morgan',  bu:'Contoso UK',            fqdn:'dv0801-12001-00.contoso.local'},
+      {name:'UT0901-04001-00', service:'cms',  env:'UAT',            owner:'Jamie Carter', bu:'Contoso London Market', fqdn:null},
     ];
     const labels = ['C:\\', 'D:\\', 'E:\\SQL_RND_01', 'E:\\SQL_RND_04', 'F:\\Logs', 'G:\\Backups'];
     // Spread of statuses: ~70% ok, ~20% warn, ~10% crit.
@@ -2670,6 +2670,7 @@
         disks.push({
           id: ++i,
           serverName: srv.name,
+          fqdn: srv.fqdn || null,
           diskLabel: labels[k % labels.length],
           service: srv.service,
           environment: srv.env,
@@ -2698,14 +2699,22 @@
     return { items, total: D.totalCount != null ? D.totalCount : items.length };
   }
 
-  // Filter state — single-select per dimension. Default env is 'Production'
-  // (not '__all') because non-prod is noise for the ops team. BU is now
-  // controlled globally via the rail BuScope (window.SELECTED_BU); the BU
-  // bar chart on this page deep-links into that global selector.
+  // The production-class environments. These default the env filter on load:
+  // Production / Live Support / Shared Services are all operationally
+  // "production" disks; everything else (dev, staging, UAT, etc.) is noise for
+  // the ops team. Kept here so the Reset button can restore the same trio.
+  const DISK_DEFAULT_ENVS = ['Production', 'Live Support', 'Shared Services'];
+
+  // Filter state. env is now multi-select (diskState.envs is an array of the
+  // selected canonical environment labels; '' selects the untagged group;
+  // an empty array means "all"). envMenuOpen drives the checkbox dropdown. BU is
+  // controlled globally via the rail BuScope (window.SELECTED_BU); the BU bar
+  // chart on this page deep-links into that global selector.
   const diskState = {
     status: '__all',
     owner:  '__all',
-    env:    'Production',
+    envs:   DISK_DEFAULT_ENVS.slice(),
+    envMenuOpen: false,
     service:'__all',
     sort:'percentUsed',
     sortDir:-1,
@@ -2734,7 +2743,12 @@
     let rows = liveDisks().items.slice();
     if (diskState.status !== '__all') rows = rows.filter(d => String(d.alertStatus) === diskState.status);
     if (diskState.owner !== '__all')  rows = rows.filter(d => (d.technicalOwner || '') === diskState.owner);
-    if (diskState.env !== '__all')    rows = rows.filter(d => (d.environment || '') === diskState.env);
+    // Empty envs => no env filter (all). Otherwise keep rows whose environment is
+    // in the selected set ('' matches the untagged group).
+    if (diskState.envs && diskState.envs.length) {
+      const envSet = new Set(diskState.envs);
+      rows = rows.filter(d => envSet.has(d.environment || ''));
+    }
     // BU filter is applied server-side via OC_API.fetchDisks (which reads
     // window.SELECTED_BU from the global rail selector).
     if (diskState.service !== '__all')rows = rows.filter(d => (d.service || '') === diskState.service);
@@ -2892,7 +2906,7 @@
       diskState.status = code;
       diskState.page = 1;
       if (window.OC_API && typeof window.OC_API.fetchDisks === 'function') {
-        const refetched = await window.OC_API.fetchDisks({ env: diskState.env, status: code });
+        const refetched = await window.OC_API.fetchDisks({ envs: diskState.envs, status: code });
         if (refetched) return;
       }
       window.RERENDER_PAGE(mount);
@@ -3037,24 +3051,81 @@
     // window.SELECTED_BU automatically).
     const refetchDisks = async () => {
       const refetched = (window.OC_API && typeof window.OC_API.fetchDisks === 'function')
-        ? await window.OC_API.fetchDisks({ env: diskState.env, status: diskState.status })
+        ? await window.OC_API.fetchDisks({ envs: diskState.envs, status: diskState.status })
         : null;
       if (!refetched) window.RERENDER_PAGE(mount);
     };
 
+    // Environment filter — a compact checkbox dropdown (multi-select). Defaults
+    // to the production-class trio (DISK_DEFAULT_ENVS). Options + counts come
+    // from the cross-facet summary; the blank environment renders as
+    // "Untagged". Toggling a box refetches server-side (envs scope the
+    // /disks query) and keeps the menu open so several can be picked at once.
     const envSummary = (window.DISK_SUMMARY && window.DISK_SUMMARY.environments) || [];
     const envOpts = envSummary.length
-      ? envSummary.map(e => [e.environment, e.environment + ' (' + e.totalCount + ')'])
-      : diskUniqValues(allItems, 'environment').map(v => [v, v]);
-    const envSel = h('select',
-      { on:{change: async (e) => {
-        diskState.env = e.target.value;
-        diskState.page = 1;
-        await refetchDisks();
-      }}},
-      h('option', { value:'__all', selected: diskState.env==='__all' }, 'All environments'),
-      ...envOpts.map(([v,l]) => h('option', { value:v, selected: diskState.env===v }, l))
-    );
+      ? envSummary.map(e => [e.environment || '', e.totalCount])
+      : diskUniqValues(allItems, 'environment').map(v => [v, null]);
+    const envLabelOf = (v) => (v === '' || v == null) ? 'Untagged' : v;
+    const selectedEnvSet = new Set(diskState.envs || []);
+    const envBtnLabel = (() => {
+      const n = (diskState.envs || []).length;
+      if (n === 0) return 'All environments';
+      if (n === 1) return envLabelOf(diskState.envs[0]);
+      return n + ' environments';
+    })();
+    const toggleEnv = async (v) => {
+      const i = (diskState.envs || []).indexOf(v);
+      if (i >= 0) diskState.envs.splice(i, 1);
+      else diskState.envs.push(v);
+      diskState.page = 1;
+      await refetchDisks();
+    };
+    const envBtn = h('button.btn', {
+      type:'button', 'aria-haspopup':'listbox', 'aria-expanded':String(!!diskState.envMenuOpen),
+      style:{ minWidth:'200px', textAlign:'left', display:'inline-flex', alignItems:'center', justifyContent:'space-between', gap:'8px', position:'relative', zIndex:'41' },
+      on:{click:(e)=>{ e.stopPropagation(); diskState.envMenuOpen = !diskState.envMenuOpen; window.RERENDER_PAGE(mount); }},
+    }, envBtnLabel, h('span.caret', { style:{color:'var(--ink-3)'} }, diskState.envMenuOpen ? '▴' : '▾'));
+    const envWrap = h('div', { style:{ position:'relative', display:'inline-block' } }, envBtn);
+    if (diskState.envMenuOpen) {
+      // Transparent backdrop closes the menu on any outside click.
+      envWrap.appendChild(h('div', {
+        style:{ position:'fixed', inset:'0', zIndex:'40', background:'transparent' },
+        on:{click:()=>{ diskState.envMenuOpen = false; window.RERENDER_PAGE(mount); }},
+      }));
+      const panel = h('div', {
+        style:{ position:'absolute', top:'calc(100% + 4px)', left:'0', zIndex:'50',
+                minWidth:'220px', maxHeight:'320px', overflowY:'auto',
+                background:'var(--card)', border:'1px solid var(--rule-2)',
+                borderRadius:'var(--r-sm)', boxShadow:'0 6px 20px rgba(0,0,0,0.18)', padding:'4px' },
+      });
+      const rowStyle = (active) => ({
+        display:'flex', alignItems:'center', gap:'8px', padding:'6px 8px',
+        cursor:'pointer', fontSize:'13px', color:'var(--ink)', borderRadius:'2px',
+        background: active ? 'var(--signal-wash, rgba(99,179,237,0.14))' : 'transparent',
+      });
+      // "All environments" clears the selection (empty = no env filter).
+      panel.appendChild(h('label', {
+        style: rowStyle((diskState.envs || []).length === 0),
+        on:{click: async (e)=>{ e.preventDefault(); diskState.envs = []; diskState.page = 1; await refetchDisks(); }},
+      },
+        h('input', { type:'checkbox', checked:(diskState.envs || []).length === 0, readOnly:true }),
+        h('span', { style:{flex:'1'} }, 'All environments'),
+      ));
+      envOpts.forEach(([v, count]) => {
+        const checked = selectedEnvSet.has(v);
+        const isUntagged = (v === '' || v == null);
+        panel.appendChild(h('label', {
+          style: rowStyle(checked),
+          title: isUntagged ? 'No environment tag set in SolarWinds' : null,
+          on:{click: async (e)=>{ e.preventDefault(); await toggleEnv(v); }},
+        },
+          h('input', { type:'checkbox', checked, readOnly:true }),
+          h('span', { style:{flex:'1'} }, envLabelOf(v)),
+          count != null ? h('span.muted', { style:{fontVariantNumeric:'tabular-nums'} }, String(count)) : null,
+        ));
+      });
+      envWrap.appendChild(panel);
+    }
 
     // BU is controlled globally via the rail BuScope and the BU bar chart
     // above — no per-page BU dropdown here.
@@ -3082,19 +3153,21 @@
     page.appendChild(filterBar([
       statusSel,
       mkSelect('owner', 'All technical owners', diskUniqValues(allItems, 'technicalOwner').map(v => [v,v])),
-      envSel,
+      envWrap,
       mkSelect('service','All services',        diskUniqValues(allItems, 'service').map(v => [v,v])),
       h('button.btn', { on:{click: async () => {
-        const wasEnv = diskState.env;
+        const wasEnvs = (diskState.envs || []).slice().sort().join('|');
         const wasStatus = diskState.status;
         diskState.status='__all'; diskState.owner='__all';
-        diskState.env='Production';
+        diskState.envs = DISK_DEFAULT_ENVS.slice();
+        diskState.envMenuOpen = false;
         diskState.service='__all'; diskState.page=1;
-        // Reset to the canonical "Production / All statuses" landing — does
-        // NOT clear the global BU scope (that's controlled from the rail).
+        // Reset to the canonical "production-class envs / All statuses" landing —
+        // does NOT clear the global BU scope (that's controlled from the rail).
         // Refetch only if the server-side filters actually changed.
-        if ((wasEnv !== 'Production' || wasStatus !== '__all') && window.OC_API && typeof window.OC_API.fetchDisks === 'function') {
-          const refetched = await window.OC_API.fetchDisks({ env: 'Production', status: '__all' });
+        const nowEnvs = DISK_DEFAULT_ENVS.slice().sort().join('|');
+        if ((wasEnvs !== nowEnvs || wasStatus !== '__all') && window.OC_API && typeof window.OC_API.fetchDisks === 'function') {
+          const refetched = await window.OC_API.fetchDisks({ envs: DISK_DEFAULT_ENVS.slice(), status: '__all' });
           if (refetched) return; // refetch triggers its own rerender
         }
         window.RERENDER_PAGE(mount);
@@ -3102,7 +3175,7 @@
       h('span.spacer'),
       h('span.ct', null, 'Showing ' + (pg.start+1) + '–' + pg.end + ' of ' + filtered.length),
       h('button.btn', { on:{click:()=>exportCsv('disks', filtered,
-        ['serverName','diskLabel','service','environment','businessUnit','technicalOwner',
+        ['serverName','fqdn','diskLabel','service','environment','businessUnit','technicalOwner',
          'volumeSizeGb','usedGb','percentUsed','thresholdCritPct',
          'alertStatus','daysUntilCritical'])}}, 'Export CSV'),
     ]));
@@ -3124,6 +3197,7 @@
     const table = h('table.op');
     table.appendChild(h('thead', null, h('tr', null,
       sortableTh('serverName',   'Server'),
+      sortableTh('fqdn',         'FQDN'),
       sortableTh('businessUnit', 'BU'),
       sortableTh('service',      'Service'),
       sortableTh('diskLabel',    'Disk'),
@@ -3144,6 +3218,7 @@
     slice.forEach(d => {
       const tr = h('tr'+rowCls(d.alertStatus), null,
         h('td.host', null, d.serverName),
+        h('td.mono.muted', null, d.fqdn || '—'),
         h('td.muted', null, d.businessUnit || '—'),
         h('td.muted', null, d.service || '—'),
         h('td.mono', null, d.diskLabel),
@@ -3180,7 +3255,7 @@
       tbody.appendChild(tr);
     });
     if (slice.length === 0) {
-      tbody.appendChild(h('tr', null, h('td', { colspan: 11 },
+      tbody.appendChild(h('tr', null, h('td', { colspan: 12 },
         h('div.no-hits', null, 'No disks match filter'))));
     }
     table.appendChild(tbody);
