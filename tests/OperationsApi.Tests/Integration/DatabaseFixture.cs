@@ -99,7 +99,8 @@ public class DatabaseFixture : IAsyncLifetime
             "database/012-design-v2-fields.sql",
             "database/013-monitoring-schema.sql",
             "database/014-disk-monitoring-sync-status.sql",
-            "database/015-disk-current-matview.sql"
+            "database/015-disk-current-matview.sql",
+            "database/018-disk-fqdn.sql"
         };
 
         // Walk up from bin/Debug/net10.0 to find the project root
@@ -342,6 +343,17 @@ public class DatabaseFixture : IAsyncLifetime
              'C:\', 500, 240.00, 260.00, 48.00, 1, 80, 90, 1001, 101),
             (NOW() - INTERVAL '5 days', 'WEB01', 'portal-web', 'Production', 'Alex Morgan', 'Engineering',
              'C:\', 500, 245.00, 255.00, 49.00, 1, 80, 90, 1001, 101);
+
+        -- ═══ Disk snapshot - one non-prod (.nonprod FQDN) disk ═══
+        -- Tagged production-class (Production env) yet lives in the nonprod domain,
+        -- so it is excluded by default and only surfaces with includeNonprod=true.
+        INSERT INTO monitoring.disk_snapshots
+            (captured_at, server_name, fqdn, service, environment, technical_owner,
+             business_unit, disk_label, volume_size_gb, used_gb, free_gb, percent_used,
+             alert_status, threshold_warn_pct, threshold_crit_pct, source_volume_id, source_node_id)
+        VALUES
+            (NOW() - INTERVAL '5 minutes', 'NPSQL01', 'npsql01.contoso.nonprod', 'insight', 'Production', 'Taylor Reid',
+             'Engineering', 'E:\', 100, 95.00, 5.00, 95.00, 3, 80, 90, 1005, 105);
 
         -- ═══ Disk alerts - one previously-sent crit alert for de-dup tests ═══
         INSERT INTO monitoring.alerts

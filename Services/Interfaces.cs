@@ -88,7 +88,7 @@ public interface IEolService
 
 public interface IDiskMonitoringService
 {
-    Task<DiskSummary> GetSummaryAsync(IReadOnlyList<string>? environments = null, string? businessUnit = null, int? alertStatus = null);
-    Task<PagedResult<Disk>> ListDisksAsync(int limit, int offset, IReadOnlyList<string>? environments = null, string? businessUnit = null, int? alertStatus = null, string? serverName = null);
+    Task<DiskSummary> GetSummaryAsync(IReadOnlyList<string>? environments = null, string? businessUnit = null, int? alertStatus = null, bool includeNonprod = false);
+    Task<PagedResult<Disk>> ListDisksAsync(int limit, int offset, IReadOnlyList<string>? environments = null, string? businessUnit = null, int? alertStatus = null, string? serverName = null, bool includeNonprod = false);
     Task<IEnumerable<DiskHistoryPoint>> GetHistoryAsync(string serverName, string diskLabel, int days);
 }

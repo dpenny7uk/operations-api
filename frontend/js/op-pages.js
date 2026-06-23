@@ -2644,6 +2644,9 @@
       {name:'PR0603-31002-00', service:'tyche',env:'Shared Services',owner:'Taylor Reid',  bu:'Contoso Re & ILS',      fqdn:null},
       {name:'DV0801-12001-00', service:'tyme', env:'Development',    owner:'Alex Morgan',  bu:'Contoso UK',            fqdn:'dv0801-12001-00.contoso.local'},
       {name:'UT0901-04001-00', service:'cms',  env:'UAT',            owner:'Jamie Carter', bu:'Contoso London Market', fqdn:null},
+      // Tagged Shared Services (production-class) but lives in the nonprod domain —
+      // hidden by default, surfaced via "Show nonprod".
+      {name:'SS0603-13002-00', service:'insight',env:'Shared Services',owner:'Taylor Reid',bu:'Contoso Group Support', fqdn:'ss0603-13002-00.contoso.nonprod'},
     ];
     const labels = ['C:\\', 'D:\\', 'E:\\SQL_RND_01', 'E:\\SQL_RND_04', 'F:\\Logs', 'G:\\Backups'];
     // Spread of statuses: ~70% ok, ~20% warn, ~10% crit.
@@ -2671,6 +2674,7 @@
           id: ++i,
           serverName: srv.name,
           fqdn: srv.fqdn || null,
+          isNonprod: /\.nonprod$/i.test(srv.fqdn || srv.name),
           diskLabel: labels[k % labels.length],
           service: srv.service,
           environment: srv.env,
@@ -2715,6 +2719,10 @@
     owner:  '__all',
     envs:   DISK_DEFAULT_ENVS.slice(),
     envMenuOpen: false,
+    // Non-production disks (by .nonprod FQDN domain) are hidden by default — these
+    // are tagged production-class in SolarWinds but live in the nonprod domain.
+    // The "Show nonprod" toggle flips this; the API also defaults to excluding.
+    includeNonprod: false,
     service:'__all',
     sort:'percentUsed',
     sortDir:-1,
@@ -2752,6 +2760,9 @@
     // BU filter is applied server-side via OC_API.fetchDisks (which reads
     // window.SELECTED_BU from the global rail selector).
     if (diskState.service !== '__all')rows = rows.filter(d => (d.service || '') === diskState.service);
+    // Hide non-prod unless toggled on (server-side already excludes them, but
+    // keep the loaded set consistent before a refetch lands).
+    if (!diskState.includeNonprod) rows = rows.filter(d => !d.isNonprod);
     rows.sort((a, b) => {
       // Primary: alertStatus desc (CRITICAL=3, WARNING=2, OK=1). Custom
       // per-server thresholds mean a 90% disk can be CRITICAL while a 95%
@@ -2906,7 +2917,7 @@
       diskState.status = code;
       diskState.page = 1;
       if (window.OC_API && typeof window.OC_API.fetchDisks === 'function') {
-        const refetched = await window.OC_API.fetchDisks({ envs: diskState.envs, status: code });
+        const refetched = await window.OC_API.fetchDisks({ envs: diskState.envs, status: code, includeNonprod: diskState.includeNonprod });
         if (refetched) return;
       }
       window.RERENDER_PAGE(mount);
@@ -3051,7 +3062,7 @@
     // window.SELECTED_BU automatically).
     const refetchDisks = async () => {
       const refetched = (window.OC_API && typeof window.OC_API.fetchDisks === 'function')
-        ? await window.OC_API.fetchDisks({ envs: diskState.envs, status: diskState.status })
+        ? await window.OC_API.fetchDisks({ envs: diskState.envs, status: diskState.status, includeNonprod: diskState.includeNonprod })
         : null;
       if (!refetched) window.RERENDER_PAGE(mount);
     };
@@ -3158,20 +3169,37 @@
       h('button.btn', { on:{click: async () => {
         const wasEnvs = (diskState.envs || []).slice().sort().join('|');
         const wasStatus = diskState.status;
+        const wasNonprod = diskState.includeNonprod;
         diskState.status='__all'; diskState.owner='__all';
         diskState.envs = DISK_DEFAULT_ENVS.slice();
         diskState.envMenuOpen = false;
+        diskState.includeNonprod = false;
         diskState.service='__all'; diskState.page=1;
         // Reset to the canonical "production-class envs / All statuses" landing —
         // does NOT clear the global BU scope (that's controlled from the rail).
         // Refetch only if the server-side filters actually changed.
         const nowEnvs = DISK_DEFAULT_ENVS.slice().sort().join('|');
-        if ((wasEnvs !== nowEnvs || wasStatus !== '__all') && window.OC_API && typeof window.OC_API.fetchDisks === 'function') {
-          const refetched = await window.OC_API.fetchDisks({ envs: DISK_DEFAULT_ENVS.slice(), status: '__all' });
+        if ((wasEnvs !== nowEnvs || wasStatus !== '__all' || wasNonprod) && window.OC_API && typeof window.OC_API.fetchDisks === 'function') {
+          const refetched = await window.OC_API.fetchDisks({ envs: DISK_DEFAULT_ENVS.slice(), status: '__all', includeNonprod: false });
           if (refetched) return; // refetch triggers its own rerender
         }
         window.RERENDER_PAGE(mount);
       }}}, 'Reset'),
+      // "Show nonprod" toggle — non-prod disks (.nonprod FQDN domain) are hidden by
+      // default. Count comes from the summary so it stays visible while hidden.
+      (function(){
+        const npCount = (window.DISK_SUMMARY && window.DISK_SUMMARY.nonprodCount) || 0;
+        const on = diskState.includeNonprod;
+        return h('button.btn'+(on?'.primary':''), {
+          'aria-pressed': String(on),
+          title: 'Non-prod disks live in the .nonprod domain (tagged production-class in SolarWinds)',
+          on:{click: async () => {
+            diskState.includeNonprod = !diskState.includeNonprod;
+            diskState.page = 1;
+            await refetchDisks();
+          }},
+        }, (on ? 'Hide nonprod' : 'Show nonprod') + (npCount ? ' (' + npCount + ')' : ''));
+      })(),
       h('span.spacer'),
       h('span.ct', null, 'Showing ' + (pg.start+1) + '–' + pg.end + ' of ' + filtered.length),
       h('button.btn', { on:{click:()=>exportCsv('disks', filtered,
@@ -3217,7 +3245,9 @@
 
     slice.forEach(d => {
       const tr = h('tr'+rowCls(d.alertStatus), null,
-        h('td.host', null, d.serverName),
+        // NONPROD chip flags the .nonprod-domain rows surfaced by "Show nonprod".
+        h('td.host', null, d.serverName,
+          d.isNonprod ? h('span.chip.sm.warn', { style:{marginLeft:'8px'}, title:'Non-prod domain (.nonprod)' }, 'NONPROD') : null),
         h('td.mono.muted', null, d.fqdn || '—'),
         h('td.muted', null, d.businessUnit || '—'),
         h('td.muted', null, d.service || '—'),

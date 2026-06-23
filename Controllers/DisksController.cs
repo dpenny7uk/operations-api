@@ -21,12 +21,13 @@ public class DisksController : ControllerBase
     public async Task<IActionResult> GetSummary(
         [FromQuery] string[]? environment = null,
         [FromQuery] string? businessUnit = null,
-        [FromQuery] int? alertStatus = null)
+        [FromQuery] int? alertStatus = null,
+        [FromQuery] bool includeNonprod = false)
     {
         var envFilter = CleanEnvironments(environment);
         var buFilter = string.IsNullOrWhiteSpace(businessUnit) ? null : businessUnit.Trim();
         var statusFilter = ValidateAlertStatus(alertStatus);
-        return Ok(await _svc.GetSummaryAsync(envFilter, buFilter, statusFilter));
+        return Ok(await _svc.GetSummaryAsync(envFilter, buFilter, statusFilter, includeNonprod));
     }
 
     /// <summary>List current-state disks with paged response.</summary>
@@ -36,6 +37,7 @@ public class DisksController : ControllerBase
     /// <param name="businessUnit">Optional canonical business-unit filter (e.g. "Contoso Group Support").</param>
     /// <param name="alertStatus">Optional alert-status filter (1=OK, 2=Warning, 3=Critical).</param>
     /// <param name="serverName">Optional server-name filter (partial match). Used by the server detail page.</param>
+    /// <param name="includeNonprod">Include disks whose FQDN domain is .nonprod. Defaults to false (excluded) - the disk view is production-focused; the server detail page passes true.</param>
     [HttpGet]
     [ProducesResponseType(200)]
     [ProducesResponseType(400)]
@@ -45,7 +47,8 @@ public class DisksController : ControllerBase
         [FromQuery] string[]? environment = null,
         [FromQuery] string? businessUnit = null,
         [FromQuery] int? alertStatus = null,
-        [FromQuery] string? serverName = null)
+        [FromQuery] string? serverName = null,
+        [FromQuery] bool includeNonprod = false)
     {
         if (serverName?.Length > 255 || InputGuard.ContainsControlChars(serverName))
             return BadRequest("serverName parameter is invalid.");
@@ -58,7 +61,7 @@ public class DisksController : ControllerBase
         var buFilter = string.IsNullOrWhiteSpace(businessUnit) ? null : businessUnit.Trim();
         var nameFilter = string.IsNullOrWhiteSpace(serverName) ? null : serverName.Trim();
         var statusFilter = ValidateAlertStatus(alertStatus);
-        return Ok(await _svc.ListDisksAsync(clampedLimit, clampedOffset, envFilter, buFilter, statusFilter, nameFilter));
+        return Ok(await _svc.ListDisksAsync(clampedLimit, clampedOffset, envFilter, buFilter, statusFilter, nameFilter, includeNonprod));
     }
 
     // Anything outside {1, 2, 3} is treated as no filter - protects the SQL

@@ -318,6 +318,7 @@ function mapDiskSummary(s) {
     okCount:       Number(s.okCount) || 0,
     warningCount:  Number(s.warningCount) || 0,
     criticalCount: Number(s.criticalCount) || 0,
+    nonprodCount:  Number(s.nonprodCount) || 0,
     environments: envs.map(e => ({
       environment:   e.environment || '',
       totalCount:    Number(e.totalCount) || 0,
@@ -348,6 +349,7 @@ function mapDisks(items) {
     id: i + 1,
     serverName: d.serverName || '',
     fqdn: d.fqdn || null,
+    isNonprod: !!d.isNonprod,
     diskLabel: d.diskLabel || '',
     service: d.service || '',
     environment: d.environment || '',
@@ -752,7 +754,9 @@ window.OC_API = {
     }
     const name = server.serverName || '';
     const [disksRes, certsRes, historyRes] = await Promise.all([
-      api('/disks?limit=100&serverName=' + encodeURIComponent(name)),
+      // includeNonprod=true: a server's detail page must show all its disks even
+      // when the server lives in the .nonprod domain (the list view hides those).
+      api('/disks?limit=100&includeNonprod=true&serverName=' + encodeURIComponent(name)),
       api('/certificates/server/' + encodeURIComponent(name)),
       api('/servers/' + encodeURIComponent(id) + '/patch-history'),
     ]);
@@ -789,7 +793,7 @@ window.OC_API = {
   // alert-status filter (1=OK, 2=Warning, 3=Critical). Updates
   // window.DISKS_DATA + window.DISK_SUMMARY and triggers a rerender so the
   // KPI strip, dropdown counts, and table all reflect the new selection.
-  fetchDisks: async ({ env, envs, bu, status } = {}) => {
+  fetchDisks: async ({ env, envs, bu, status, includeNonprod } = {}) => {
     if (bu === undefined) bu = window.SELECTED_BU;
     // Env is multi-select: accept an `envs` array, or a single `env` string for
     // back-compat. '__all' / falsy means no env filter. An empty string entry
@@ -799,11 +803,15 @@ window.OC_API = {
     const envSet = envList.length > 0;
     const buSet  = bu && bu !== '__all';
     const stSet  = status && status !== '__all';
+    // includeNonprod defaults to false (the API also defaults to excluding
+    // .nonprod disks); only send the param when explicitly opting in.
+    const npSet  = includeNonprod === true;
     const buildParams = (includeLimit) => {
       const ps = includeLimit ? ['limit=5000'] : [];
       if (envSet) envList.forEach(e => ps.push('environment=' + encodeURIComponent(e)));
       if (buSet)  ps.push('businessUnit=' + encodeURIComponent(bu));
       if (stSet)  ps.push('alertStatus=' + encodeURIComponent(status));
+      if (npSet)  ps.push('includeNonprod=true');
       return ps;
     };
     const qs = '?' + buildParams(true).join('&');

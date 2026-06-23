@@ -10,6 +10,11 @@ public class DiskSummary
     public int WarningCount { get; set; }
     public int CriticalCount { get; set; }
 
+    // Non-production disks (by FQDN domain) within the current env/BU/status
+    // scope, regardless of the includeNonprod toggle. Drives the "Show nonprod (N)"
+    // control so the count stays visible even while they're filtered out.
+    public int NonprodCount { get; set; }
+
     public List<DiskEnvCount> Environments { get; set; } = new();
     public List<DiskBuCount> BusinessUnits { get; set; } = new();
     public List<DiskAlertStatusCount> AlertStatuses { get; set; } = new();
@@ -42,9 +47,13 @@ public class DiskAlertStatusCount
 public class Disk
 {
     public string ServerName { get; set; } = "";
-    // Best-effort FQDN from shared.servers (Databricks inventory); null when the
-    // SolarWinds server has no matching inventory row.
+    // Authoritative FQDN from SolarWinds Nodes.DNS (falls back to an FQDN-form
+    // caption); null when neither is available.
     public string? Fqdn { get; set; }
+    // True when the FQDN/server domain is .nonprod. The SolarWinds Environment tag
+    // is unreliable for this (non-prod boxes are tagged production-class), so the
+    // domain is the authoritative prod/non-prod signal.
+    public bool IsNonprod { get; set; }
     public string DiskLabel { get; set; } = "";
     public string? Service { get; set; }
     public string? Environment { get; set; }

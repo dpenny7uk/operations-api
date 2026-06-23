@@ -82,6 +82,54 @@ public class DiskMonitoringServiceTests : IntegrationTestBase
         Assert.Null(dev01.DaysUntilCritical);
     }
 
+    // ── Non-prod filtering (FQDN .nonprod domain) ───────────────────────
+
+    [DockerFact]
+    public async Task List_excludes_nonprod_by_default()
+    {
+        var svc = CreateService();
+        var page = await svc.ListDisksAsync(limit: 100, offset: 0);
+
+        // NPSQL01 lives in the .nonprod domain - hidden unless includeNonprod.
+        Assert.Equal(4, page.TotalCount);
+        Assert.DoesNotContain(page.Items, d => d.ServerName == "NPSQL01");
+        Assert.All(page.Items, d => Assert.False(d.IsNonprod));
+    }
+
+    [DockerFact]
+    public async Task List_includes_nonprod_when_requested_and_exposes_fqdn()
+    {
+        var svc = CreateService();
+        var page = await svc.ListDisksAsync(limit: 100, offset: 0, includeNonprod: true);
+
+        Assert.Equal(5, page.TotalCount);
+        var np = page.Items.Single(d => d.ServerName == "NPSQL01");
+        Assert.True(np.IsNonprod);
+        Assert.Equal("npsql01.contoso.nonprod", np.Fqdn);
+    }
+
+    [DockerFact]
+    public async Task Summary_excludes_nonprod_by_default_but_reports_count()
+    {
+        var svc = CreateService();
+        var summary = await svc.GetSummaryAsync();
+
+        // Default scope excludes the nonprod disk from the totals...
+        Assert.Equal(4, summary.TotalCount);
+        // ...but NonprodCount surfaces it for the "Show nonprod" toggle.
+        Assert.Equal(1, summary.NonprodCount);
+    }
+
+    [DockerFact]
+    public async Task Summary_includes_nonprod_when_requested()
+    {
+        var svc = CreateService();
+        var summary = await svc.GetSummaryAsync(includeNonprod: true);
+
+        Assert.Equal(5, summary.TotalCount);
+        Assert.Equal(1, summary.NonprodCount);
+    }
+
     // ── GetHistoryAsync ─────────────────────────────────────────────────
 
     [DockerFact]

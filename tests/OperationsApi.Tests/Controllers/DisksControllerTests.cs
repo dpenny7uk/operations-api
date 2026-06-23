@@ -15,12 +15,12 @@ public class DisksControllerTests
     private void SetupListReturnsEmpty()
         => _svc.Setup(s => s.ListDisksAsync(
                 It.IsAny<int>(), It.IsAny<int>(),
-                It.IsAny<IReadOnlyList<string>?>(), It.IsAny<string?>(), It.IsAny<int?>(), It.IsAny<string?>()))
+                It.IsAny<IReadOnlyList<string>?>(), It.IsAny<string?>(), It.IsAny<int?>(), It.IsAny<string?>(), It.IsAny<bool>()))
             .ReturnsAsync(new PagedResult<Disk>());
 
     private void SetupSummaryReturnsEmpty()
         => _svc.Setup(s => s.GetSummaryAsync(
-                It.IsAny<IReadOnlyList<string>?>(), It.IsAny<string?>(), It.IsAny<int?>()))
+                It.IsAny<IReadOnlyList<string>?>(), It.IsAny<string?>(), It.IsAny<int?>(), It.IsAny<bool>()))
             .ReturnsAsync(new DiskSummary());
 
     [Fact]
@@ -161,6 +161,26 @@ public class DisksControllerTests
     }
 
     [Fact]
+    public async Task List_excludes_nonprod_by_default()
+    {
+        SetupListReturnsEmpty();
+
+        await Controller.List(limit: 100, offset: 0);
+
+        _svc.Verify(s => s.ListDisksAsync(100, 0, null, null, null, null, false));
+    }
+
+    [Fact]
+    public async Task List_passes_include_nonprod_through_when_set()
+    {
+        SetupListReturnsEmpty();
+
+        await Controller.List(limit: 100, offset: 0, includeNonprod: true);
+
+        _svc.Verify(s => s.ListDisksAsync(100, 0, null, null, null, null, true));
+    }
+
+    [Fact]
     public async Task GetSummary_passes_filters_through()
     {
         SetupSummaryReturnsEmpty();
@@ -168,7 +188,17 @@ public class DisksControllerTests
         await Controller.GetSummary(environment: new[] { "Production" }, businessUnit: "Contoso Group Support", alertStatus: 3);
 
         _svc.Verify(s => s.GetSummaryAsync(
-            It.Is<IReadOnlyList<string>>(l => l.Count == 1 && l[0] == "Production"), "Contoso Group Support", 3));
+            It.Is<IReadOnlyList<string>>(l => l.Count == 1 && l[0] == "Production"), "Contoso Group Support", 3, false));
+    }
+
+    [Fact]
+    public async Task GetSummary_passes_include_nonprod_through_when_set()
+    {
+        SetupSummaryReturnsEmpty();
+
+        await Controller.GetSummary(includeNonprod: true);
+
+        _svc.Verify(s => s.GetSummaryAsync(null, null, null, true));
     }
 
     [Fact]

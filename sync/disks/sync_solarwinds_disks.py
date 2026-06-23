@@ -213,6 +213,7 @@ SOURCE_QUERY = """
 SELECT
     n.NodeID,
     n.Caption        AS server_name,
+    n.DNS            AS dns_name,
     n.Service        AS service,
     n.Environment    AS environment,
     n.TechnicalOwner AS technical_owner,
@@ -292,6 +293,24 @@ def fetch_disks_from_solarwinds() -> list:
         conn.close()
 
 
+def _derive_fqdn(dns_name, caption) -> Optional[str]:
+    """Best-effort FQDN for a node.
+
+    Prefer SolarWinds Nodes.DNS (the resolved fully-qualified name, the
+    authoritative source for the .hiscox.nonprod vs .hiscox.com domain). Fall
+    back to Caption when it is already an FQDN (contains a dot). Returns None when
+    neither yields a usable name, in which case the SPA shows a dash and
+    prod/non-prod classification falls back to the (short) server name.
+    """
+    dns = (dns_name or '').strip()
+    if dns:
+        return dns[:500]
+    cap = (caption or '').strip()
+    if '.' in cap:
+        return cap[:500]
+    return None
+
+
 def transform_row(row: dict) -> Optional[dict]:
     """Convert a SolarWinds row into a monitoring.disk_snapshots row.
 
@@ -323,6 +342,7 @@ def transform_row(row: dict) -> Optional[dict]:
 
     return {
         'server_name': row['server_name'],
+        'fqdn': _derive_fqdn(row.get('dns_name'), row.get('server_name')),
         'service': row.get('service'),
         'environment': _canonicalize_env(row.get('environment')),
         'technical_owner': row.get('technical_owner'),
@@ -343,7 +363,7 @@ def transform_row(row: dict) -> Optional[dict]:
 
 
 INSERT_COLUMNS = (
-    'server_name', 'service', 'environment', 'technical_owner', 'business_owner',
+    'server_name', 'fqdn', 'service', 'environment', 'technical_owner', 'business_owner',
     'business_unit', 'tier', 'disk_label', 'volume_size_gb', 'used_gb', 'free_gb',
     'percent_used', 'alert_status', 'threshold_warn_pct', 'threshold_crit_pct',
     'source_volume_id', 'source_node_id',

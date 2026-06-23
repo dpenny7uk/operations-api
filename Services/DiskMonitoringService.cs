@@ -15,17 +15,17 @@ public class DiskMonitoringService : BaseService<DiskMonitoringService>, IDiskMo
     public DiskMonitoringService(IDbConnection db, ILogger<DiskMonitoringService> logger)
         : base(db, logger) { }
 
-    public Task<DiskSummary> GetSummaryAsync(IReadOnlyList<string>? environments = null, string? businessUnit = null, int? alertStatus = null) => RunDbAsync(async () =>
+    public Task<DiskSummary> GetSummaryAsync(IReadOnlyList<string>? environments = null, string? businessUnit = null, int? alertStatus = null, bool includeNonprod = false) => RunDbAsync(async () =>
     {
         // Four queries implement the cross-facet rule: each breakdown is
         // computed with all OTHER active filters, EXCLUDING its own dimension.
         // This means picking BU rescopes env + status counts, picking env
         // rescopes BU + status counts, etc. - but a dropdown's own labels stay
         // stable when you re-pick from it. Top-level totals are scoped by all.
-        var (topWhere, topArgs) = BuildDiskFilterClause(environments, businessUnit, alertStatus);
-        var (envBreakdownWhere, envBreakdownArgs) = BuildDiskFilterClause(environments, businessUnit, alertStatus, exclude: "environment");
-        var (buBreakdownWhere, buBreakdownArgs) = BuildDiskFilterClause(environments, businessUnit, alertStatus, exclude: "businessUnit");
-        var (statusBreakdownWhere, statusBreakdownArgs) = BuildDiskFilterClause(environments, businessUnit, alertStatus, exclude: "alertStatus");
+        var (topWhere, topArgs) = BuildDiskFilterClause(environments, businessUnit, alertStatus, includeNonprod: includeNonprod);
+        var (envBreakdownWhere, envBreakdownArgs) = BuildDiskFilterClause(environments, businessUnit, alertStatus, exclude: "environment", includeNonprod: includeNonprod);
+        var (buBreakdownWhere, buBreakdownArgs) = BuildDiskFilterClause(environments, businessUnit, alertStatus, exclude: "businessUnit", includeNonprod: includeNonprod);
+        var (statusBreakdownWhere, statusBreakdownArgs) = BuildDiskFilterClause(environments, businessUnit, alertStatus, exclude: "alertStatus", includeNonprod: includeNonprod);
 
         var top = await Db.QueryFirstAsync<DiskSummary>($@"
             SELECT
@@ -73,36 +73,46 @@ public class DiskMonitoringService : BaseService<DiskMonitoringService>, IDiskMo
             ORDER BY alert_status
         ", statusBreakdownArgs)).ToList();
 
+        // Non-prod count within the env/BU/status scope, independent of the
+        // includeNonprod toggle, so the SPA can label "Show nonprod (N)". Reuse
+        // the env/BU/status clause with includeNonprod=true (no exclusion), then
+        // narrow to non-prod only.
+        var (npScopeWhere, npArgs) = BuildDiskFilterClause(environments, businessUnit, alertStatus, includeNonprod: true);
+        var npWhere = string.IsNullOrEmpty(npScopeWhere)
+            ? $"WHERE {NonprodExpr("")}"
+            : $"{npScopeWhere} AND {NonprodExpr("")}";
+        top.NonprodCount = await Db.QueryFirstAsync<int>(
+            $"SELECT COUNT(*)::int FROM {Sql.Tables.DiskCurrent} {npWhere}", npArgs);
+
         top.Environments = envs;
         top.BusinessUnits = bus;
         top.AlertStatuses = statuses;
         return top;
     });
 
-    public Task<PagedResult<Disk>> ListDisksAsync(int limit, int offset, IReadOnlyList<string>? environments = null, string? businessUnit = null, int? alertStatus = null, string? serverName = null) => RunDbAsync(async () =>
+    public Task<PagedResult<Disk>> ListDisksAsync(int limit, int offset, IReadOnlyList<string>? environments = null, string? businessUnit = null, int? alertStatus = null, string? serverName = null, bool includeNonprod = false) => RunDbAsync(async () =>
     {
         // Filter clauses compose with AND. Casing matches the canonical values
         // written by the sync (_canonicalize_env / _canonicalize_bu in
         // sync_solarwinds_disks.py); equality match avoids any per-query LOWER().
         // serverName uses ILIKE %X% to mirror the certificates partial-match
         // behaviour - used by the server detail page to fetch one server's disks.
-        // Columns are aliased d.* because the FQDN lookup joins shared.servers,
-        // which shares column names (environment, business_unit, server_name).
-        var (whereClause, scopedArgs) = BuildDiskFilterClause(environments, businessUnit, alertStatus, serverName: serverName, alias: "d.");
+        // Columns are aliased d.* for symmetry with the nonprod predicate.
+        var (whereClause, scopedArgs) = BuildDiskFilterClause(environments, businessUnit, alertStatus, serverName: serverName, alias: "d.", includeNonprod: includeNonprod);
         scopedArgs.Add("Limit", limit);
         scopedArgs.Add("Offset", offset);
 
         var totalCount = await Db.QueryFirstAsync<int>(
             $"SELECT COUNT(*) FROM {Sql.Tables.DiskCurrent} d {whereClause}", scopedArgs);
 
-        // FQDN is best-effort: shared.servers (Databricks inventory) keyed on the
-        // SolarWinds server_name. Mirrors the certificates join (UPPER both sides
-        // for case-insensitive match). SolarWinds-only nodes (e.g. ESXi hosts) have
-        // no inventory row, so Fqdn comes back NULL and the SPA renders a dash.
+        // FQDN comes from SolarWinds Nodes.DNS (stored on disk_snapshots by the
+        // sync). IsNonprod is derived from the FQDN/server domain - the only
+        // reliable prod/non-prod signal (the Environment tag mislabels these).
         var disks = (await Db.QueryAsync<Disk>($@"
             SELECT
                 d.server_name        AS ServerName,
-                s.fqdn               AS Fqdn,
+                d.fqdn               AS Fqdn,
+                ({NonprodExpr("d.")}) AS IsNonprod,
                 d.disk_label         AS DiskLabel,
                 d.service            AS Service,
                 d.environment        AS Environment,
@@ -119,7 +129,6 @@ public class DiskMonitoringService : BaseService<DiskMonitoringService>, IDiskMo
                 d.threshold_crit_pct AS ThresholdCritPct,
                 d.captured_at        AS CapturedAt
             FROM {Sql.Tables.DiskCurrent} d
-            LEFT JOIN {Sql.Tables.Servers} s ON UPPER(s.server_name) = UPPER(d.server_name) AND s.is_active
             {whereClause}
             ORDER BY d.alert_status DESC, d.percent_used DESC, d.server_name, d.disk_label
             LIMIT @Limit OFFSET @Offset
@@ -185,13 +194,24 @@ public class DiskMonitoringService : BaseService<DiskMonitoringService>, IDiskMo
     // where each breakdown excludes its own dimension from the WHERE so the
     // dropdown's own labels stay stable when the user picks from it).
     // exclude values: "environment" | "businessUnit" | "alertStatus" | null.
+    // A disk is non-production when its FQDN (preferred) or, failing that, its
+    // server name resolves to a .nonprod domain. SolarWinds tags these boxes as a
+    // production-class Environment, so the domain is the only reliable signal.
+    private static string NonprodExpr(string alias) =>
+        $"COALESCE({alias}fqdn, {alias}server_name) ILIKE '%.nonprod'";
+
     // alias prefixes the column names (e.g. "d.") for queries that join another
     // table sharing column names; defaults to "" for the un-joined summary queries.
+    // includeNonprod=false (the default) excludes .nonprod-domain disks.
     private static (string clause, DynamicParameters args) BuildDiskFilterClause(
-        IReadOnlyList<string>? environments, string? businessUnit, int? alertStatus, string? exclude = null, string? serverName = null, string alias = "")
+        IReadOnlyList<string>? environments, string? businessUnit, int? alertStatus, string? exclude = null, string? serverName = null, string alias = "", bool includeNonprod = false)
     {
         var clauses = new List<string>();
         var args = new DynamicParameters();
+        if (!includeNonprod)
+        {
+            clauses.Add($"NOT ({NonprodExpr(alias)})");
+        }
         if (environments is { Count: > 0 } && exclude != "environment")
         {
             // The unclassified group (NULL environment) is selectable via a blank
