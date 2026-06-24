@@ -1120,7 +1120,8 @@ Object.assign(window.OC_ACTIONS, {
   deleteLicence: async (id) => {
     const res = await apiDelete('/licensing/licences/' + id);
     if (res.ok) { await refetchLicences(); return; }
-    alert('Could not delete licence (' + res.status + '): ' + (res.error || 'unknown error'));
+    if (res.status === 0) _licenceFallbackDelete(id); // offline: drop from the in-memory seed
+    else alert('Could not delete licence (' + res.status + '): ' + (res.error || 'unknown error'));
   },
 });
 
@@ -1152,6 +1153,12 @@ function _licenceFallbackRenew(id, newExpires, notes) {
   const D = window.LICENSING_DATA;
   const l = D && D.LICENCES.find(x => x.licence_id === id);
   if (l && D.markRenewed) { D.markRenewed(l, newExpires, notes); markDemo('licensing'); _rerenderLic(); }
+}
+function _licenceFallbackDelete(id) {
+  const D = window.LICENSING_DATA;
+  if (!D || !Array.isArray(D.LICENCES)) return;
+  const i = D.LICENCES.findIndex(x => x.licence_id === id);
+  if (i >= 0) { D.LICENCES.splice(i, 1); markDemo('licensing'); _rerenderLic(); }
 }
 
 async function refetchExclusions() {

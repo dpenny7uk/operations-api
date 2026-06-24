@@ -3841,6 +3841,15 @@
         ),
       ));
     }
+
+    // Remove (soft-delete) — destructive, mirrors the exclusions "Release" action.
+    actionCol.appendChild(h('div', { style:{marginTop:'8px',paddingTop:'10px',borderTop:'1px solid var(--rule)'} },
+      h('button.btn.danger', { on:{click:()=>{
+        if (!confirm('Remove licence for ' + (l.application_name || l.product || ('#' + l.licence_id)) + '?')) return;
+        if (window.OC_ACTIONS && window.OC_ACTIONS.deleteLicence) window.OC_ACTIONS.deleteLicence(l.licence_id);
+      }}}, 'Remove licence'),
+    ));
+
     grid.appendChild(actionCol);
 
     td.appendChild(grid);
@@ -3882,7 +3891,7 @@
     wrap.appendChild(h('label', { style: fieldStyle },
       h('span', { style: labelStyle }, 'New expiry date'),
       h('input', { 'data-fk':'lic-renew-exp-'+l.licence_id, type:'date', style: inputStyle, value: state.new_expires,
-        on:{input:(e)=>{ state.new_expires = e.target.value; }}}),
+        on:{input:(e)=>{ state.new_expires = e.target.value; window.RERENDER_PAGE(mount); }}}),
     ));
     wrap.appendChild(h('label', { style: fieldStyle },
       h('span', { style: labelStyle }, 'Renewal notes (optional)'),
@@ -3981,17 +3990,17 @@
     grid.appendChild(h('label', { style: fieldStyle },
       h('span', { style: labelStyle }, 'Vendor'),
       h('input', { 'data-fk':'lic-add-vendor', type:'text', style: inputStyle, value: formState.vendor, placeholder:'e.g. Tableau',
-        on:{input:(e)=>{ formState.vendor = e.target.value; }}}),
+        on:{input:(e)=>{ formState.vendor = e.target.value; window.RERENDER_PAGE(mount); }}}),
     ));
     grid.appendChild(h('label', { style: fieldStyle },
       h('span', { style: labelStyle }, 'Product'),
       h('input', { 'data-fk':'lic-add-product', type:'text', style: inputStyle, value: formState.product,
-        on:{input:(e)=>{ formState.product = e.target.value; }}}),
+        on:{input:(e)=>{ formState.product = e.target.value; window.RERENDER_PAGE(mount); }}}),
     ));
     grid.appendChild(h('label', { style: fieldStyle },
       h('span', { style: labelStyle }, 'Expiry date'),
       h('input', { 'data-fk':'lic-add-exp', type:'date', style: inputStyle, value: formState.expires_at,
-        on:{input:(e)=>{ formState.expires_at = e.target.value; }}}),
+        on:{input:(e)=>{ formState.expires_at = e.target.value; window.RERENDER_PAGE(mount); }}}),
     ));
     grid.appendChild(h('label', { style: fieldStyle },
       h('span', { style: labelStyle }, 'Licence type'),
@@ -4019,7 +4028,7 @@
     ));
     grid.appendChild(h('label', { style: fieldStyle },
       h('span', { style: labelStyle }, 'Licence audit owner'),
-      h('input', { 'data-fk':'lic-add-owner', type:'text', style: inputStyle, value: formState.audit_owner_sam, placeholder:'sam.account',
+      h('input', { 'data-fk':'lic-add-owner', type:'text', style: inputStyle, value: formState.audit_owner_sam, placeholder:'Enter Name',
         on:{input:(e)=>{ formState.audit_owner_sam = e.target.value; }}}),
     ));
 
@@ -4028,7 +4037,7 @@
     // Status flag — two values only. Most new licences start as 'tracked'.
     // 'Engaged' as initial would mean procurement was already working on it
     // before ops registered the licence — uncommon but possible.
-    wrap.appendChild(h('label', { style: Object.assign({}, fieldStyle, { maxWidth:'260px' }) },
+    wrap.appendChild(h('label', { style: Object.assign({}, fieldStyle, { maxWidth:'460px' }) },
       h('span', { style: labelStyle }, 'Initial status'),
       h('select', { style: inputStyle, on:{change:(e)=>{ formState.status_flag = e.target.value; }}},
         h('option', { value:'tracked', selected: formState.status_flag==='tracked' }, 'Tracked — in the system, no procurement action yet'),
@@ -4072,7 +4081,7 @@
           done();
         }
       }},
-    }, 'Add licence');
+    }, 'Add Licence');
     wrap.appendChild(h('div', { style:{display:'flex',gap:'10px',alignItems:'center',paddingTop:'4px'} },
       submitBtn,
       h('span', { style:{fontFamily:'var(--mono)',fontSize:'10.5px',color:'var(--ink-3)'} },
