@@ -16,6 +16,11 @@ from alert_disk_breaches import (
     build_adaptive_card as build_disk_card,
     _dedupe_resolved,
 )
+from alert_licence_expiry import (
+    threshold_for as licence_threshold_for,
+    _licence_row as licence_row,
+    build_adaptive_card as build_licence_card,
+)
 
 
 # ── Health alert card ────────────────────────────────────────────────────────
@@ -442,3 +447,80 @@ class TestDiskBreachCard:
         texts = [b.get('text', '') for b in body]
         assert any('CRITICAL' in t for t in texts)
         assert not any('WARNING' in t for t in texts)
+
+
+# ── Licence expiry alert ──────────────────────────────────────────────────────
+
+class TestLicenceExpiryThreshold:
+    # These boundaries MUST stay in lockstep with the frontend getBucket
+    # (licensing-demo-data.js) and the licensing.alerts.threshold enum:
+    # <0 expired, <=30 thirty_d, <=90 three_mo, <=183 six_mo, else None.
+    def test_expired(self):
+        assert licence_threshold_for(-1) == 'expired'
+
+    def test_thirty_day_boundaries(self):
+        assert licence_threshold_for(0) == 'thirty_d'
+        assert licence_threshold_for(30) == 'thirty_d'
+
+    def test_three_month_boundaries(self):
+        assert licence_threshold_for(31) == 'three_mo'
+        assert licence_threshold_for(90) == 'three_mo'
+
+    def test_six_month_boundaries(self):
+        assert licence_threshold_for(91) == 'six_mo'
+        assert licence_threshold_for(183) == 'six_mo'
+
+    def test_beyond_six_months_is_none(self):
+        assert licence_threshold_for(184) is None
+
+    def test_none_days_is_none(self):
+        assert licence_threshold_for(None) is None
+
+
+class TestLicenceExpiryCard:
+    def _licence(self, threshold='thirty_d', days=15):
+        return {
+            'licence_id': 1, 'vendor': 'Tableau', 'product': 'Tableau Server',
+            'application_name': 'Tableau Server', 'days_until_expiry': days,
+            'expires_at': date(2026, 11, 22), 'quantity_held': 500,
+            'audit_owner_sam': 'paul.griffin', 'status_flag': 'tracked',
+            'threshold': threshold,
+        }
+
+    def test_row_shows_vendor_qty_owner_and_days(self):
+        text = json.dumps(licence_row(self._licence()))
+        assert 'Tableau Server' in text
+        assert '500' in text               # quantity held
+        assert 'paul.griffin' in text      # audit owner
+        assert '15d remaining' in text
+
+    def test_row_expired_wording(self):
+        assert 'Expired 5d ago' in json.dumps(licence_row(self._licence('expired', -5)))
+
+    def test_card_structure(self):
+        card = build_licence_card({'thirty_d': [self._licence()]}, 'https://ops/')
+        assert card['type'] == 'message'
+        assert card['attachments'][0]['content']['type'] == 'AdaptiveCard'
+
+    def test_card_title_counts_all_sections(self):
+        by = {'expired': [self._licence('expired', -1)], 'six_mo': [self._licence('six_mo', 150)]}
+        title = build_licence_card(by, 'https://ops/')['attachments'][0]['content']['body'][0]['text']
+        assert '2 licence(s)' in title
+
+    def test_card_orders_expired_before_six_mo(self):
+        by = {'six_mo': [self._licence('six_mo', 150)], 'expired': [self._licence('expired', -1)]}
+        body = build_licence_card(by, 'https://ops/')['attachments'][0]['content']['body']
+        texts = [b.get('text', '') for b in body if b.get('text')]
+        exp_idx = next(i for i, t in enumerate(texts) if 'EXPIRED' in t)
+        six_idx = next(i for i, t in enumerate(texts) if 'WITHIN 6 MONTHS' in t)
+        assert exp_idx < six_idx
+
+    def test_card_omits_empty_sections(self):
+        body_json = json.dumps(build_licence_card({'thirty_d': [self._licence()]}, 'https://ops/')['attachments'][0]['content']['body'])
+        assert 'WITHIN 30 DAYS' in body_json
+        assert 'WITHIN 6 MONTHS' not in body_json
+
+    def test_card_has_console_deep_link(self):
+        actions = build_licence_card({'thirty_d': [self._licence()]}, 'https://ops/')['attachments'][0]['content']['actions']
+        assert actions[0]['type'] == 'Action.OpenUrl'
+        assert actions[0]['url'] == 'https://ops/#licensing'

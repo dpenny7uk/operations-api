@@ -92,3 +92,16 @@ public interface IDiskMonitoringService
     Task<PagedResult<Disk>> ListDisksAsync(int limit, int offset, IReadOnlyList<string>? environments = null, string? businessUnit = null, int? alertStatus = null, string? serverName = null, bool includeNonprod = false);
     Task<IEnumerable<DiskHistoryPoint>> GetHistoryAsync(string serverName, string diskLabel, int days);
 }
+
+public interface ILicensingService
+{
+    // List embeds each licence's renewal history so one GET hydrates table + detail.
+    Task<IEnumerable<LicenceDetail>> ListAsync(string? vendor, string? status, string? search, int limit);
+    Task<LicenceDetail?> GetByIdAsync(int id);
+    Task<LicenceDetail> CreateAsync(LicenceCreateRequest req, string actor);
+    Task<LicenceDetail?> PatchAsync(int id, LicencePatchRequest req, string actor);
+    Task<bool> DeleteAsync(int id, string actor);
+    // Transactional: records the closing cycle, advances expiry, resets status to
+    // 'tracked', clears the licence's alert rows so next-cycle thresholds re-fire.
+    Task<LicenceDetail?> RenewAsync(int id, DateOnly newExpires, string? notes, string actor);
+}

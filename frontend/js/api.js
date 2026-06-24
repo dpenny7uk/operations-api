@@ -124,3 +124,20 @@ async function apiWrite(method, path, body) {
 export async function apiPost(path, body = {})   { return apiWrite('POST',   path, body); }
 export async function apiPatch(path, body = {})  { return apiWrite('PATCH',  path, body); }
 export async function apiDelete(path)            { return apiWrite('DELETE', path, undefined); }
+
+// --- Licensing (08) wrappers ---
+// Reads return the parsed body (or null); writes return { ok, status, error }.
+// The list endpoint embeds each licence's renewal history, so a single GET
+// hydrates both the table and the detail panel.
+export const apiLicensing = {
+  list:   (params = {}) => {
+    const entries = Object.entries(params).filter(([, v]) => v != null && v !== '');
+    const qs = entries.length ? '?' + new URLSearchParams(entries).toString() : '';
+    return api('/licensing/licences' + qs);
+  },
+  get:    (id)          => api(`/licensing/licences/${id}`),
+  create: (body)        => apiPost('/licensing/licences', body),
+  patch:  (id, body)    => apiPatch(`/licensing/licences/${id}`, body),
+  renew:  (id, body)    => apiPost(`/licensing/licences/${id}/renew`, body),
+  remove: (id)          => apiDelete(`/licensing/licences/${id}`),
+};

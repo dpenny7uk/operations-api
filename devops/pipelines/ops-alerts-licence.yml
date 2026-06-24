@@ -1,0 +1,55 @@
+# Operations API - Licence Expiry Alert
+#
+# Runs daily at 07:00 UTC (after the 06:00 certificate scan) - queries
+# licensing.licences for anything expiring within 6 months, posts a single Teams
+# Adaptive Card per run, and uses licensing.alerts to fire each threshold
+# (six_mo / three_mo / thirty_d / expired) only once per cycle. The API's renew
+# action clears a licence's alert rows so the next cycle re-fires cleanly.
+#
+# Mirrors devops/pipelines/ops-alert-disk-breaches.yml.
+
+trigger: none
+
+schedules:
+  - cron: "0 7 * * *"
+    displayName: "Daily licence expiry check at 07:00"
+    branches:
+      include:
+        - main
+    always: true
+
+pool:
+  name: 'Default'
+
+variables:
+  - group: operations-api-prod
+
+steps:
+  - powershell: |
+      $repoRoot = "$(Build.SourcesDirectory)\operations-api"
+      $workDir = "$(Build.StagingDirectory)\sync_run"
+      New-Item -ItemType Directory -Force -Path $workDir | Out-Null
+      Copy-Item "$repoRoot\sync\common.py" "$workDir\"
+      Copy-Item "$repoRoot\sync\alerts\alert_licence_expiry.py" "$workDir\"
+      pip install -r "$repoRoot\sync\requirements.txt"
+      if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    displayName: 'Prepare sync environment'
+    timeoutInMinutes: 10
+    errorActionPreference: stop
+
+  - powershell: |
+      Set-Location "$(Build.StagingDirectory)\sync_run"
+      python alert_licence_expiry.py --verbose
+      if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    displayName: 'Check for licence expiries'
+    timeoutInMinutes: 10
+    errorActionPreference: stop
+    env:
+      OPS_DB_HOST: $(OPS_DB_HOST)
+      OPS_DB_PORT: $(OPS_DB_PORT)
+      OPS_DB_NAME: $(OPS_DB_NAME)
+      OPS_DB_USER: $(OPS_DB_USER)
+      OPS_DB_PASSWORD: $(OPS_DB_PASSWORD)
+      OPS_DB_SSLMODE: $(OPS_DB_SSLMODE)
+      TEAMS_WEBHOOK_URL: $(TEAMS_WEBHOOK_URL)
+      OPS_BASE_URL: $(OPS_BASE_URL)

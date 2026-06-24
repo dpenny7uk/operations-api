@@ -43,7 +43,9 @@ public abstract class BaseService<TService> where TService : class
         {
             return await operation();
         }
-        catch (Exception ex)
+        // ConflictException is an expected client error (e.g. duplicate row) the
+        // caller translates to 409 - don't log it as a database fault.
+        catch (Exception ex) when (ex is not ConflictException)
         {
             Logger.LogError(ex, "Database error in {Service}.{Method}", typeof(TService).Name, caller);
             throw;
@@ -57,7 +59,7 @@ public abstract class BaseService<TService> where TService : class
         {
             await operation();
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             Logger.LogError(ex, "Database error in {Service}.{Method}", typeof(TService).Name, caller);
             throw;
@@ -156,5 +158,8 @@ public static class Sql
         public const string DiskSnapshots = "monitoring.disk_snapshots";
         public const string DiskCurrent = "monitoring.disk_current";
         public const string DiskAlerts = "monitoring.alerts";
+        public const string Licences = "licensing.licences";
+        public const string Renewals = "licensing.renewals";
+        public const string LicenceAlerts = "licensing.alerts";
     }
 }

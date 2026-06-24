@@ -3560,6 +3560,12 @@
   // ================================================================
   const licState = { bucket: '__all', vendor: '__all', status: '__all', q: '', selectedId: null, showAddForm: false };
 
+  // CMDB-aligned dropdown values. licence_type / audit_frequency are stored
+  // flexibly server-side (no DB CHECK), so these are just the UI option lists —
+  // adding a value here is the only change needed when the CMDB grows one.
+  const LICENCE_TYPES = ['N/A', 'Annual', 'Concurrent', 'Open Source', 'Device Client Access', 'User Client Access'];
+  const AUDIT_FREQUENCIES = ['N/A', 'Annual', 'Quarterly', 'Ad-hoc'];
+
   function _licData() { return window.LICENSING_DATA || null; }
   const BUCKET_LABEL = {
     expired:   'Expired',
@@ -3630,11 +3636,10 @@
       return;
     }
 
-    // Phase 0 disclosure ribbon
-    page.appendChild(h('div.demo-ribbon-row', { role: 'status', 'aria-label': 'Phase 0 prototype' },
-      h('span.demo-ribbon', null, 'DEMO DATA'),
-      h('span.demo-ribbon-note', null, 'Phase 0 prototype — fixtures from licensing-demo-data.js. No backend, no Teams alerts. Click-through and add/edit are in-memory only.'),
-    ));
+    // DEMO ribbon — only when the live /api/licensing fetch failed and the
+    // page is showing the seed fixture instead of current data.
+    const licRibbon = demoRibbon('licensing');
+    if (licRibbon) page.appendChild(licRibbon);
 
     // 6-cell crit strip (matches the existing .crit-strip-6 variant)
     const counts = D.getCounts();
@@ -3721,11 +3726,11 @@
       h('th', null, 'Application'),
       h('th', null, 'Vendor'),
       h('th', null, 'Product'),
-      h('th.num', null, 'Seats'),
+      h('th.num', null, 'Quantity held'),
       h('th', null, 'Expires'),
       h('th.num', null, 'Days'),
       h('th', null, 'Status'),
-      h('th', null, 'Renewal owner'),
+      h('th', null, 'Licence audit owner'),
       h('th', null, 'Bucket'),
     )));
     const tbody = h('tbody');
@@ -3760,7 +3765,8 @@
             style:{ position:'absolute', inset:0, opacity:0, cursor:'pointer', width:'100%', height:'100%', border:'none' },
             on:{
               click:(e)=>e.stopPropagation(),
-              change:(e)=>{ l.status_flag = e.target.value; window.RERENDER_PAGE(mount); },
+              change:(e)=>{ const v = e.target.value; l.status_flag = v; window.RERENDER_PAGE(mount);
+                if (window.OC_ACTIONS && window.OC_ACTIONS.updateLicenceStatus) window.OC_ACTIONS.updateLicenceStatus(l.licence_id, v); },
             },
           },
             h('option', { value:'tracked', selected: l.status_flag === 'tracked' }, 'Tracked'),
@@ -3774,12 +3780,12 @@
           h('td.host', null, l.application_name),
           h('td', null, l.vendor),
           h('td.muted', null, l.product),
-          h('td.num', null, l.seats ? l.seats.toLocaleString() : '—'),
+          h('td.num', null, (l.quantity_held != null && l.quantity_held !== '') ? Number(l.quantity_held).toLocaleString() : '—'),
           h('td.mono.muted', null, _fmtLicDate(l.expires_at)),
           h('td.num', { style:{color: daysColor, fontWeight: (bucket === 'expired' || bucket === 'under30') ? '600' : '500'} },
             (days < 0 ? days + 'd' : days + 'd')),
           h('td', null, statusBadge),
-          h('td.muted', null, l.renewal_owner_sam || '—'),
+          h('td.muted', null, l.audit_owner_sam || '—'),
           h('td', null, bucketStamp),
         ));
 
@@ -3810,7 +3816,8 @@
       h('div', { style:{fontSize:'13px',color:'var(--ink-2)',lineHeight:'1.55'} }, l.notes || h('span', { style:{color:'var(--ink-3)',fontStyle:'italic'} }, 'No notes recorded.')),
       h('div', { style:{display:'flex',flexWrap:'wrap',gap:'18px',fontFamily:'var(--mono)',fontSize:'11px',color:'var(--ink-3)',marginTop:'4px'} },
         h('span', null, 'Type: ', h('b', { style:{color:'var(--ink-2)'} }, D.fmtLicenceType(l.licence_type))),
-        l.starts_at ? h('span', null, 'Started: ', h('b', { style:{color:'var(--ink-2)'} }, _fmtLicDate(l.starts_at))) : null,
+        h('span', null, 'Audit frequency: ', h('b', { style:{color:'var(--ink-2)'} }, l.audit_frequency || '—')),
+        h('span', null, 'Audit owner: ', h('b', { style:{color:'var(--ink-2)'} }, l.audit_owner_sam || '—')),
         h('span', null, 'Notice period: ', h('b', { style:{color:'var(--ink-2)'} }, (l.notice_period_days || 0) + ' days')),
       ),
     );
@@ -3888,8 +3895,11 @@
       style: canSubmit ? null : { opacity: 0.5, cursor:'not-allowed' },
       on:{click:()=>{
         if (!canSubmit) return;
-        const D = _licData();
-        D.markRenewed(l, state.new_expires, state.notes);
+        if (window.OC_ACTIONS && window.OC_ACTIONS.renewLicence) {
+          window.OC_ACTIONS.renewLicence(l.licence_id, state.new_expires, state.notes);
+        } else {
+          _licData().markRenewed(l, state.new_expires, state.notes);
+        }
         _renewFormState[l.licence_id] = { open: false, new_expires: '', notes: '' };
         window.RERENDER_PAGE(mount);
       }},
@@ -3949,9 +3959,9 @@
   function renderLicensingAddForm(mount) {
     const D = _licData();
     const formState = renderLicensingAddForm._s || (renderLicensingAddForm._s = {
-      application_name: '', vendor: '', product: '', licence_type: 'saas',
-      seats: '', expires_at: '', notice_period_days: 60,
-      renewal_owner_sam: '', status_flag: 'tracked', notes: '',
+      application_name: '', vendor: '', product: '', licence_type: 'N/A',
+      quantity_held: '', audit_frequency: 'N/A', expires_at: '', notice_period_days: 60,
+      audit_owner_sam: '', status_flag: 'tracked', notes: '',
     });
 
     const wrap = h('div', { style:{border:'1px solid var(--rule)',background:'var(--card)',padding:'20px 22px',display:'flex',flexDirection:'column',gap:'14px',maxWidth:'880px'} });
@@ -3987,15 +3997,20 @@
       h('span', { style: labelStyle }, 'Licence type'),
       h('select', { style: inputStyle,
         on:{change:(e)=>{ formState.licence_type = e.target.value; }}},
-        h('option', { value:'saas',                    selected: formState.licence_type==='saas' },                    'SaaS'),
-        h('option', { value:'onprem_subscription',     selected: formState.licence_type==='onprem_subscription' },     'On-prem subscription'),
-        h('option', { value:'perpetual_maintenance',   selected: formState.licence_type==='perpetual_maintenance' },   'Perpetual + maintenance'),
+        LICENCE_TYPES.map(t => h('option', { value:t, selected: formState.licence_type===t }, t)),
       ),
     ));
     grid.appendChild(h('label', { style: fieldStyle },
-      h('span', { style: labelStyle }, 'Seats'),
-      h('input', { 'data-fk':'lic-add-seats', type:'number', style: inputStyle, value: String(formState.seats || ''), placeholder:'e.g. 200',
-        on:{input:(e)=>{ formState.seats = parseInt(e.target.value, 10) || 0; }}}),
+      h('span', { style: labelStyle }, 'Quantity held'),
+      h('input', { 'data-fk':'lic-add-qty', type:'number', style: inputStyle, value: String(formState.quantity_held || ''), placeholder:'e.g. 200',
+        on:{input:(e)=>{ formState.quantity_held = parseInt(e.target.value, 10) || 0; }}}),
+    ));
+    grid.appendChild(h('label', { style: fieldStyle },
+      h('span', { style: labelStyle }, 'Licence audit frequency'),
+      h('select', { style: inputStyle,
+        on:{change:(e)=>{ formState.audit_frequency = e.target.value; }}},
+        AUDIT_FREQUENCIES.map(f => h('option', { value:f, selected: formState.audit_frequency===f }, f)),
+      ),
     ));
     grid.appendChild(h('label', { style: fieldStyle },
       h('span', { style: labelStyle }, 'Notice period (days)'),
@@ -4003,9 +4018,9 @@
         on:{input:(e)=>{ formState.notice_period_days = parseInt(e.target.value, 10) || 0; }}}),
     ));
     grid.appendChild(h('label', { style: fieldStyle },
-      h('span', { style: labelStyle }, 'Renewal owner'),
-      h('input', { 'data-fk':'lic-add-owner', type:'text', style: inputStyle, value: formState.renewal_owner_sam, placeholder:'sam.account',
-        on:{input:(e)=>{ formState.renewal_owner_sam = e.target.value; }}}),
+      h('span', { style: labelStyle }, 'Licence audit owner'),
+      h('input', { 'data-fk':'lic-add-owner', type:'text', style: inputStyle, value: formState.audit_owner_sam, placeholder:'sam.account',
+        on:{input:(e)=>{ formState.audit_owner_sam = e.target.value; }}}),
     ));
 
     wrap.appendChild(grid);
@@ -4027,36 +4042,41 @@
         on:{input:(e)=>{ formState.notes = e.target.value; }}}),
     ));
 
-    // Submit (in-memory only)
-    const canSubmit = formState.application_name && formState.vendor && formState.product && formState.expires_at;
+    // Submit — POSTs to /api/licensing/licences (falls back to in-memory if the API is down).
+    const canSubmit = formState.vendor && formState.product && formState.expires_at;
     const submitBtn = h('button.btn', {
       style: canSubmit ? null : { opacity: 0.5, cursor:'not-allowed' },
       on:{click:()=>{
         if (!canSubmit) return;
-        const nextId = (D.LICENCES.reduce((m, l) => Math.max(m, l.licence_id), 0) || 0) + 1;
-        D.LICENCES.push({
-          licence_id: nextId,
-          application_name: formState.application_name,
+        const payload = {
+          application_name: formState.application_name || null,
           vendor: formState.vendor,
           product: formState.product,
           licence_type: formState.licence_type,
-          seats: formState.seats || 0,
+          quantity_held: formState.quantity_held || 0,
+          audit_frequency: formState.audit_frequency,
+          audit_owner_sam: formState.audit_owner_sam || null,
           expires_at: formState.expires_at,
           notice_period_days: formState.notice_period_days || 0,
-          renewal_owner_sam: formState.renewal_owner_sam,
           status_flag: formState.status_flag,
-          notes: formState.notes,
-        });
-        // Reset form
-        renderLicensingAddForm._s = null;
-        licState.showAddForm = false;
-        window.RERENDER_PAGE(mount);
+          notes: formState.notes || null,
+        };
+        const done = () => {
+          renderLicensingAddForm._s = null;
+          licState.showAddForm = false;
+          window.RERENDER_PAGE(mount);
+        };
+        if (window.OC_ACTIONS && window.OC_ACTIONS.addLicence) {
+          window.OC_ACTIONS.addLicence(payload, done, (msg) => alert(msg));
+        } else {
+          done();
+        }
       }},
     }, 'Add licence');
     wrap.appendChild(h('div', { style:{display:'flex',gap:'10px',alignItems:'center',paddingTop:'4px'} },
       submitBtn,
       h('span', { style:{fontFamily:'var(--mono)',fontSize:'10.5px',color:'var(--ink-3)'} },
-        canSubmit ? 'Phase 0: appends to the in-memory fixture only.' : 'Application, vendor, product and expiry date are required.'),
+        canSubmit ? 'Saved to the licensing catalogue.' : 'Vendor, product and expiry date are required.'),
     ));
 
     return wrap;

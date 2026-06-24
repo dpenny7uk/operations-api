@@ -404,6 +404,44 @@ function mapExclusions(items) {
   }));
 }
 
+// ── Licensing (08): the API returns snake_case fields matching the seed
+// shape (licensing-demo-data.js), so this is a hardening passthrough. The
+// list embeds each licence's renewal history; we flatten it into the
+// RENEWALS array the detail panel reads via getRenewalsForLicence(). Both
+// arrays are mutated IN PLACE so the seed's helper closures (getVendors,
+// getCounts, getRenewalsForLicence) operate on the live data.
+function applyLicensing(items) {
+  const D = window.LICENSING_DATA;
+  if (!D || !Array.isArray(D.LICENCES) || !Array.isArray(D.RENEWALS)) return;
+  const licences = (items || []).map(l => ({
+    licence_id: l.licence_id,
+    application_id: l.application_id != null ? l.application_id : null,
+    application_name: l.application_name || '',
+    vendor: l.vendor || '',
+    product: l.product || '',
+    licence_type: l.licence_type || '',
+    quantity_held: l.quantity_held != null ? l.quantity_held : null,
+    audit_frequency: l.audit_frequency || '',
+    audit_owner_sam: l.audit_owner_sam || '',
+    expires_at: l.expires_at,
+    notice_period_days: l.notice_period_days != null ? l.notice_period_days : 0,
+    status_flag: l.status_flag || 'tracked',
+    notes: l.notes || '',
+  }));
+  const renewals = [];
+  (items || []).forEach(l => (l.renewals || []).forEach(r => renewals.push({
+    renewal_id: r.renewal_id,
+    licence_id: r.licence_id,
+    cycle_ended: r.cycle_ended,
+    renewed_on: r.renewed_on,
+    new_expires: r.new_expires,
+    renewed_by: r.renewed_by || '',
+    notes: r.notes || '',
+  })));
+  D.LICENCES.length = 0; D.LICENCES.push(...licences);
+  D.RENEWALS.length = 0; D.RENEWALS.push(...renewals);
+}
+
 // ── Paginated /api/servers (backend caps limit at 1000) ──────────────
 async function fetchAllServers(bu) {
   const PAGE = 1000;
@@ -603,6 +641,12 @@ async function runFetches() {
       const summary = mapExclusionSummary(s);
       if (!summary) return;
       window.EXCL_BREAKDOWN = summary;
+      rerender();
+    }),
+    // Licensing (08) — not BU-scoped (vendor licences aren't owned per BU).
+    api('/licensing/licences').then(v => {
+      if (!Array.isArray(v)) { markDemo('licensing'); return; }
+      applyLicensing(v);
       rerender();
     }),
     api('/me').then(v => {
@@ -1037,6 +1081,78 @@ window.OC_ACTIONS = {
     await refetchExclusions();
   },
 };
+
+// ── Licensing (08) write actions (op-pages.js calls these) ───────────
+// Each tries the API first; on failure it falls back to the in-memory seed
+// so the prototype stays interactive offline (and flips on the DEMO ribbon).
+Object.assign(window.OC_ACTIONS, {
+  // payload = snake_case licence fields. + onDone() + onError(msg)
+  addLicence: async (payload, onDone, onError) => {
+    const fail = (m) => { if (onError) onError(m); else alert(m); };
+    if (!payload.vendor || !payload.product || !payload.expires_at) {
+      fail('Vendor, product and expiry date are required.'); return;
+    }
+    const res = await apiPost('/licensing/licences', payload);
+    if (res.ok) { await refetchLicences(); if (onDone) onDone(); return; }
+    // Only fall back to the in-memory seed when the API is unreachable (transport
+    // error => status 0). Real HTTP errors (409 duplicate, 400, 403, 500) must
+    // surface to the user, not be masked as a fake success.
+    if (res.status === 0 && _licenceFallbackAdd(payload)) { if (onDone) onDone(); return; }
+    fail('Could not add licence (' + res.status + '): ' + (res.error || 'unknown error'));
+  },
+
+  // Inline status-flag edit (tracked | engaged).
+  updateLicenceStatus: async (id, statusFlag) => {
+    const res = await apiPatch('/licensing/licences/' + id, { status_flag: statusFlag });
+    if (res.ok) { await refetchLicences(); return; }
+    if (res.status === 0) _licenceFallbackPatch(id, { status_flag: statusFlag });
+    else alert('Could not update status (' + res.status + '): ' + (res.error || 'unknown error'));
+  },
+
+  // Renew: close the current cycle, advance expiry, reset alerts.
+  renewLicence: async (id, newExpires, notes) => {
+    const res = await apiPost('/licensing/licences/' + id + '/renew', { new_expires: newExpires, notes: notes || null });
+    if (res.ok) { await refetchLicences(); return; }
+    if (res.status === 0) _licenceFallbackRenew(id, newExpires, notes);
+    else alert('Could not renew licence (' + res.status + '): ' + (res.error || 'unknown error'));
+  },
+
+  deleteLicence: async (id) => {
+    const res = await apiDelete('/licensing/licences/' + id);
+    if (res.ok) { await refetchLicences(); return; }
+    alert('Could not delete licence (' + res.status + '): ' + (res.error || 'unknown error'));
+  },
+});
+
+function _rerenderLic() {
+  const m = mount();
+  if (window.RERENDER_PAGE && m) window.RERENDER_PAGE(m);
+  if (window.RERENDER_SHELL) window.RERENDER_SHELL();
+}
+
+async function refetchLicences() {
+  const v = await api('/licensing/licences');
+  if (Array.isArray(v)) { clearDemo('licensing'); applyLicensing(v); _rerenderLic(); }
+  else { markDemo('licensing'); }
+}
+
+function _licenceFallbackAdd(payload) {
+  const D = window.LICENSING_DATA;
+  if (!D || !Array.isArray(D.LICENCES)) return false;
+  const nextId = (D.LICENCES.reduce((m, l) => Math.max(m, l.licence_id || 0), 0) || 0) + 1;
+  D.LICENCES.push(Object.assign({ licence_id: nextId, status_flag: 'tracked' }, payload));
+  markDemo('licensing'); _rerenderLic(); return true;
+}
+function _licenceFallbackPatch(id, fields) {
+  const D = window.LICENSING_DATA;
+  const l = D && D.LICENCES.find(x => x.licence_id === id);
+  if (l) { Object.assign(l, fields); markDemo('licensing'); _rerenderLic(); }
+}
+function _licenceFallbackRenew(id, newExpires, notes) {
+  const D = window.LICENSING_DATA;
+  const l = D && D.LICENCES.find(x => x.licence_id === id);
+  if (l && D.markRenewed) { D.markRenewed(l, newExpires, notes); markDemo('licensing'); _rerenderLic(); }
+}
 
 async function refetchExclusions() {
   const v = await api('/patching/exclusions?limit=500');
