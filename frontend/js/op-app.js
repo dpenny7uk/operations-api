@@ -548,7 +548,7 @@
         const word = expired > 0 ? expired + ' licence' + (expired===1?'':'s') + ' expired'
                    : under30 > 0 ? under30 + ' expiring in 30 days'
                    : under3mo > 0 ? 'review near-term renewals'
-                   : under6mo > 0 ? 'procurement runway shrinking'
+                   : under6mo > 0 ? 'renewal review due'
                    : 'Operational';
         return {
           tag: '— LICENSING SURFACE · '+sc.label.toUpperCase(),
