@@ -1109,6 +1109,15 @@ Object.assign(window.OC_ACTIONS, {
     else alert('Could not update status (' + res.status + '): ' + (res.error || 'unknown error'));
   },
 
+  // Full edit form (any subset of patchable fields). + onDone() + onError(msg).
+  patchLicence: async (id, fields, onDone, onError) => {
+    const fail = (m) => { if (onError) onError(m); else alert(m); };
+    const res = await apiPatch('/licensing/licences/' + id, fields);
+    if (res.ok) { await refetchLicences(); if (onDone) onDone(); return; }
+    if (res.status === 0 && window.LICENSING_DATA) { _licenceFallbackPatch(id, fields); if (onDone) onDone(); return; }
+    fail('Could not update licence (' + res.status + '): ' + (res.error || 'unknown error'));
+  },
+
   // Renew: close the current cycle, advance expiry, reset alerts.
   renewLicence: async (id, newExpires, notes) => {
     const res = await apiPost('/licensing/licences/' + id + '/renew', { new_expires: newExpires, notes: notes || null });

@@ -3558,7 +3558,7 @@
   // window.LICENSING_DATA (defined in licensing-demo-data.js). Swap to real
   // /api/licensing/* in Phase 1 by replacing the data reads with apiLicensing.*.
   // ================================================================
-  const licState = { bucket: '__all', vendor: '__all', status: '__all', q: '', selectedId: null, showAddForm: false };
+  const licState = { bucket: '__all', vendor: '__all', status: '__all', q: '', selectedId: null, showAddForm: false, flash: null };
 
   // CMDB-aligned dropdown values. licence_type / audit_frequency are stored
   // flexibly server-side (no DB CHECK), so these are just the UI option lists —
@@ -3582,10 +3582,10 @@
     healthy:   'ok',
   };
   const BUCKET_SUB = {
-    expired:   'Out of contract — escalate',
+    expired:   'Out of contract, escalate',
     under30:   'Procurement must close now',
-    under3mo:  'Within 3 months — engaged or escalating',
-    under6mo:  'Within 6 months — should be on procurement radar',
+    under3mo:  'Within 3 months, engaged or escalating',
+    under6mo:  'Within 6 months, should be on procurement radar',
     healthy:   'No action needed yet',
   };
 
@@ -3623,7 +3623,7 @@
     page.appendChild(h('div.page-head', null,
       h('span.counter', null, '08 / 09'),
       h('span.title', null, 'Licensing'),
-      h('span.note', null, 'Vendor licence expiry tracking. Surfaces contracts expiring in the next 6 months, 3 months, and 30 days — same threshold pattern as Certificates and EOL — so procurement has the runway to negotiate before renewal terms become urgent.'),
+      h('span.note', null, 'Vendor licence expiry tracking. Surfaces contracts expiring in the next 6 months, 3 months, and 30 days, using the same threshold pattern as Certificates and EOL, so procurement has the runway to negotiate before renewal terms become urgent.'),
     ));
 
     if (!D) {
@@ -3656,7 +3656,7 @@
     },
       h('div.cs-label', null, 'Licences · action required'),
       h('div.cs-value', null, String(actionRequired), h('span.cs-unit', null, 'of ' + total + ' tracked')),
-      h('div.cs-sub', null, counts.expired > 0 ? counts.expired + ' expired — service impact possible' : counts.under30 > 0 ? 'Within 30 days — emergency procurement risk' : counts.under3mo > 0 ? 'Within 3 months — should be engaged' : counts.under6mo > 0 ? 'Within 6 months — procurement runway shrinking' : 'All licences > 6 months out'),
+      h('div.cs-sub', null, counts.expired > 0 ? counts.expired + ' expired, service impact possible' : counts.under30 > 0 ? 'Within 30 days, emergency procurement risk' : counts.under3mo > 0 ? 'Within 3 months, should be engaged' : counts.under6mo > 0 ? 'Within 6 months, procurement runway shrinking' : 'All licences > 6 months out'),
       h('div.cs-link', null, 'Filter to action-required'),
     ));
 
@@ -3710,9 +3710,22 @@
     const search = h('input', { 'data-fk':'lic-search', type:'text', placeholder:'Filter by application, vendor, product, notes…', value: licState.q,
       on:{input:(e)=>{ licState.q=e.target.value; window.RERENDER_PAGE(mount); }}});
     const resetBtn = h('button.btn', { on:{click:()=>{ licState.bucket='__all'; licState.vendor='__all'; licState.status='__all'; licState.q=''; window.RERENDER_PAGE(mount); }}}, 'Reset');
-    const addBtn = h('button.btn', { on:{click:()=>{ licState.showAddForm = !licState.showAddForm; window.RERENDER_PAGE(mount); }}}, licState.showAddForm ? 'Cancel' : '+ Add licence');
+    const addBtn = h('button.btn', { on:{click:()=>{ licState.flash = null; licState.showAddForm = !licState.showAddForm; window.RERENDER_PAGE(mount); }}}, licState.showAddForm ? 'Cancel' : '+ Add Licence');
 
     page.appendChild(filterBar([bucketSel, vendorSel, statusSel, search, resetBtn, h('span.spacer'), addBtn]));
+
+    // Transient success confirmation after add/edit (cleared on dismiss or next add).
+    if (licState.flash) {
+      page.appendChild(h('div', {
+        style:{ display:'flex', alignItems:'center', gap:'12px', margin:'4px 0 2px',
+                padding:'10px 14px', border:'1px solid var(--ok)', borderLeft:'3px solid var(--ok)',
+                background:'var(--ok-wash, rgba(56,142,60,0.10))', fontSize:'13px', color:'var(--ink)' } },
+        h('span', { style:{fontWeight:'600'} }, '✓ ' + licState.flash),
+        h('span.spacer', { style:{flex:'1'} }),
+        h('button.btn', { style:{padding:'2px 10px',fontSize:'11px'},
+          on:{click:()=>{ licState.flash = null; window.RERENDER_PAGE(mount); }} }, 'Dismiss'),
+      ));
+    }
 
     if (licState.showAddForm) {
       page.appendChild(renderLicensingAddForm(mount));
@@ -3808,6 +3821,14 @@
     const tr = h('tr', { style:{background:'var(--paper-2)'} });
     const td = h('td', { colspan: 9, style:{padding:'18px 20px'} });
 
+    // Edit mode swaps the detail body for an inline edit form (history stays).
+    if (_editFormState[l.licence_id] && _editFormState[l.licence_id].open) {
+      td.appendChild(renderLicensingEditForm(mount, l));
+      td.appendChild(renderLicensingRenewalHistory(l));
+      tr.appendChild(td);
+      return tr;
+    }
+
     const grid = h('div', { style:{display:'grid',gridTemplateColumns:'2fr 1fr',gap:'24px'} });
 
     // Notes column
@@ -3842,12 +3863,17 @@
       ));
     }
 
-    // Remove (soft-delete) — destructive, mirrors the exclusions "Release" action.
-    actionCol.appendChild(h('div', { style:{marginTop:'8px',paddingTop:'10px',borderTop:'1px solid var(--rule)'} },
+    // Edit + Remove (soft-delete). Edit opens an inline form; Remove is destructive.
+    actionCol.appendChild(h('div', { style:{marginTop:'8px',paddingTop:'10px',borderTop:'1px solid var(--rule)',display:'flex',gap:'8px'} },
+      h('button.btn', { on:{click:()=>{
+        licState.flash = null;
+        _editFormState[l.licence_id] = _makeEditState(l);
+        window.RERENDER_PAGE(mount);
+      }}}, 'Edit Licence'),
       h('button.btn.danger', { on:{click:()=>{
         if (!confirm('Remove licence for ' + (l.application_name || l.product || ('#' + l.licence_id)) + '?')) return;
         if (window.OC_ACTIONS && window.OC_ACTIONS.deleteLicence) window.OC_ACTIONS.deleteLicence(l.licence_id);
-      }}}, 'Remove licence'),
+      }}}, 'Remove Licence'),
     ));
 
     grid.appendChild(actionCol);
@@ -3864,6 +3890,23 @@
   // Per-licence renewal form state, keyed by licence_id. Allows the form to
   // stay open across re-renders without leaking between licences.
   const _renewFormState = {};
+
+  // Per-licence edit form state, keyed by licence_id (same pattern as renew).
+  const _editFormState = {};
+  function _makeEditState(l) {
+    return {
+      open: true,
+      application_name: l.application_name || '',
+      expires_at: l.expires_at || '',
+      licence_type: l.licence_type || 'N/A',
+      quantity_held: l.quantity_held || 0,
+      audit_frequency: l.audit_frequency || 'N/A',
+      notice_period_days: l.notice_period_days || 0,
+      audit_owner_sam: l.audit_owner_sam || '',
+      status_flag: l.status_flag || 'tracked',
+      notes: l.notes || '',
+    };
+  }
 
   function renderLicensingRenewBlock(mount, l) {
     const wrap = h('div', { style:{padding:'10px 12px',border:'1px solid var(--rule)',background:'var(--card)',display:'flex',flexDirection:'column',gap:'10px'} });
@@ -3890,8 +3933,9 @@
 
     wrap.appendChild(h('label', { style: fieldStyle },
       h('span', { style: labelStyle }, 'New expiry date'),
+      // 'change' (not 'input') so the native picker survives month/year navigation.
       h('input', { 'data-fk':'lic-renew-exp-'+l.licence_id, type:'date', style: inputStyle, value: state.new_expires,
-        on:{input:(e)=>{ state.new_expires = e.target.value; window.RERENDER_PAGE(mount); }}}),
+        on:{change:(e)=>{ state.new_expires = e.target.value; window.RERENDER_PAGE(mount); }}}),
     ));
     wrap.appendChild(h('label', { style: fieldStyle },
       h('span', { style: labelStyle }, 'Renewal notes (optional)'),
@@ -3974,7 +4018,10 @@
     });
 
     const wrap = h('div', { style:{border:'1px solid var(--rule)',background:'var(--card)',padding:'20px 22px',display:'flex',flexDirection:'column',gap:'14px',maxWidth:'880px'} });
-    wrap.appendChild(h('div', { style:{fontFamily:'var(--mono)',fontSize:'10px',letterSpacing:'.12em',textTransform:'uppercase',color:'var(--ink-3)'} }, 'Add a licence'));
+    wrap.appendChild(h('div', { style:{display:'flex',alignItems:'baseline',gap:'14px',flexWrap:'wrap'} },
+      h('span', { style:{fontFamily:'var(--mono)',fontSize:'10px',letterSpacing:'.12em',textTransform:'uppercase',color:'var(--ink-3)'} }, 'Add a licence'),
+      h('span', { style:{fontSize:'12px',fontWeight:'600',color:'var(--ink-2)'} }, 'Vendor, product and expiry date are required.'),
+    ));
 
     const labelStyle = { fontFamily:'var(--mono)',fontSize:'10px',letterSpacing:'.1em',textTransform:'uppercase',color:'var(--ink-3)' };
     const inputStyle = { padding:'8px 10px',border:'1px solid var(--rule)',background:'var(--card)',fontFamily:'inherit',fontSize:'13px',color:'var(--ink)' };
@@ -3989,7 +4036,7 @@
     ));
     grid.appendChild(h('label', { style: fieldStyle },
       h('span', { style: labelStyle }, 'Vendor'),
-      h('input', { 'data-fk':'lic-add-vendor', type:'text', style: inputStyle, value: formState.vendor, placeholder:'e.g. Tableau',
+      h('input', { 'data-fk':'lic-add-vendor', type:'text', style: inputStyle, value: formState.vendor, placeholder:'e.g. Salesforce',
         on:{input:(e)=>{ formState.vendor = e.target.value; window.RERENDER_PAGE(mount); }}}),
     ));
     grid.appendChild(h('label', { style: fieldStyle },
@@ -3999,8 +4046,11 @@
     ));
     grid.appendChild(h('label', { style: fieldStyle },
       h('span', { style: labelStyle }, 'Expiry date'),
+      // 'change' (not 'input'): the native date picker stays open through
+      // month/year navigation and only commits when a day is picked. Re-rendering
+      // on every 'input' replaces this element and closes the popup mid-navigation.
       h('input', { 'data-fk':'lic-add-exp', type:'date', style: inputStyle, value: formState.expires_at,
-        on:{input:(e)=>{ formState.expires_at = e.target.value; window.RERENDER_PAGE(mount); }}}),
+        on:{change:(e)=>{ formState.expires_at = e.target.value; window.RERENDER_PAGE(mount); }}}),
     ));
     grid.appendChild(h('label', { style: fieldStyle },
       h('span', { style: labelStyle }, 'Licence type'),
@@ -4040,8 +4090,8 @@
     wrap.appendChild(h('label', { style: Object.assign({}, fieldStyle, { maxWidth:'460px' }) },
       h('span', { style: labelStyle }, 'Initial status'),
       h('select', { style: inputStyle, on:{change:(e)=>{ formState.status_flag = e.target.value; }}},
-        h('option', { value:'tracked', selected: formState.status_flag==='tracked' }, 'Tracked — in the system, no procurement action yet'),
-        h('option', { value:'engaged', selected: formState.status_flag==='engaged' }, 'Engaged — procurement already working it'),
+        h('option', { value:'tracked', selected: formState.status_flag==='tracked' }, 'Tracked: in the system, no procurement action yet'),
+        h('option', { value:'engaged', selected: formState.status_flag==='engaged' }, 'Engaged: procurement already working it'),
       ),
     ));
 
@@ -4073,6 +4123,7 @@
         const done = () => {
           renderLicensingAddForm._s = null;
           licState.showAddForm = false;
+          licState.flash = 'Licence added to the catalogue.';
           window.RERENDER_PAGE(mount);
         };
         if (window.OC_ACTIONS && window.OC_ACTIONS.addLicence) {
@@ -4082,10 +4133,107 @@
         }
       }},
     }, 'Add Licence');
+    wrap.appendChild(h('div', { style:{display:'flex',gap:'10px',alignItems:'center',paddingTop:'4px'} }, submitBtn));
+
+    return wrap;
+  }
+
+  // Inline edit form (Edit Licence). Mirrors the add form but for the
+  // PATCH-able fields only; vendor + product are fixed (shown as context).
+  function renderLicensingEditForm(mount, l) {
+    const state = _editFormState[l.licence_id] || (_editFormState[l.licence_id] = _makeEditState(l));
+
+    const wrap = h('div', { style:{border:'1px solid var(--rule)',background:'var(--card)',padding:'20px 22px',display:'flex',flexDirection:'column',gap:'14px',maxWidth:'880px'} });
+    wrap.appendChild(h('div', { style:{display:'flex',alignItems:'baseline',gap:'14px',flexWrap:'wrap'} },
+      h('span', { style:{fontFamily:'var(--mono)',fontSize:'10px',letterSpacing:'.12em',textTransform:'uppercase',color:'var(--ink-3)'} }, 'Edit licence'),
+      h('span', { style:{fontSize:'12px',color:'var(--ink-3)'} },
+        (l.vendor || '') + (l.product ? ' · ' + l.product : '') + ' (vendor and product are fixed)'),
+    ));
+
+    const labelStyle = { fontFamily:'var(--mono)',fontSize:'10px',letterSpacing:'.1em',textTransform:'uppercase',color:'var(--ink-3)' };
+    const inputStyle = { padding:'8px 10px',border:'1px solid var(--rule)',background:'var(--card)',fontFamily:'inherit',fontSize:'13px',color:'var(--ink)' };
+    const fieldStyle = { display:'flex',flexDirection:'column',gap:'4px' };
+
+    const grid = h('div', { style:{display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(220px, 1fr))',gap:'12px'} });
+
+    grid.appendChild(h('label', { style: fieldStyle },
+      h('span', { style: labelStyle }, 'Application name'),
+      h('input', { type:'text', style: inputStyle, value: state.application_name, placeholder:'e.g. Tableau Server',
+        on:{input:(e)=>{ state.application_name = e.target.value; }}}),
+    ));
+    grid.appendChild(h('label', { style: fieldStyle },
+      h('span', { style: labelStyle }, 'Expiry date'),
+      // 'change' (not 'input') so the native picker survives month/year navigation.
+      h('input', { type:'date', style: inputStyle, value: state.expires_at,
+        on:{change:(e)=>{ state.expires_at = e.target.value; window.RERENDER_PAGE(mount); }}}),
+    ));
+    grid.appendChild(h('label', { style: fieldStyle },
+      h('span', { style: labelStyle }, 'Licence type'),
+      h('select', { style: inputStyle, on:{change:(e)=>{ state.licence_type = e.target.value; }}},
+        LICENCE_TYPES.map(t => h('option', { value:t, selected: state.licence_type===t }, t))),
+    ));
+    grid.appendChild(h('label', { style: fieldStyle },
+      h('span', { style: labelStyle }, 'Quantity held'),
+      h('input', { type:'number', style: inputStyle, value: String(state.quantity_held || ''), placeholder:'e.g. 200',
+        on:{input:(e)=>{ state.quantity_held = parseInt(e.target.value, 10) || 0; }}}),
+    ));
+    grid.appendChild(h('label', { style: fieldStyle },
+      h('span', { style: labelStyle }, 'Licence audit frequency'),
+      h('select', { style: inputStyle, on:{change:(e)=>{ state.audit_frequency = e.target.value; }}},
+        AUDIT_FREQUENCIES.map(f => h('option', { value:f, selected: state.audit_frequency===f }, f))),
+    ));
+    grid.appendChild(h('label', { style: fieldStyle },
+      h('span', { style: labelStyle }, 'Notice period (days)'),
+      h('input', { type:'number', style: inputStyle, value: String(state.notice_period_days || ''),
+        on:{input:(e)=>{ state.notice_period_days = parseInt(e.target.value, 10) || 0; }}}),
+    ));
+    grid.appendChild(h('label', { style: fieldStyle },
+      h('span', { style: labelStyle }, 'Licence audit owner'),
+      h('input', { type:'text', style: inputStyle, value: state.audit_owner_sam, placeholder:'Enter Name',
+        on:{input:(e)=>{ state.audit_owner_sam = e.target.value; }}}),
+    ));
+    grid.appendChild(h('label', { style: fieldStyle },
+      h('span', { style: labelStyle }, 'Status'),
+      h('select', { style: inputStyle, on:{change:(e)=>{ state.status_flag = e.target.value; }}},
+        h('option', { value:'tracked', selected: state.status_flag==='tracked' }, 'Tracked'),
+        h('option', { value:'engaged', selected: state.status_flag==='engaged' }, 'Engaged')),
+    ));
+    wrap.appendChild(grid);
+
+    wrap.appendChild(h('label', { style: fieldStyle },
+      h('span', { style: labelStyle }, 'Notes'),
+      h('textarea', { style: Object.assign({}, inputStyle, { resize:'vertical', minHeight:'56px' }), value: state.notes,
+        on:{input:(e)=>{ state.notes = e.target.value; }}}),
+    ));
+
+    const canSubmit = !!state.expires_at;
+    const close = () => { delete _editFormState[l.licence_id]; };
+    const saveBtn = h('button.btn', {
+      style: canSubmit ? null : { opacity:0.5, cursor:'not-allowed' },
+      on:{click:()=>{
+        if (!canSubmit) return;
+        const payload = {
+          application_name: state.application_name || null,
+          licence_type: state.licence_type,
+          quantity_held: state.quantity_held || 0,
+          audit_frequency: state.audit_frequency,
+          audit_owner_sam: state.audit_owner_sam || null,
+          expires_at: state.expires_at,
+          notice_period_days: state.notice_period_days || 0,
+          status_flag: state.status_flag,
+          notes: state.notes || null,
+        };
+        const done = () => { close(); licState.flash = 'Licence updated.'; window.RERENDER_PAGE(mount); };
+        if (window.OC_ACTIONS && window.OC_ACTIONS.patchLicence) {
+          window.OC_ACTIONS.patchLicence(l.licence_id, payload, done, (msg) => alert(msg));
+        } else { done(); }
+      }},
+    }, 'Save Changes');
+    const cancelBtn = h('button.btn', { on:{click:()=>{ close(); window.RERENDER_PAGE(mount); }}}, 'Cancel');
+
     wrap.appendChild(h('div', { style:{display:'flex',gap:'10px',alignItems:'center',paddingTop:'4px'} },
-      submitBtn,
-      h('span', { style:{fontFamily:'var(--mono)',fontSize:'10.5px',color:'var(--ink-3)'} },
-        canSubmit ? 'Saved to the licensing catalogue.' : 'Vendor, product and expiry date are required.'),
+      saveBtn, cancelBtn,
+      canSubmit ? null : h('span', { style:{fontSize:'12px',fontWeight:'600',color:'var(--ink-2)'} }, 'Expiry date is required.'),
     ));
 
     return wrap;

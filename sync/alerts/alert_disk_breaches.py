@@ -61,6 +61,7 @@ BREACH_QUERY = """
     SELECT
         d.server_name,
         d.disk_label,
+        d.service,
         d.environment,
         d.technical_owner,
         d.percent_used,
@@ -96,6 +97,7 @@ RESOLUTION_QUERY = """
         a.disk_label,
         a.alert_type,
         a.percent_used_at_send,
+        d.service,
         d.percent_used AS current_percent_used
     FROM monitoring.alerts a
     JOIN monitoring.disk_current d
@@ -109,48 +111,49 @@ RESOLUTION_QUERY = """
 """
 
 
-def _disk_row(disk: dict) -> dict:
-    server = disk['server_name']
-    label = disk['disk_label']
-    env = disk.get('environment') or ''
-    pct = float(disk['percent_used'])
-    used = float(disk['used_gb'])
-    size = float(disk['volume_size_gb'])
+# Card table layout - four columns shared by the critical and resolved sections:
+# Server | Disk | Service | Usage. Server/Disk stretch; Service/Usage size to fit.
+_COLS = (("Server", "stretch"), ("Disk", "stretch"), ("Service", "auto"), ("Usage", "auto"))
 
-    line = f"{server} {label}"
-    if env:
-        line += f" ({env})"
 
-    status_text = f"{pct:.1f}% — {used:.0f}/{size:.0f} GB"
-    color = "attention" if disk.get('alert_status') == 3 else "warning"
+def _cell(text, width, *, bold: bool = False, color: str = None) -> dict:
+    tb = {"type": "TextBlock", "text": str(text), "size": "small", "wrap": True}
+    if bold:
+        tb["weight"] = "bolder"
+    if color:
+        tb["color"] = color
+    return {"type": "Column", "width": width, "items": [tb]}
 
+
+def _row(server, disk, service, usage, color: str = None) -> dict:
+    """One Server | Disk | Service | Usage row; only the Usage cell is coloured."""
+    widths = [w for _, w in _COLS]
     return {
         "type": "ColumnSet",
         "separator": True,
+        "spacing": "none",
         "columns": [
-            {"type": "Column", "width": "stretch", "items": [
-                {"type": "TextBlock", "text": line, "size": "small", "wrap": True}
-            ]},
-            {"type": "Column", "width": "auto", "items": [
-                {"type": "TextBlock", "text": status_text, "size": "small", "color": color}
-            ]}
+            _cell(server, widths[0]),
+            _cell(disk, widths[1]),
+            _cell(service or '-', widths[2]),
+            _cell(usage, widths[3], color=color),
         ],
-        "spacing": "none"
     }
+
+
+def _disk_row(disk: dict) -> dict:
+    pct = float(disk['percent_used'])
+    used = float(disk['used_gb'])
+    size = float(disk['volume_size_gb'])
+    usage = f"{pct:.1f}% — {used:.0f}/{size:.0f} GB"
+    color = "attention" if disk.get('alert_status') == 3 else "warning"
+    return _row(disk['server_name'], disk['disk_label'], disk.get('service'), usage, color=color)
 
 
 def _resolved_row(item: dict) -> dict:
-    server = item['server_name']
-    label = item['disk_label']
     current = float(item['current_percent_used'])
-    line = f"{server} {label} — now {current:.1f}%"
-    return {
-        "type": "TextBlock",
-        "text": f"✅ {line}",
-        "size": "small",
-        "wrap": True,
-        "spacing": "small"
-    }
+    return _row(item['server_name'], item['disk_label'], item.get('service'),
+                f"now {current:.1f}%", color="good")
 
 
 def _dedupe_resolved(resolved: list) -> list:
@@ -179,15 +182,8 @@ def _dedupe_resolved(resolved: list) -> list:
 
 _TABLE_HEADER = {
     "type": "ColumnSet",
-    "columns": [
-        {"type": "Column", "width": "stretch", "items": [
-            {"type": "TextBlock", "text": "**Disk**", "weight": "bolder", "size": "small"}
-        ]},
-        {"type": "Column", "width": "auto", "items": [
-            {"type": "TextBlock", "text": "**Usage**", "weight": "bolder", "size": "small"}
-        ]}
-    ],
-    "spacing": "small"
+    "spacing": "small",
+    "columns": [_cell(label, width, bold=True) for label, width in _COLS],
 }
 
 
@@ -232,6 +228,7 @@ def build_adaptive_card(crit: list, resolved: list) -> dict:
             "spacing": "medium",
             "color": "good"
         })
+        sections.append(_TABLE_HEADER)
         sections.extend(_resolved_row(r) for r in resolved)
 
     return {

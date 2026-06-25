@@ -129,7 +129,7 @@ public class LicensingController : ControllerBase
             return BadRequest("new_expires must be today or later.");
         if (req.NewExpires > today.AddYears(20))
             return BadRequest("new_expires must be within 20 years.");
-        if (req.Notes?.Length > 4000 || InputGuard.ContainsControlChars(req.Notes))
+        if (req.Notes?.Length > 4000 || InputGuard.ContainsControlCharsExceptWhitespace(req.Notes))
             return BadRequest("notes is invalid (max 4000 characters).");
 
         var actor = User.Identity?.Name ?? "unknown";
@@ -173,7 +173,8 @@ public class LicensingController : ControllerBase
             return "audit_frequency is invalid (max 30 characters).";
         if (auditOwnerSam != null && (auditOwnerSam.Length > 255 || InputGuard.ContainsControlChars(auditOwnerSam)))
             return "audit_owner_sam is invalid (max 255 characters).";
-        if (notes != null && (notes.Length > 4000 || InputGuard.ContainsControlChars(notes)))
+        // Notes is a multi-line free-text field, so newlines/tabs are valid.
+        if (notes != null && (notes.Length > 4000 || InputGuard.ContainsControlCharsExceptWhitespace(notes)))
             return "notes is invalid (max 4000 characters).";
         if (quantityHeld is < 0 or > 100_000_000)
             return "quantity_held must be between 0 and 100,000,000.";

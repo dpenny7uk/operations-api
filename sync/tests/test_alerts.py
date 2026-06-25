@@ -369,27 +369,32 @@ class TestPatchCycleCard:
 # ── Disk breach card ─────────────────────────────────────────────────────────
 
 class TestDiskBreachCard:
-    def _breach(self, server='PR0607-1', label='E:\\', status=3, pct=94.0):
+    def _breach(self, server='PR0607-1', label='E:\\', status=3, pct=94.0, service='insight'):
         return {
-            'server_name': server, 'disk_label': label, 'environment': 'Production',
-            'technical_owner': 'team@contoso.com', 'percent_used': pct,
-            'used_gb': 536.0, 'volume_size_gb': 570.0,
+            'server_name': server, 'disk_label': label, 'service': service,
+            'environment': 'Production', 'technical_owner': 'team@contoso.com',
+            'percent_used': pct, 'used_gb': 536.0, 'volume_size_gb': 570.0,
             'threshold_warn_pct': 80.0, 'threshold_crit_pct': 90.0,
             'alert_status': status,
         }
 
-    def _resolution(self, alert_id, server, label, current=63.5):
+    def _resolution(self, alert_id, server, label, current=63.5, service='insight'):
         return {
             'alert_id': alert_id, 'server_name': server, 'disk_label': label,
-            'alert_type': 'breach_crit', 'percent_used_at_send': 94.0,
+            'service': service, 'alert_type': 'breach_crit', 'percent_used_at_send': 94.0,
             'current_percent_used': current,
         }
 
+    @staticmethod
+    def _cell_text(column):
+        return column['items'][0].get('text', '')
+
     def _resolved_lines(self, card):
+        # Resolved rows are 4-column ColumnSets whose Usage cell starts with "now".
         body = card['attachments'][0]['content']['body']
-        return [b['text'] for b in body
-                if b.get('type') == 'TextBlock' and b.get('text', '').startswith('✅ ')
-                and '**' not in b['text']]
+        return [b for b in body
+                if b.get('type') == 'ColumnSet' and len(b.get('columns', [])) == 4
+                and self._cell_text(b['columns'][3]).startswith('now ')]
 
     def test_dedupe_collapses_same_disk(self):
         # Same (server, disk_label) accumulated across 14 cooldown windows.
@@ -447,6 +452,35 @@ class TestDiskBreachCard:
         texts = [b.get('text', '') for b in body]
         assert any('CRITICAL' in t for t in texts)
         assert not any('WARNING' in t for t in texts)
+
+    def _column_sets(self, card):
+        body = card['attachments'][0]['content']['body']
+        return [b for b in body if b.get('type') == 'ColumnSet']
+
+    def test_header_has_four_named_columns(self):
+        card = build_disk_card([self._breach()], [])
+        header = self._column_sets(card)[0]  # table header precedes the data rows
+        assert [self._cell_text(c) for c in header['columns']] == ['Server', 'Disk', 'Service', 'Usage']
+
+    def test_critical_row_splits_server_disk_service_usage(self):
+        crit = [self._breach('pr0607-20725-03.hiscox.com', 'E:\\ Label:DATA 781988e1',
+                              status=3, pct=90.3, service='riskvision')]
+        card = build_disk_card(crit, [])
+        row = self._column_sets(card)[1]  # [0] is the header
+        cells = [self._cell_text(c) for c in row['columns']]
+        assert cells[0] == 'pr0607-20725-03.hiscox.com'   # Server
+        assert cells[1] == 'E:\\ Label:DATA 781988e1'      # Disk (split out)
+        assert cells[2] == 'riskvision'                    # Service
+        assert '90.3%' in cells[3]                         # Usage
+
+    def test_resolved_row_has_four_columns_and_drops_dash_before_now(self):
+        card = build_disk_card([], [self._resolution(1, 'pr0607-20725-03.hiscox.com', 'E:\\', current=89.1)])
+        row = self._resolved_lines(card)[0]
+        cells = [self._cell_text(c) for c in row['columns']]
+        assert cells[0] == 'pr0607-20725-03.hiscox.com'
+        assert cells[2] == 'insight'                       # Service
+        assert cells[3] == 'now 89.1%'                     # no "—" before now
+        assert '—' not in cells[3]
 
 
 # ── Licence expiry alert ──────────────────────────────────────────────────────

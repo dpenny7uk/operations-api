@@ -97,6 +97,35 @@ public class LicensingControllerTests
         Assert.IsType<ConflictObjectResult>(await Controller().Create(req));
     }
 
+    [Fact]
+    public async Task Create_accepts_multiline_notes()
+    {
+        // Notes is a multi-line textarea; newlines must not be rejected as
+        // control characters (regression: the "max 4000 characters" 400).
+        _svc.Setup(s => s.CreateAsync(It.IsAny<LicenceCreateRequest>(), It.IsAny<string>()))
+            .ReturnsAsync(Sample(7));
+
+        var req = new LicenceCreateRequest
+        {
+            Vendor = "V", Product = "P", ExpiresAt = Future(10),
+            Notes = "Creators: 203\nExplorers: 125\nViewers: 976",
+        };
+
+        Assert.IsType<CreatedResult>(await Controller().Create(req));
+    }
+
+    [Fact]
+    public async Task Create_rejects_notes_with_disallowed_control_char()
+    {
+        var req = new LicenceCreateRequest
+        {
+            Vendor = "V", Product = "P", ExpiresAt = Future(10),
+            Notes = "bad\0null",
+        };
+
+        Assert.IsType<BadRequestObjectResult>(await Controller().Create(req));
+    }
+
     // ── Update (PATCH) ───────────────────────────────────────────────
 
     [Fact]
