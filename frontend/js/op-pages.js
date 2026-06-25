@@ -3585,7 +3585,7 @@
     expired:   'Out of contract, escalate',
     under30:   'Procurement must close now',
     under3mo:  'Within 3 months, engaged or escalating',
-    under6mo:  'Within 6 months, should be on procurement radar',
+    under6mo:  'Within 6 months, renewal review due',
     healthy:   'No action needed yet',
   };
 
@@ -3656,7 +3656,7 @@
     },
       h('div.cs-label', null, 'Licences · action required'),
       h('div.cs-value', null, String(actionRequired), h('span.cs-unit', null, 'of ' + total + ' tracked')),
-      h('div.cs-sub', null, counts.expired > 0 ? counts.expired + ' expired, service impact possible' : counts.under30 > 0 ? 'Within 30 days, emergency procurement risk' : counts.under3mo > 0 ? 'Within 3 months, should be engaged' : counts.under6mo > 0 ? 'Within 6 months, procurement runway shrinking' : 'All licences > 6 months out'),
+      h('div.cs-sub', null, counts.expired > 0 ? counts.expired + ' expired, service impact possible' : counts.under30 > 0 ? 'Within 30 days, emergency procurement risk' : counts.under3mo > 0 ? 'Within 3 months, should be engaged' : counts.under6mo > 0 ? 'Within 6 months, renewal review due' : 'All licences > 6 months out'),
       h('div.cs-link', null, 'Filter to action-required'),
     ));
 
@@ -4124,7 +4124,10 @@
           renderLicensingAddForm._s = null;
           licState.showAddForm = false;
           licState.flash = 'Licence added to the catalogue.';
-          window.RERENDER_PAGE(mount);
+          // No-arg: refetchLicences() already ran RERENDER_SHELL, which replaces
+          // the .page-mount element - the captured `mount` is now detached, so
+          // re-render the LIVE mount or the form won't actually close.
+          window.RERENDER_PAGE();
         };
         if (window.OC_ACTIONS && window.OC_ACTIONS.addLicence) {
           window.OC_ACTIONS.addLicence(payload, done, (msg) => alert(msg));
@@ -4223,7 +4226,9 @@
           status_flag: state.status_flag,
           notes: state.notes || null,
         };
-        const done = () => { close(); licState.flash = 'Licence updated.'; window.RERENDER_PAGE(mount); };
+        // No-arg RERENDER_PAGE: refetch replaced the .page-mount, so re-render the
+        // live one (see add-form done() note) - otherwise the edit form won't close.
+        const done = () => { close(); licState.flash = 'Licence updated.'; window.RERENDER_PAGE(); };
         if (window.OC_ACTIONS && window.OC_ACTIONS.patchLicence) {
           window.OC_ACTIONS.patchLicence(l.licence_id, payload, done, (msg) => alert(msg));
         } else { done(); }
