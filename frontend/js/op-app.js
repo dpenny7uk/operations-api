@@ -409,12 +409,25 @@
       const detail = window.GET_SERVER_DETAIL ? window.GET_SERVER_DETAIL(param) : null;
       const srv = detail && detail.server ? detail.server : null;
       if (srv) {
-        const fqdn = srv.fqdn || srv.serverName || '';
-        const dotIdx = fqdn.indexOf('.');
-        const host = dotIdx > 0 ? fqdn.slice(0, dotIdx) : fqdn;
-        const domain = dotIdx > 0 ? fqdn.slice(dotIdx) : '';
+        // Lead with the actual server name. Only append a styled .domain suffix
+        // when we have a genuine per-host FQDN — many records carry a bare
+        // domain (e.g. "hiscox.com") in srv.fqdn, which must not masquerade as
+        // the host name.
+        const name = (srv.serverName || srv.fqdn || '').trim();
+        const fqdn = (srv.fqdn || '').trim();
+        let host = name, domain = '';
+        const dot = name.indexOf('.');
+        if (dot > 0) {
+          // serverName is itself fully-qualified — split it.
+          host = name.slice(0, dot);
+          domain = name.slice(dot);
+        } else if (fqdn && fqdn.toLowerCase().startsWith(name.toLowerCase() + '.')) {
+          // fqdn genuinely extends the host name (host + ".domain.tld").
+          domain = fqdn.slice(name.length);
+        }
+        // else: fqdn is a bare domain / unrelated — show the name only.
         return {
-          tag: '— SERVERS · ' + (fqdn || srv.serverName || '').toUpperCase(),
+          tag: '— SERVERS · ' + (host + domain).toUpperCase(),
           // headerNode bypasses the default "Status …" prefix entirely.
           headerNode: [
             host,
@@ -729,7 +742,9 @@
       const pieces = [next.name, (next.servers || 0).toLocaleString() + ' servers', fmtDate(next.date)].filter(Boolean);
       nextSub = pieces.join(' · ');
     }
-    strip.appendChild(h('div.cs-cell.info', null,
+    strip.appendChild(h('div.cs-cell.info', {
+      on: { click: () => { if (window.ROUTER) window.ROUTER.goto('patching'); } },
+    },
       h('div.cs-label', null, 'Next patch cycle'),
       h('div.cs-value', null, nextDays == null ? '—' : String(nextDays), nextDays != null ? h('span.cs-unit', null, nextDays === 1 ? 'day' : 'days') : null),
       h('div.cs-sub', null, nextSub),
@@ -737,7 +752,9 @@
 
     // Unmatched servers — real count from window.SERVERS_DATA.unmatched
     const unmatchedCount = getUnmatched().length;
-    strip.appendChild(h('div.cs-cell.'+(unmatchedCount ? 'warn' : 'info'), null,
+    strip.appendChild(h('div.cs-cell.'+(unmatchedCount ? 'warn' : 'info'), {
+      on: { click: () => { if (window.ROUTER) window.ROUTER.goto('servers'); } },
+    },
       h('div.cs-label', null, 'Unmatched servers'),
       h('div.cs-value', null, String(unmatchedCount)),
       h('div.cs-sub', null, unmatchedCount ? 'pending review' : 'none pending'),
@@ -746,7 +763,9 @@
     // Sync failures — count non-healthy from window.SYNCS
     const syncs = Array.isArray(window.SYNCS) ? window.SYNCS : [];
     const failing = syncs.filter(s => s.status && s.status !== 'healthy').length;
-    strip.appendChild(h('div.cs-cell.'+(failing ? 'crit' : 'ok'), null,
+    strip.appendChild(h('div.cs-cell.'+(failing ? 'crit' : 'ok'), {
+      on: { click: () => { const el = document.getElementById('sec-syncs'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); } },
+    },
       h('div.cs-label', null, 'Sync failures'),
       h('div.cs-value', null, String(failing)),
       h('div.cs-sub', null, failing ? (failing === 1 ? '1 sync failing' : failing + ' syncs failing') : 'all syncs healthy'),
@@ -786,7 +805,9 @@
 
     // Patch exclusions — already real via window.EXCLUSIONS
     const exCount = (window.EXCLUSIONS || []).length;
-    strip.appendChild(h('div.cs-cell.info', null,
+    strip.appendChild(h('div.cs-cell.info', {
+      on: { click: () => { if (window.ROUTER) window.ROUTER.goto('patchmgmt'); } },
+    },
       h('div.cs-label', null, 'Patch exclusions'),
       h('div.cs-value', null, String(exCount)),
       h('div.cs-sub', null, exCount ? 'held / expired' : 'none active'),
@@ -1142,7 +1163,7 @@
     page.appendChild(split);
 
     // Sync statuses (from old screenshot, now at bottom)
-    page.appendChild(h('div.section-label', null, h('span',null,'Sync statuses'), h('span.count',null,String(window.SYNCS.length))));
+    page.appendChild(h('div.section-label', { id: 'sec-syncs' }, h('span',null,'Sync statuses'), h('span.count',null,String(window.SYNCS.length))));
     page.appendChild(SyncTable());
 
     return page;
