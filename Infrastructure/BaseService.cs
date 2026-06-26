@@ -161,5 +161,12 @@ public static class Sql
         public const string Licences = "licensing.licences";
         public const string Renewals = "licensing.renewals";
         public const string LicenceAlerts = "licensing.alerts";
+        public const string AuditApplicationGroups = "auditing.application_groups";
+        public const string AuditApplicationNominees = "auditing.application_nominees";
+        public const string AuditCampaigns = "auditing.campaigns";
+        public const string AuditPackets = "auditing.attestation_packets";
+        public const string AuditPacketSubjects = "auditing.attestation_packet_subjects";
+        public const string AuditDecisions = "auditing.attestation_decisions";
+        public const string AuditEmailLog = "auditing.email_log";
     }
 }

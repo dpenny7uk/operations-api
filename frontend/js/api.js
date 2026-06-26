@@ -141,3 +141,27 @@ export const apiLicensing = {
   renew:  (id, body)    => apiPost(`/licensing/licences/${id}/renew`, body),
   remove: (id)          => apiDelete(`/licensing/licences/${id}`),
 };
+
+// --- Auditing (09) wrappers ---
+// Reads return the parsed body (or null); writes return { ok, status, error }.
+// Slice 1 surface: applications + bindings + nominees (CRUD) and read-only
+// campaign dashboards. Campaign launch / attestation submit arrive in later
+// slices. Application detail embeds bindings[] + nominees[]; campaign detail
+// embeds packets[] (with subjects[]) + decisions[] + email_log[].
+export const apiAuditing = {
+  // Applications
+  listApps:   (q)              => api('/auditing/applications' + (q ? '?q=' + encodeURIComponent(q) : '')),
+  getApp:     (id)             => api(`/auditing/applications/${id}`),
+  createApp:  (body)           => apiPost('/auditing/applications', body),
+  patchApp:   (id, body)       => apiPatch(`/auditing/applications/${id}`, body),
+  deleteApp:  (id)             => apiDelete(`/auditing/applications/${id}`),
+  // Bindings
+  addBinding:    (id, body)        => apiPost(`/auditing/applications/${id}/bindings`, body),
+  removeBinding: (id, bindingId)   => apiDelete(`/auditing/applications/${id}/bindings/${bindingId}`),
+  // Nominees
+  addNominee:    (id, body)        => apiPost(`/auditing/applications/${id}/nominees`, body),
+  removeNominee: (id, nomineeId)   => apiDelete(`/auditing/applications/${id}/nominees/${nomineeId}`),
+  // Campaigns (read-only in Slice 1)
+  listCampaigns:  ()           => api('/auditing/campaigns'),
+  getCampaign:    (id)         => api(`/auditing/campaigns/${id}`),
+};

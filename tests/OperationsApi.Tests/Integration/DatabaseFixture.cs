@@ -101,7 +101,8 @@ public class DatabaseFixture : IAsyncLifetime
             "database/014-disk-monitoring-sync-status.sql",
             "database/015-disk-current-matview.sql",
             "database/018-disk-fqdn.sql",
-            "database/019-licensing-schema.sql"
+            "database/019-licensing-schema.sql",
+            "database/020-auditing-schema.sql"
         };
 
         // Walk up from bin/Debug/net10.0 to find the project root

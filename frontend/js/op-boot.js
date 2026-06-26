@@ -442,6 +442,108 @@ function applyLicensing(items) {
   D.RENEWALS.length = 0; D.RENEWALS.push(...renewals);
 }
 
+// ── Auditing (09): reshape the live /api/auditing/* responses back into the
+// demo fixture shape (auditing-demo-data.js) and replace the in-place arrays so
+// the seed's helper closures (getApp, getSubjectsByManager, getCampaignProgress,
+// getAuditStatus, getAuditingCritCounts, ...) operate on live data unchanged.
+//
+// SCOPE (Slice 1): applications, bindings, nominees, campaigns + their packets /
+// decisions / email-log are LIVE. AD reference data (USERS, GROUPS,
+// GROUP_MEMBERSHIPS, GROUP_OWNERS) is intentionally NOT touched — it stays on the
+// demo fixture until the AD-sync slice. Bindings reference real DNs picked from
+// that demo fixture, so the per-group member/owner panels still resolve.
+//
+// appDetails/campDetails are the per-id detail responses (the list endpoints
+// don't embed bindings/nominees/packets), fetched in parallel by the caller.
+function applyAuditing(appDetails, campDetails) {
+  const D = window.AUDITING_DATA;
+  if (!D || !Array.isArray(D.APPLICATIONS)) return;
+
+  const apps = (appDetails || []).filter(Boolean).map(a => ({
+    application_id: a.application_id,
+    name: a.name,
+    business_owner: a.business_owner || '',
+    technical_owner: a.technical_owner || '',
+    support_email: a.support_email || '',
+    bindings: (a.bindings || []).map(b => b.group_dn),
+    audit_frequency_months: a.audit_frequency_months != null ? a.audit_frequency_months : null,
+    auto_launch: !!a.auto_launch,
+    audit_routing_mode: a.audit_routing_mode || 'line_manager',
+    audit_due_period_days: a.audit_due_period_days || 21,
+    nominees: (a.nominees || []).map(n => ({ nominee_sam: n.nominee_sam, role_note: n.role_note || '' })),
+    // id maps used by the OC_ACTIONS write helpers (the UI works in DNs/sams).
+    _bindingIds: Object.fromEntries((a.bindings || []).map(b => [b.group_dn, b.binding_id])),
+    _nomineeIds: Object.fromEntries((a.nominees || []).map(n => [n.nominee_sam, n.nominee_id])),
+  }));
+
+  const campaigns = [], packets = [], decisions = [], emailLog = [];
+  (campDetails || []).filter(Boolean).forEach(c => {
+    campaigns.push({
+      campaign_id: c.campaign_id,
+      application_id: c.application_id,
+      application_name: c.application_name || '',
+      name: c.name,
+      status: c.status,
+      // date-only: the crit-strip helper appends 'T23:59:59' to due_at.
+      due_at: c.due_at ? String(c.due_at).slice(0, 10) : null,
+      created_by: c.created_by || '',
+      created_at: c.created_at,
+      closed_at: c.closed_at || null,
+      closed_by_packet_id: c.closed_by_packet_id || null,
+      launch_kind: c.launch_kind || 'manual',
+      routing_mode: c.routing_mode,
+      closure_mode: c.closure_mode,
+      cc_audit_mailbox: c.cc_audit_mailbox || '',
+    });
+    (c.packets || []).forEach(p => packets.push({
+      packet_id: p.packet_id,
+      campaign_id: c.campaign_id,
+      recipient_sam: p.recipient_sam,
+      recipient_display: p.recipient_display || p.recipient_sam,
+      recipient_email: p.recipient_email || '',
+      recipient_kind: p.recipient_kind,
+      role_note: p.role_note || '',
+      subjects: (p.subjects || []).map(s => s.subject_sam),
+      token: '', // raw token isn't exposed on dashboards; attestation links land in Slice 2
+      token_expires_at: p.token_expires_at || null,
+      submitted_at: p.submitted_at || null,
+      submitted_by_sam: p.submitted_by_sam || null,
+      submitted_by_display: p.submitted_by_display || null,
+      reminder_sent_at: p.reminder_sent_at || null,
+    }));
+    (c.decisions || []).forEach(d => decisions.push({
+      packet_id: d.packet_id, subject_sam: d.subject_sam, decision: d.decision, comment: d.comment || '',
+    }));
+    (c.email_log || []).forEach(e => emailLog.push({
+      log_id: e.log_id, packet_id: e.packet_id, campaign_id: e.campaign_id,
+      to_addr: e.to_addr, cc_addr: e.cc_addr, subject: e.subject, kind: e.kind,
+      sent_at: e.sent_at, success: !!e.success,
+    }));
+  });
+
+  D.APPLICATIONS.length = 0; D.APPLICATIONS.push(...apps);
+  D.CAMPAIGNS.length = 0;    D.CAMPAIGNS.push(...campaigns);
+  D.PACKETS.length = 0;      D.PACKETS.push(...packets);
+  D.DECISIONS.length = 0;    D.DECISIONS.push(...decisions);
+  D.EMAIL_LOG.length = 0;    D.EMAIL_LOG.push(...emailLog);
+}
+
+// Fetch the auditing list endpoints, then their per-id details, and apply.
+// Returns true on success, false if any list fetch was unreachable.
+async function fetchAuditing() {
+  const [appList, campList] = await Promise.all([
+    api('/auditing/applications'),
+    api('/auditing/campaigns'),
+  ]);
+  if (!Array.isArray(appList) || !Array.isArray(campList)) return false;
+  const [appDetails, campDetails] = await Promise.all([
+    Promise.all(appList.map(a => api('/auditing/applications/' + a.application_id))),
+    Promise.all(campList.map(c => api('/auditing/campaigns/' + c.campaign_id))),
+  ]);
+  applyAuditing(appDetails, campDetails);
+  return true;
+}
+
 // ── Paginated /api/servers (backend caps limit at 1000) ──────────────
 async function fetchAllServers(bu) {
   const PAGE = 1000;
@@ -649,6 +751,13 @@ async function runFetches() {
       applyLicensing(v);
       rerender();
     }),
+    // Auditing (09) — not BU-scoped. Applications + campaigns go live; AD
+    // membership/owners stay on the demo fixture until the AD-sync slice.
+    fetchAuditing().then(ok => {
+      if (!ok) { markDemo('auditing'); return; }
+      clearDemo('auditing');
+      rerender();
+    }).catch(() => markDemo('auditing')),
     api('/me').then(v => {
       if (!v) return;
       window.CURRENT_USER = v; // { username, fullName }
@@ -1133,6 +1242,81 @@ Object.assign(window.OC_ACTIONS, {
     else alert('Could not delete licence (' + res.status + '): ' + (res.error || 'unknown error'));
   },
 });
+
+// ── Auditing (09) write actions (op-pages.js calls these) ────────────
+// API-backed. On failure they surface the error; there is no offline in-memory
+// fallback in Slice 1 (the demo fixture still backs READS when the API is
+// unreachable, flagged via markDemo('auditing')).
+Object.assign(window.OC_ACTIONS, {
+  // payload = snake_case app fields; bindings = [{group_dn, group_sam, group_type}].
+  // onDone(newAppId) fires after the app + its bindings are created.
+  addAuditApp: async (payload, bindings, onDone, onError) => {
+    const fail = (m) => { if (onError) onError(m); else alert(m); };
+    const res = await apiPost('/auditing/applications', payload);
+    if (!res.ok) { fail('Could not create application (' + res.status + '): ' + (res.error || 'unknown error')); return; }
+    await refetchAuditing();
+    const created = (window.AUDITING_DATA.APPLICATIONS || []).find(a => a.name === payload.name);
+    if (created && Array.isArray(bindings) && bindings.length) {
+      for (const b of bindings) {
+        const r = await apiPost('/auditing/applications/' + created.application_id + '/bindings', b);
+        if (!r.ok) { fail('Application created, but binding ' + (b.group_sam || b.group_dn) + ' failed (' + r.status + ').'); break; }
+      }
+      await refetchAuditing();
+    }
+    if (onDone) onDone(created ? created.application_id : null);
+  },
+
+  // fields = any subset of patchable app fields (owners, cadence, routing, due, auto).
+  patchAuditApp: async (id, fields, onDone, onError) => {
+    const fail = (m) => { if (onError) onError(m); else alert(m); };
+    const res = await apiPatch('/auditing/applications/' + id, fields);
+    if (!res.ok) { fail('Could not update application (' + res.status + '): ' + (res.error || 'unknown error')); return; }
+    await refetchAuditing(); if (onDone) onDone();
+  },
+
+  deleteAuditApp: async (id, onDone) => {
+    const res = await apiDelete('/auditing/applications/' + id);
+    if (!res.ok) { alert('Could not unregister application (' + res.status + '): ' + (res.error || 'unknown error')); return; }
+    await refetchAuditing(); if (onDone) onDone();
+  },
+
+  addAuditBinding: async (id, body, onDone, onError) => {
+    const fail = (m) => { if (onError) onError(m); else alert(m); };
+    const res = await apiPost('/auditing/applications/' + id + '/bindings', body);
+    if (!res.ok) { fail('Could not bind group (' + res.status + '): ' + (res.error || 'unknown error')); return; }
+    await refetchAuditing(); if (onDone) onDone();
+  },
+
+  removeAuditBinding: async (id, bindingId, onDone) => {
+    if (!bindingId) { alert('Cannot remove binding: no id (demo mode?).'); return; }
+    const res = await apiDelete('/auditing/applications/' + id + '/bindings/' + bindingId);
+    if (!res.ok) { alert('Could not remove binding (' + res.status + '): ' + (res.error || 'unknown error')); return; }
+    await refetchAuditing(); if (onDone) onDone();
+  },
+
+  addAuditNominee: async (id, body, onDone, onError) => {
+    const fail = (m) => { if (onError) onError(m); else alert(m); };
+    const res = await apiPost('/auditing/applications/' + id + '/nominees', body);
+    if (!res.ok) { fail('Could not add nominee (' + res.status + '): ' + (res.error || 'unknown error')); return; }
+    await refetchAuditing(); if (onDone) onDone();
+  },
+
+  removeAuditNominee: async (id, nomineeId, onDone) => {
+    if (!nomineeId) { alert('Cannot remove nominee: no id (demo mode?).'); return; }
+    const res = await apiDelete('/auditing/applications/' + id + '/nominees/' + nomineeId);
+    if (!res.ok) { alert('Could not remove nominee (' + res.status + '): ' + (res.error || 'unknown error')); return; }
+    await refetchAuditing(); if (onDone) onDone();
+  },
+});
+
+async function refetchAuditing() {
+  let ok = false;
+  try { ok = await fetchAuditing(); } catch (_) { ok = false; }
+  if (ok) clearDemo('auditing'); else markDemo('auditing');
+  const m = mount();
+  if (window.RERENDER_PAGE && m) window.RERENDER_PAGE(m);
+  if (window.RERENDER_SHELL) window.RERENDER_SHELL();
+}
 
 function _rerenderLic() {
   const m = mount();

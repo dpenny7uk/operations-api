@@ -105,3 +105,31 @@ public interface ILicensingService
     // 'tracked', clears the licence's alert rows so next-cycle thresholds re-fire.
     Task<LicenceDetail?> RenewAsync(int id, DateOnly newExpires, string? notes, string actor);
 }
+
+public interface IAuditingService
+{
+    // ---- Applications + bindings + nominees (CRUD) ----
+    Task<IEnumerable<AuditApplication>> ListApplicationsAsync(string? search);
+    Task<AuditApplicationDetail?> GetApplicationAsync(int id);
+    Task<AuditApplicationDetail> CreateApplicationAsync(AppCreateRequest req, string actor);
+    Task<AuditApplicationDetail?> PatchApplicationAsync(int id, AppPatchRequest req, string actor);
+    // "Unregister from auditing": clears the app's audit config + deactivates its
+    // bindings + removes nominees. The shared.applications row is preserved (it may
+    // back servers/other features). Returns false if the app doesn't exist.
+    Task<bool> DeleteApplicationAsync(int id, string actor);
+
+    // Bindings: returns null if the application doesn't exist; throws ConflictException
+    // if an active binding for the same group_dn already exists.
+    Task<AuditBinding?> AddBindingAsync(int appId, BindingCreateRequest req, string actor);
+    Task<bool> RemoveBindingAsync(int appId, int bindingId, string actor);
+
+    // Nominees: returns null if the application doesn't exist; throws ConflictException
+    // on a duplicate (application_id, nominee_sam).
+    Task<AuditNominee?> AddNomineeAsync(int appId, NomineeCreateRequest req, string actor);
+    Task<bool> RemoveNomineeAsync(int appId, int nomineeId);
+
+    // ---- Campaigns (read-only in Slice 1) ----
+    Task<IEnumerable<AuditCampaign>> ListCampaignsAsync();
+    // Detail hydrates packets (+ their subjects), all decisions, and the email log.
+    Task<AuditCampaignDetail?> GetCampaignAsync(int id);
+}

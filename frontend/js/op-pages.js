@@ -4290,11 +4290,21 @@
       return;
     }
 
-    // Phase 0 disclosure ribbon so reviewers know this is not yet wired up.
-    page.appendChild(h('div.demo-ribbon-row', { role: 'status', 'aria-label': 'Phase 0 prototype' },
-      h('span.demo-ribbon', null, 'DEMO DATA'),
-      h('span.demo-ribbon-note', null, 'Phase 0 prototype — fixtures from auditing-demo-data.js. No backend, no AD sync, no email. Click-through only.'),
-    ));
+    // Ribbon reflects live vs demo. If the auditing fetch failed (API
+    // unreachable) the demo fixture backs the page — show the red DEMO badge.
+    // When live, note that AD membership/owners are still demo until the
+    // AD-sync slice (applications + campaigns themselves are real).
+    const _audOnDemo = (typeof window !== 'undefined' && window.DEMO_WIDGETS && window.DEMO_WIDGETS.has('auditing'));
+    if (_audOnDemo) {
+      page.appendChild(h('div.demo-ribbon-row', { role: 'status', 'aria-label': 'Demo data' },
+        h('span.demo-ribbon', null, 'DEMO DATA'),
+        h('span.demo-ribbon-note', null, 'API unreachable — showing the bundled prototype fixtures, not live data.'),
+      ));
+    } else {
+      page.appendChild(h('div.demo-ribbon-row', { role: 'status', 'aria-label': 'Partial live data' },
+        h('span.demo-ribbon-note', null, 'Applications & campaigns are live from the database. AD group membership & owners shown in app detail are demo until the AD-sync slice.'),
+      ));
+    }
 
     // 6-cell crit strip — same shape as 05 Certificates / 06 EOL / 08 Licensing
     page.appendChild(renderAuditingCritStrip(mount));
@@ -4445,26 +4455,41 @@
       style: canSubmit ? null : { opacity: 0.5, cursor:'not-allowed' },
       on:{click:()=>{
         if (!canSubmit) return;
-        const nextId = (D.APPLICATIONS.reduce((m, a) => Math.max(m, a.application_id), 0) || 0) + 1;
-        D.APPLICATIONS.push({
-          application_id: nextId,
-          name: formState.name.trim(),
-          business_owner: formState.business_owner,
-          technical_owner: formState.technical_owner || '',
-          support_email: '',
-          bindings: formState.bindings.slice(),
-          audit_frequency_months: formState.audit_frequency_months,
-          auto_launch: formState.auto_launch,
-          audit_routing_mode: formState.audit_routing_mode,
-          audit_due_period_days: formState.audit_due_period_days,
-          nominees: [],
-        });
-        // Reset form, close it, drill into the new app so the user sees what they created
-        renderAuditingAddAppForm._s = null;
-        renderAuditingAddAppForm._pick = null;
-        aState.showAddAppForm = false;
-        aState.selectedAppId = nextId;
-        window.RERENDER_PAGE(mount);
+        const done = (newId) => {
+          renderAuditingAddAppForm._s = null;
+          renderAuditingAddAppForm._pick = null;
+          aState.showAddAppForm = false;
+          if (newId != null) aState.selectedAppId = newId;
+          window.RERENDER_PAGE(mount);
+        };
+        const A = window.OC_ACTIONS;
+        if (A && A.addAuditApp) {
+          const payload = {
+            name: formState.name.trim(),
+            business_owner: formState.business_owner || null,
+            technical_owner: formState.technical_owner || null,
+            audit_routing_mode: formState.audit_routing_mode,
+            audit_frequency_months: formState.audit_frequency_months,
+            audit_due_period_days: formState.audit_due_period_days,
+            auto_launch: formState.auto_launch,
+          };
+          const bindings = formState.bindings.map(dn => ({
+            group_dn: dn, group_sam: _shortGroup(dn), group_type: (D.getGroup(dn) || {}).type || 'Security',
+          }));
+          A.addAuditApp(payload, bindings, done, (m) => alert(m));
+        } else {
+          // Offline prototype fallback: append to the in-memory fixture.
+          const nextId = (D.APPLICATIONS.reduce((m, a) => Math.max(m, a.application_id), 0) || 0) + 1;
+          D.APPLICATIONS.push({
+            application_id: nextId, name: formState.name.trim(),
+            business_owner: formState.business_owner, technical_owner: formState.technical_owner || '',
+            support_email: '', bindings: formState.bindings.slice(),
+            audit_frequency_months: formState.audit_frequency_months, auto_launch: formState.auto_launch,
+            audit_routing_mode: formState.audit_routing_mode, audit_due_period_days: formState.audit_due_period_days,
+            nominees: [],
+          });
+          done(nextId);
+        }
       }},
     }, 'Create application');
 
@@ -4710,6 +4735,21 @@
     wrap.appendChild(h('div', { style:{display:'flex',alignItems:'center',gap:'12px'} },
       h('button.tab', { on:{click:()=>{ aState.selectedAppId=null; window.RERENDER_PAGE(mount); }}}, '← Back to applications'),
       h('span', { style:{fontFamily:'var(--display)',fontSize:'22px',color:'var(--ink)'} }, app.name),
+      h('button', {
+        style:{marginLeft:'auto',padding:'6px 12px',background:'transparent',border:'1px solid var(--rule)',color:'var(--ink-3)',cursor:'pointer',fontFamily:'var(--mono)',fontSize:'10.5px',letterSpacing:'.06em',textTransform:'uppercase'},
+        on:{click:()=>{
+          if (!confirm('Unregister "' + app.name + '" from auditing? This clears its audit config, bindings and nominees. The application record itself is preserved.')) return;
+          const A = window.OC_ACTIONS;
+          if (A && A.deleteAuditApp) {
+            A.deleteAuditApp(app.application_id, () => { aState.selectedAppId = null; });
+          } else {
+            const i = D.APPLICATIONS.findIndex(a => a.application_id === app.application_id);
+            if (i >= 0) D.APPLICATIONS.splice(i, 1);
+            aState.selectedAppId = null;
+            window.RERENDER_PAGE(mount);
+          }
+        }},
+      }, 'Unregister'),
     ));
 
     const meta = h('div', { style:{display:'flex',flexWrap:'wrap',gap:'20px',fontFamily:'var(--mono)',fontSize:'11.5px',color:'var(--ink-2)'} },
@@ -4748,9 +4788,15 @@
         h('button', {
           style:{marginLeft:'auto',padding:'4px 10px',background:'transparent',border:'1px solid var(--rule)',color:'var(--ink-3)',cursor:'pointer',fontFamily:'var(--mono)',fontSize:'10.5px',letterSpacing:'.06em',textTransform:'uppercase'},
           on:{click:()=>{
-            const i = app.bindings.indexOf(dn);
-            if (i >= 0) app.bindings.splice(i, 1);
-            window.RERENDER_PAGE(mount);
+            const A = window.OC_ACTIONS;
+            const bindingId = app._bindingIds && app._bindingIds[dn];
+            if (A && A.removeAuditBinding && bindingId) {
+              A.removeAuditBinding(app.application_id, bindingId);
+            } else {
+              const i = app.bindings.indexOf(dn);
+              if (i >= 0) app.bindings.splice(i, 1);
+              window.RERENDER_PAGE(mount);
+            }
           }},
         }, 'Remove binding'),
       ));
@@ -4811,8 +4857,13 @@
     const s = renderAuditingAppBindingControls._s[stateKey];
 
     wrap.appendChild(_renderGroupNameSearch(mount, s, app.bindings, (dn) => {
-      if (!app.bindings.includes(dn)) app.bindings.push(dn);
       s.q = '';
+      const A = window.OC_ACTIONS;
+      if (A && A.addAuditBinding) {
+        A.addAuditBinding(app.application_id, { group_dn: dn, group_sam: _shortGroup(dn), group_type: (_audData().getGroup(dn) || {}).type || 'Security' });
+      } else if (!app.bindings.includes(dn)) {
+        app.bindings.push(dn);
+      }
     }));
     return wrap;
   }
@@ -4890,7 +4941,11 @@
       const on = app.audit_routing_mode === mode;
       return h('button', {
         style:{padding:'8px 16px',border:'none',background: on ? 'var(--ink)' : 'transparent',color: on ? 'var(--paper)' : 'var(--ink-2)',cursor:'pointer',fontFamily:'var(--mono)',fontSize:'11px',letterSpacing:'.08em',textTransform:'uppercase',fontWeight:'600'},
-        on:{click:()=>{ app.audit_routing_mode = mode; window.RERENDER_PAGE(mount); }},
+        on:{click:()=>{
+          const A = window.OC_ACTIONS;
+          if (A && A.patchAuditApp) { A.patchAuditApp(app.application_id, { audit_routing_mode: mode }); }
+          else { app.audit_routing_mode = mode; window.RERENDER_PAGE(mount); }
+        }},
       }, label);
     };
     toggle.appendChild(mkOpt('line_manager', 'Line manager'));
@@ -4954,7 +5009,12 @@
               : h('span.chip.crit', null, h('span.dot'), 'Disabled in AD'),
             h('button', {
               style:{marginLeft:'auto',padding:'4px 10px',background:'transparent',border:'1px solid var(--rule)',color:'var(--ink-3)',cursor:'pointer',fontFamily:'var(--mono)',fontSize:'10.5px',letterSpacing:'.06em',textTransform:'uppercase'},
-              on:{click:()=>{ app.nominees.splice(idx, 1); window.RERENDER_PAGE(mount); }},
+              on:{click:()=>{
+                const A = window.OC_ACTIONS;
+                const nomineeId = app._nomineeIds && app._nomineeIds[n.nominee_sam];
+                if (A && A.removeAuditNominee && nomineeId) { A.removeAuditNominee(app.application_id, nomineeId); }
+                else { app.nominees.splice(idx, 1); window.RERENDER_PAGE(mount); }
+              }},
             }, 'Remove'),
           ));
         });
@@ -4986,9 +5046,16 @@
           style: s.sam ? null : { opacity: 0.5, cursor:'not-allowed' },
           on:{click:()=>{
             if (!s.sam) return;
-            app.nominees.push({ nominee_sam: s.sam, role_note: s.role });
+            const A = window.OC_ACTIONS;
+            const u = (_audData().getUser(s.sam)) || {};
+            const sam = s.sam, role = s.role;
             s.sam = ''; s.role = '';
-            window.RERENDER_PAGE(mount);
+            if (A && A.addAuditNominee) {
+              A.addAuditNominee(app.application_id, { nominee_sam: sam, nominee_display_name: u.display || null, nominee_email: u.email || null, role_note: role || null });
+            } else {
+              app.nominees.push({ nominee_sam: sam, role_note: role });
+              window.RERENDER_PAGE(mount);
+            }
           }},
         }, 'Add nominee'),
       ));
@@ -5031,7 +5098,12 @@
         'data-fk':'audit-cadence-' + app.application_id,
         style:{padding:'8px 10px',border:'1px solid var(--rule)',background:'var(--card)',fontFamily:'inherit',fontSize:'13px'},
         value: String(app.audit_frequency_months || 12),
-        on:{change:(e)=>{ app.audit_frequency_months = parseInt(e.target.value, 10); window.RERENDER_PAGE(mount); }},
+        on:{change:(e)=>{
+          const v = parseInt(e.target.value, 10);
+          const A = window.OC_ACTIONS;
+          if (A && A.patchAuditApp) { A.patchAuditApp(app.application_id, { audit_frequency_months: v }); }
+          else { app.audit_frequency_months = v; window.RERENDER_PAGE(mount); }
+        }},
       },
         h('option', { value: '6',  selected: app.audit_frequency_months === 6  }, 'Every 6 months'),
         h('option', { value: '12', selected: app.audit_frequency_months === 12 }, 'Annual (12 months)'),
@@ -5045,7 +5117,12 @@
       h('span', { style:{fontFamily:'var(--mono)',fontSize:'10px',letterSpacing:'.1em',textTransform:'uppercase',color:'var(--ink-3)'} }, 'Automation'),
       h('label', { style:{display:'flex',alignItems:'center',gap:'10px',cursor:'pointer',padding:'8px 10px',border:'1px solid var(--rule)',background:'var(--card)'} },
         h('input', { type:'checkbox', checked: !!app.auto_launch,
-          on:{change:(e)=>{ app.auto_launch = e.target.checked; window.RERENDER_PAGE(mount); }},
+          on:{change:(e)=>{
+            const v = e.target.checked;
+            const A = window.OC_ACTIONS;
+            if (A && A.patchAuditApp) { A.patchAuditApp(app.application_id, { auto_launch: v }); }
+            else { app.auto_launch = v; window.RERENDER_PAGE(mount); }
+          }},
         }),
         h('span', { style:{fontFamily:'var(--mono)',fontSize:'12px'} },
           app.auto_launch ? 'Auto-launch on due date' : 'Manual launch only'),
@@ -5061,7 +5138,12 @@
         type:'number', min:'1', max:'120',
         style:{padding:'8px 10px',border:'1px solid var(--rule)',background:'var(--card)',fontFamily:'inherit',fontSize:'13px'},
         value: String(app.audit_due_period_days || 21),
-        on:{input:(e)=>{ app.audit_due_period_days = parseInt(e.target.value, 10) || 21; }},
+        on:{change:(e)=>{
+          const v = parseInt(e.target.value, 10) || 21;
+          const A = window.OC_ACTIONS;
+          if (A && A.patchAuditApp) { A.patchAuditApp(app.application_id, { audit_due_period_days: v }); }
+          else { app.audit_due_period_days = v; window.RERENDER_PAGE(mount); }
+        }},
       }),
       app.audit_due_period_days <= 7
         ? h('span', { style:{fontFamily:'var(--mono)',fontSize:'10.5px',color:'var(--warn)'} }, '7-day reminder will be suppressed')
@@ -5364,12 +5446,20 @@
     const D = _audData();
     const wrap = h('div', { style:{display:'flex',flexDirection:'column',gap:'18px',maxWidth:'720px'} });
 
+    if (!D.APPLICATIONS.length) {
+      wrap.appendChild(h('div', { style:{padding:'18px',border:'1px dashed var(--rule)',fontFamily:'var(--mono)',fontSize:'12px',color:'var(--ink-3)',textAlign:'center'} },
+        'No applications registered for auditing yet. Add one from the Applications tab first.'));
+      return wrap;
+    }
     const formState = renderAuditingNewCampaign._s || (renderAuditingNewCampaign._s = {
       application_id: D.APPLICATIONS[0].application_id,
       name: '',
       due_at: '',
       // Routing semantics come from the app config; no per-launch overrides yet.
     });
+    // Data may have refreshed since the form state was created — keep the
+    // selected application pointing at one that still exists.
+    if (!D.getApp(formState.application_id)) formState.application_id = D.APPLICATIONS[0].application_id;
 
     wrap.appendChild(h('div', { style:{fontFamily:'var(--mono)',fontSize:'11.5px',color:'var(--ink-2)',lineHeight:'1.55'} },
       'Pick an application and a due date. Phase 0: this form does NOT launch anything — it just shows what the launch UX will look like once the API is wired up.',
