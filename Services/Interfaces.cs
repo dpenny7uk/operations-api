@@ -128,8 +128,25 @@ public interface IAuditingService
     Task<AuditNominee?> AddNomineeAsync(int appId, NomineeCreateRequest req, string actor);
     Task<bool> RemoveNomineeAsync(int appId, int nomineeId);
 
-    // ---- Campaigns (read-only in Slice 1) ----
+    // ---- Campaigns (read) ----
     Task<IEnumerable<AuditCampaign>> ListCampaignsAsync();
     // Detail hydrates packets (+ their subjects), all decisions, and the email log.
     Task<AuditCampaignDetail?> GetCampaignAsync(int id);
+
+    // ---- Public attestation (anonymous, token-gated) ----
+    // Returns null when the token is malformed / tampered / expired / revoked.
+    Task<AttestationView?> GetAttestationAsync(string rawToken);
+    Task<AttestationSubmitResult> SubmitAttestationAsync(string rawToken, List<AttestationDecisionInput> decisions, string? ip);
+}
+
+public interface ICampaignService
+{
+    // Create + launch in one transaction: snapshots routing/closure/cc, builds the
+    // roster from the bound groups' membership, creates one packet (+ subjects +
+    // signed token) per manager (line_manager) or per nominee (nominees), and
+    // activates the campaign. Throws ConflictException with a clear message if the
+    // app can't be launched (no roster, no nominees, unrouteable subjects + no
+    // business_owner fallback). Returns the minted attestation links (shown once).
+    Task<CampaignLaunchResult> LaunchAsync(CampaignLaunchRequest req, string actor);
+    Task<bool> CloseAsync(int campaignId, string actor);
 }

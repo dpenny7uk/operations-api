@@ -112,7 +112,9 @@ async function apiWrite(method, path, body) {
       const text = await res.text().catch(() => '');
       return { ok: false, status: res.status, error: text || `Error ${res.status}` };
     }
-    return { ok: true, status: res.status };
+    // Parse the success body when present (e.g. a launch result); empty/204 -> null.
+    const data = await res.json().catch(() => null);
+    return { ok: true, status: res.status, data };
   } catch (e) {
     const msg = recordTransportError(path, e);
     return { ok: false, status: 0, error: msg };
@@ -161,7 +163,10 @@ export const apiAuditing = {
   // Nominees
   addNominee:    (id, body)        => apiPost(`/auditing/applications/${id}/nominees`, body),
   removeNominee: (id, nomineeId)   => apiDelete(`/auditing/applications/${id}/nominees/${nomineeId}`),
-  // Campaigns (read-only in Slice 1)
+  // Campaigns
   listCampaigns:  ()           => api('/auditing/campaigns'),
   getCampaign:    (id)         => api(`/auditing/campaigns/${id}`),
+  // Launch returns the minted attestation links (shown once); close ends a campaign.
+  launchCampaign: (body)       => apiPost('/auditing/campaigns/launch', body),
+  closeCampaign:  (id)         => apiPost(`/auditing/campaigns/${id}/close`, {}),
 };

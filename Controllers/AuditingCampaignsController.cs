@@ -1,13 +1,14 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using OperationsApi.Infrastructure;
+using OperationsApi.Models;
 using OperationsApi.Services;
 
 namespace OperationsApi.Controllers;
 
 /// <summary>
-/// Attestation campaigns (Surface 09, Governance group). Read-only in Slice 1 --
-/// the dashboards list campaigns and drill into per-packet detail. Campaign
-/// create / launch / close / remind arrive in later slices.
+/// Attestation campaigns (Surface 09, Governance group). Reads (list + per-packet
+/// detail) are open to any authenticated user; launch and close require OpsAdmin.
 /// </summary>
 [Authorize]
 [ApiController]
@@ -16,8 +17,13 @@ namespace OperationsApi.Controllers;
 public class AuditingCampaignsController : ControllerBase
 {
     private readonly IAuditingService _svc;
+    private readonly ICampaignService _campaigns;
 
-    public AuditingCampaignsController(IAuditingService svc) => _svc = svc;
+    public AuditingCampaignsController(IAuditingService svc, ICampaignService campaigns)
+    {
+        _svc = svc;
+        _campaigns = campaigns;
+    }
 
     /// <summary>List campaigns (active first, then most-recently-closed), with progress counts.</summary>
     [HttpGet("campaigns")]
@@ -33,5 +39,47 @@ public class AuditingCampaignsController : ControllerBase
     {
         var campaign = await _svc.GetCampaignAsync(id);
         return campaign == null ? NotFound() : Ok(campaign);
+    }
+
+    /// <summary>Launch a campaign for an application: builds packets + signed tokens
+    /// from the bound groups' roster and activates it. Returns the minted attestation
+    /// links (shown once). Requires OpsAdmin role.</summary>
+    [HttpPost("campaigns/launch")]
+    [Authorize(Policy = "OpsAdmin")]
+    [ProducesResponseType(201)]
+    [ProducesResponseType(400)]
+    [ProducesResponseType(409)]
+    public async Task<IActionResult> Launch([FromBody] CampaignLaunchRequest req)
+    {
+        if (string.IsNullOrWhiteSpace(req.Name))
+            return BadRequest("name is required.");
+        if (req.Name.Length > 255 || InputGuard.ContainsControlChars(req.Name))
+            return BadRequest("name is invalid (max 255 characters).");
+        if (req.ApplicationId <= 0)
+            return BadRequest("application_id is required.");
+
+        var actor = User.Identity?.Name ?? "unknown";
+        try
+        {
+            var result = await _campaigns.LaunchAsync(req, actor);
+            return Created($"/api/auditing/campaigns/{result.CampaignId}", result);
+        }
+        catch (ConflictException ex)
+        {
+            // Launch-refusal states (no roster, no nominees, unrouteable + no fallback).
+            return Conflict(ex.Message);
+        }
+    }
+
+    /// <summary>Manually close a campaign. Requires OpsAdmin role.</summary>
+    [HttpPost("campaigns/{id}/close")]
+    [Authorize(Policy = "OpsAdmin")]
+    [ProducesResponseType(200)]
+    [ProducesResponseType(404)]
+    public async Task<IActionResult> Close(int id)
+    {
+        var actor = User.Identity?.Name ?? "unknown";
+        var closed = await _campaigns.CloseAsync(id, actor);
+        return closed ? Ok() : NotFound();
     }
 }

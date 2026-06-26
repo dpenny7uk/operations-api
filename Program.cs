@@ -87,6 +87,21 @@ builder.Services.AddScoped<IAlertsService, AlertsService>();
 builder.Services.AddScoped<IDiskMonitoringService, DiskMonitoringService>();
 builder.Services.AddScoped<ILicensingService, LicensingService>();
 builder.Services.AddScoped<IAuditingService, AuditingService>();
+builder.Services.AddScoped<ICampaignService, CampaignService>();
+
+// Attestation token signing (HMAC). Key from config (env var in prod); a fixed
+// dev placeholder keeps local development working without secrets configured.
+builder.Services.AddSingleton<IAttestationTokenService>(_ =>
+{
+    var key = config["Auditing:SigningKey"];
+    if (string.IsNullOrEmpty(key))
+    {
+        if (!builder.Environment.IsDevelopment())
+            throw new InvalidOperationException("Auditing:SigningKey must be configured (32+ bytes) outside Development.");
+        key = "dev-insecure-attestation-signing-key-change-me";
+    }
+    return new AttestationTokenService(key);
+});
 
 // API configuration
 builder.WebHost.ConfigureKestrel(options =>

@@ -14,7 +14,7 @@ public class AuditingServiceTests : IntegrationTestBase
     public AuditingServiceTests(DatabaseFixture db) : base(db) { }
 
     private AuditingService CreateService()
-        => new(OpenConnection(), NullLogger<AuditingService>.Instance);
+        => new(OpenConnection(), NullLogger<AuditingService>.Instance, new AttestationTokenService("auditing-tests-signing-key-0123456789"));
 
     // Collection-shared DB: clear auditing rows + reset any audit config the seed
     // apps (Portal/API Gateway/BackOffice) might have picked up between tests.

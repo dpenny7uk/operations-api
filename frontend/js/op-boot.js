@@ -1307,6 +1307,22 @@ Object.assign(window.OC_ACTIONS, {
     if (!res.ok) { alert('Could not remove nominee (' + res.status + '): ' + (res.error || 'unknown error')); return; }
     await refetchAuditing(); if (onDone) onDone();
   },
+
+  // payload = { application_id, name, due_at? }. onDone(result) receives the launch
+  // result incl. the one-time attestation links (result.packets[].attestation_url).
+  launchAuditCampaign: async (payload, onDone, onError) => {
+    const fail = (m) => { if (onError) onError(m); else alert(m); };
+    const res = await apiPost('/auditing/campaigns/launch', payload);
+    if (!res.ok) { fail('Could not launch campaign (' + res.status + '): ' + (res.error || 'unknown error')); return; }
+    await refetchAuditing();
+    if (onDone) onDone(res.data || null);
+  },
+
+  closeAuditCampaign: async (id, onDone) => {
+    const res = await apiPost('/auditing/campaigns/' + id + '/close', {});
+    if (!res.ok) { alert('Could not close campaign (' + res.status + '): ' + (res.error || 'unknown error')); return; }
+    await refetchAuditing(); if (onDone) onDone();
+  },
 });
 
 async function refetchAuditing() {

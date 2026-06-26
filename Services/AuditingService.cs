@@ -1,4 +1,5 @@
 using System.Data;
+using System.Security.Cryptography;
 using Dapper;
 using Npgsql;
 using OperationsApi.Infrastructure;
@@ -14,8 +15,10 @@ namespace OperationsApi.Services;
 /// </summary>
 public class AuditingService : BaseService<AuditingService>, IAuditingService
 {
-    public AuditingService(IDbConnection db, ILogger<AuditingService> logger)
-        : base(db, logger) { }
+    private readonly IAttestationTokenService _tokens;
+
+    public AuditingService(IDbConnection db, ILogger<AuditingService> logger, IAttestationTokenService tokens)
+        : base(db, logger) => _tokens = tokens;
 
     // An application "belongs" to auditing once it has audit config or an active
     // binding. Estate apps that were never registered (no cadence, no auto-launch,
@@ -320,6 +323,228 @@ public class AuditingService : BaseService<AuditingService>, IAuditingService
 
         return detail;
     });
+
+    // ── Public attestation (anonymous, token-gated) ──────────────────
+
+    private sealed class AttestationPacketRow
+    {
+        public Guid PacketId { get; set; }
+        public int CampaignId { get; set; }
+        public string RecipientSam { get; set; } = "";
+        public string? RecipientDisplay { get; set; }
+        public string RecipientKind { get; set; } = "manager";
+        public string? RoleNote { get; set; }
+        public byte[]? TokenHash { get; set; }
+        public DateTime? SubmittedAt { get; set; }
+        public string? SubmittedByDisplay { get; set; }
+        public string CampaignName { get; set; } = "";
+        public string CampaignStatus { get; set; } = "";
+        public string RoutingMode { get; set; } = "line_manager";
+        public string ClosureMode { get; set; } = "all_packets";
+        public DateTime? DueAt { get; set; }
+        public string? CcAuditMailbox { get; set; }
+        public string? ApplicationName { get; set; }
+    }
+
+    private sealed class ClosingPacket
+    {
+        public Guid PacketId { get; set; }
+        public string? SubmittedByDisplay { get; set; }
+        public DateTime? SubmittedAt { get; set; }
+    }
+
+    private const string AttestPacketColumns = @"
+        p.packet_id AS PacketId,
+        p.campaign_id AS CampaignId,
+        p.recipient_sam AS RecipientSam,
+        p.recipient_display_name AS RecipientDisplay,
+        p.recipient_kind AS RecipientKind,
+        p.role_note AS RoleNote,
+        p.token_hash AS TokenHash,
+        p.submitted_at AS SubmittedAt,
+        p.submitted_by_display AS SubmittedByDisplay,
+        c.name AS CampaignName,
+        c.status AS CampaignStatus,
+        c.routing_mode AS RoutingMode,
+        c.closure_mode AS ClosureMode,
+        c.due_at AS DueAt,
+        c.cc_audit_mailbox AS CcAuditMailbox,
+        a.application_name AS ApplicationName";
+
+    private const string SubjectsSelect = @"
+        SELECT s.subject_sam AS SubjectSam, s.subject_display_name AS SubjectDisplay,
+               u.email AS SubjectEmail, COALESCE(u.enabled, TRUE) AS Enabled
+        FROM auditing.attestation_packet_subjects s
+        LEFT JOIN auditing.ad_users u ON u.sam_account = s.subject_sam
+        WHERE s.packet_id = @Pid
+        ORDER BY s.subject_display_name, s.subject_sam";
+
+    public Task<AttestationView?> GetAttestationAsync(string rawToken) => RunDbAsync(async () =>
+    {
+        var row = await ResolvePacketAsync(rawToken, null);
+        return row == null ? null : await BuildViewAsync(row, null);
+    });
+
+    public Task<AttestationSubmitResult> SubmitAttestationAsync(string rawToken, List<AttestationDecisionInput> decisions, string? ip) => RunDbAsync(async () =>
+    {
+        if (Db.State != ConnectionState.Open) Db.Open();
+        using var tx = Db.BeginTransaction();
+
+        var row = await ResolvePacketAsync(rawToken, tx);
+        if (row == null) { tx.Rollback(); return new AttestationSubmitResult { Outcome = AttestationSubmitOutcome.NotFound }; }
+
+        // Already done (this packet submitted, or the campaign was closed by another
+        // nominee) -> return the read-only view, no write.
+        if (row.SubmittedAt != null || row.CampaignStatus == "closed")
+        {
+            var done = await BuildViewAsync(row, tx);
+            tx.Rollback();
+            return new AttestationSubmitResult { Outcome = AttestationSubmitOutcome.Conflict, View = done };
+        }
+
+        var subjects = (await Db.QueryAsync<AttestationSubject>(SubjectsSelect, new { Pid = row.PacketId }, tx)).ToList();
+        var displayBySam = subjects.ToDictionary(s => s.SubjectSam, s => s.SubjectDisplay);
+
+        // One valid decision per subject, no strangers, no duplicates.
+        var seen = new HashSet<string>();
+        foreach (var d in decisions)
+        {
+            if (d.Decision is not ("keep" or "revoke")) return Bad(tx, "Each decision must be 'keep' or 'revoke'.");
+            if (!displayBySam.ContainsKey(d.SubjectSam)) return Bad(tx, "Decision for an unknown subject.");
+            if (!seen.Add(d.SubjectSam)) return Bad(tx, "Duplicate decision for a subject.");
+        }
+        if (seen.Count != subjects.Count) return Bad(tx, "A decision is required for every subject.");
+
+        // Claim the packet atomically. Losing the race -> 0 rows -> conflict.
+        var claimed = await Db.ExecuteAsync($@"
+            UPDATE {Sql.Tables.AuditPackets}
+            SET submitted_at = NOW(), submitted_by_sam = @Sam, submitted_by_display = @Disp, submitted_ip = @Ip::inet
+            WHERE packet_id = @Pid AND submitted_at IS NULL",
+            new { Pid = row.PacketId, Sam = row.RecipientSam, Disp = row.RecipientDisplay, Ip = ip }, tx);
+
+        if (claimed == 0)
+        {
+            var fresh = await ResolvePacketAsync(rawToken, tx);
+            var view = fresh != null ? await BuildViewAsync(fresh, tx) : null;
+            tx.Rollback();
+            return new AttestationSubmitResult { Outcome = AttestationSubmitOutcome.Conflict, View = view };
+        }
+
+        foreach (var d in decisions)
+        {
+            await Db.ExecuteAsync($@"
+                INSERT INTO {Sql.Tables.AuditDecisions} (packet_id, subject_sam, subject_display, decision, comment)
+                VALUES (@Pid, @Sam, @Disp, @Decision, @Comment)",
+                new { Pid = row.PacketId, Sam = d.SubjectSam, Disp = displayBySam[d.SubjectSam], d.Decision,
+                      Comment = string.IsNullOrWhiteSpace(d.Comment) ? null : d.Comment.Trim() }, tx);
+        }
+
+        // Closure: any_packet closes on first submit; all_packets when the last lands.
+        if (row.ClosureMode == "any_packet")
+        {
+            await Db.ExecuteAsync($@"
+                UPDATE {Sql.Tables.AuditCampaigns}
+                SET status = 'closed', closed_at = NOW(), closed_by_packet_id = @Pid
+                WHERE campaign_id = @Cid AND status = 'active'",
+                new { Pid = row.PacketId, Cid = row.CampaignId }, tx);
+        }
+        else
+        {
+            await Db.ExecuteAsync($@"
+                UPDATE {Sql.Tables.AuditCampaigns}
+                SET status = 'closed', closed_at = NOW()
+                WHERE campaign_id = @Cid AND status = 'active'
+                  AND NOT EXISTS (SELECT 1 FROM {Sql.Tables.AuditPackets}
+                                  WHERE campaign_id = @Cid AND submitted_at IS NULL)",
+                new { Cid = row.CampaignId }, tx);
+        }
+
+        tx.Commit();
+
+        var after = await ResolvePacketAsync(rawToken, null);
+        return new AttestationSubmitResult
+        {
+            Outcome = AttestationSubmitOutcome.Ok,
+            View = after != null ? await BuildViewAsync(after, null) : null
+        };
+    });
+
+    private static AttestationSubmitResult Bad(IDbTransaction tx, string msg)
+    {
+        tx.Rollback();
+        return new AttestationSubmitResult { Outcome = AttestationSubmitOutcome.BadRequest, Error = msg };
+    }
+
+    private async Task<AttestationPacketRow?> ResolvePacketAsync(string rawToken, IDbTransaction? tx)
+    {
+        var packetId = _tokens.Verify(rawToken);
+        if (packetId == null) return null;
+
+        var row = await Db.QueryFirstOrDefaultAsync<AttestationPacketRow>($@"
+            SELECT {AttestPacketColumns}
+            FROM {Sql.Tables.AuditPackets} p
+            JOIN {Sql.Tables.AuditCampaigns} c ON c.campaign_id = p.campaign_id
+            JOIN {Sql.Tables.Applications} a ON a.application_id = c.application_id
+            WHERE p.packet_id = @Pid",
+            new { Pid = packetId.Value }, tx);
+
+        if (row?.TokenHash == null) return null;
+        // Revocation / wrong-token: the raw must hash to the stored hash (constant time).
+        if (!CryptographicOperations.FixedTimeEquals(_tokens.ComputeHash(rawToken), row.TokenHash)) return null;
+        return row;
+    }
+
+    private async Task<AttestationView> BuildViewAsync(AttestationPacketRow row, IDbTransaction? tx)
+    {
+        var view = new AttestationView
+        {
+            CampaignName = row.CampaignName,
+            ApplicationName = row.ApplicationName,
+            RoutingMode = row.RoutingMode,
+            ClosureMode = row.ClosureMode,
+            DueAt = row.DueAt,
+            CcAuditMailbox = row.CcAuditMailbox,
+            RecipientDisplay = row.RecipientDisplay,
+            RecipientKind = row.RecipientKind,
+            RoleNote = row.RoleNote,
+            Subjects = (await Db.QueryAsync<AttestationSubject>(SubjectsSelect, new { Pid = row.PacketId }, tx)).ToList(),
+        };
+
+        var decisionPacketId = row.PacketId;
+        if (row.SubmittedAt != null)
+        {
+            view.State = "submitted";
+            view.SubmittedByDisplay = row.SubmittedByDisplay;
+            view.SubmittedAt = row.SubmittedAt;
+        }
+        else if (row.CampaignStatus == "closed" && row.ClosureMode == "any_packet")
+        {
+            var closing = await Db.QueryFirstOrDefaultAsync<ClosingPacket>($@"
+                SELECT packet_id AS PacketId, submitted_by_display AS SubmittedByDisplay, submitted_at AS SubmittedAt
+                FROM {Sql.Tables.AuditPackets}
+                WHERE campaign_id = @Cid AND submitted_at IS NOT NULL
+                ORDER BY submitted_at LIMIT 1",
+                new { Cid = row.CampaignId }, tx);
+            if (closing != null)
+            {
+                view.State = "closed_by_other";
+                view.SubmittedByDisplay = closing.SubmittedByDisplay;
+                view.SubmittedAt = closing.SubmittedAt;
+                decisionPacketId = closing.PacketId;
+            }
+        }
+
+        if (view.State != "pending")
+        {
+            view.Decisions = (await Db.QueryAsync<AttestationDecisionView>($@"
+                SELECT subject_sam AS SubjectSam, decision AS Decision, comment AS Comment
+                FROM {Sql.Tables.AuditDecisions}
+                WHERE packet_id = @Pid",
+                new { Pid = decisionPacketId }, tx)).ToList();
+        }
+
+        return view;
+    }
 
     // ── Helpers ──────────────────────────────────────────────────────
 

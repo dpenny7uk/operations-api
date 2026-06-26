@@ -5305,6 +5305,17 @@
       c.status === 'active'
         ? h('span.chip.warn', null, h('span.dot'), 'Active')
         : h('span.chip.ok', null, h('span.dot'), 'Closed'),
+      c.status === 'active'
+        ? h('button', {
+            style:{marginLeft:'auto',padding:'6px 12px',background:'transparent',border:'1px solid var(--rule)',color:'var(--ink-3)',cursor:'pointer',fontFamily:'var(--mono)',fontSize:'10.5px',letterSpacing:'.06em',textTransform:'uppercase'},
+            on:{click:()=>{
+              if (!confirm('Close "' + c.name + '" now? Recipients who have not yet submitted will no longer be able to.')) return;
+              const A = window.OC_ACTIONS;
+              if (A && A.closeAuditCampaign) { A.closeAuditCampaign(c.campaign_id); }
+              else { alert('Closing needs the API.'); }
+            }},
+          }, 'Close campaign')
+        : null,
     ));
 
     const meta = h('div', { style:{display:'flex',flexWrap:'wrap',gap:'20px',fontFamily:'var(--mono)',fontSize:'11.5px',color:'var(--ink-2)'} },
@@ -5383,8 +5394,10 @@
         h('td.mono.muted', null, _fmtDateTime(p.submitted_at)),
         h('td.num', null, submitted ? (summary.keep + ' keep / ' + summary.revoke + ' revoke') : '—'),
         h('td.mono.muted', null, p.reminder_sent_at ? _fmtDate(p.reminder_sent_at) : (c.status === 'active' ? 'Not yet' : '—')),
-        h('td', null, h('a', { href:'/attest.html?t=' + encodeURIComponent(p.token), target:'_blank', rel:'noopener',
-            style:{fontFamily:'var(--mono)',fontSize:'11px',color:'var(--ink-2)'} }, 'Open link ↗')),
+        h('td', null, p.token
+          ? h('a', { href:'/attest.html?t=' + encodeURIComponent(p.token), target:'_blank', rel:'noopener',
+              style:{fontFamily:'var(--mono)',fontSize:'11px',color:'var(--ink-2)'} }, 'Open link ↗')
+          : h('span', { style:{fontFamily:'var(--mono)',fontSize:'10.5px',color:'var(--ink-3)'} }, 'sent at launch')),
       ));
     }
     tbl.appendChild(tb);
@@ -5568,14 +5581,49 @@
       wrap.appendChild(preview);
     }
 
-    // Launch button (demo only)
-    const launchBtn = h('button.tab' + (canLaunch ? '.on' : ''), {
-      style:{alignSelf:'flex-start',cursor: canLaunch ? 'pointer' : 'not-allowed', opacity: canLaunch ? 1 : 0.5},
+    // One-time attestation links after a successful launch (no email yet).
+    if (renderAuditingNewCampaign._launched) {
+      const result = renderAuditingNewCampaign._launched;
+      const lp = h('div', { style:{border:'1px solid var(--ok)',background:'var(--ok-wash)',padding:'16px 18px',display:'flex',flexDirection:'column',gap:'10px',marginTop:'4px'} });
+      lp.appendChild(h('div', { style:{display:'flex',alignItems:'center',gap:'10px'} },
+        h('span', { style:{fontFamily:'var(--mono)',fontSize:'11px',letterSpacing:'.1em',textTransform:'uppercase',color:'var(--ok)',fontWeight:'600'} }, 'Campaign launched'),
+        h('span', { style:{fontFamily:'var(--mono)',fontSize:'11.5px',color:'var(--ink-2)'} }, (result.packets || []).length + ' packet(s) created'),
+      ));
+      lp.appendChild(h('div', { style:{fontFamily:'var(--mono)',fontSize:'11px',color:'var(--ink-2)',lineHeight:'1.5'} },
+        'These signed attestation links are shown ONCE (email delivery lands in a later slice). Copy and send each to its recipient:'));
+      (result.packets || []).forEach(p => {
+        lp.appendChild(h('div', { style:{display:'flex',flexDirection:'column',gap:'2px',padding:'8px 10px',background:'var(--card)',border:'1px solid var(--rule)'} },
+          h('div', { style:{fontFamily:'var(--mono)',fontSize:'11.5px'} },
+            h('b', null, p.recipient_display || p.recipient_sam),
+            h('span', { style:{color:'var(--ink-3)'} }, ' · ' + (p.recipient_email || 'no email') + ' · ' + p.subject_count + ' subject(s)')),
+          h('input', { type:'text', readOnly:true, value: p.attestation_url,
+            style:{width:'100%',padding:'5px 7px',border:'1px solid var(--rule)',background:'var(--paper-2)',fontFamily:'var(--mono)',fontSize:'10.5px',color:'var(--ink-2)'},
+            on:{ click:(e)=>{ e.target.select(); } } }),
+        ));
+      });
+      lp.appendChild(h('button.tab', { on:{click:()=>{ renderAuditingNewCampaign._launched = null; aState.tab='campaigns'; aState.selectedCampaignId = result.campaign_id || null; window.RERENDER_PAGE(mount); }}}, 'Done — view campaign'));
+      wrap.appendChild(lp);
+    }
+
+    // Launch button. Live launch builds packets + signed tokens server-side from
+    // the bound groups' roster; demo/offline shows an explanatory alert.
+    const nameOk = !!formState.name.trim();
+    const launchBtn = h('button.tab' + (nameOk ? '.on' : ''), {
+      style:{alignSelf:'flex-start',cursor: nameOk ? 'pointer' : 'not-allowed', opacity: nameOk ? 1 : 0.5},
       on:{click:()=>{
-        if (!canLaunch) return;
-        alert('Phase 0 prototype — not actually launching. In Phase 1 this POSTs to /api/auditing/campaigns and sends emails via MailKit, CCing ' + D.CC_AUDIT_MAILBOX + '.');
+        if (!nameOk) return;
+        const A = window.OC_ACTIONS;
+        if (A && A.launchAuditCampaign) {
+          A.launchAuditCampaign(
+            { application_id: formState.application_id, name: formState.name.trim(), due_at: formState.due_at || null },
+            (result) => { renderAuditingNewCampaign._launched = result; renderAuditingNewCampaign._s = null; window.RERENDER_PAGE(mount); },
+            (m) => alert(m),
+          );
+        } else {
+          alert('Launching needs the API. In offline/demo mode no campaign is created.');
+        }
       }},
-    }, 'Launch campaign (demo)');
+    }, 'Launch campaign');
     wrap.appendChild(launchBtn);
 
     return wrap;

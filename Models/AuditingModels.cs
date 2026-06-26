@@ -186,3 +186,99 @@ public class NomineeCreateRequest
     [JsonPropertyName("nominee_email")] public string? NomineeEmail { get; set; }
     [JsonPropertyName("role_note")] public string? RoleNote { get; set; }
 }
+
+// ---- Public attestation (Slice 2) ----
+
+/// <summary>The self-contained view the public attest.html page renders from a
+/// signed token. state: 'pending' (fill in keep/revoke), 'submitted' (this packet
+/// already done), or 'closed_by_other' (a nominee closed the campaign first).</summary>
+public class AttestationView
+{
+    [JsonPropertyName("state")] public string State { get; set; } = "pending";
+    [JsonPropertyName("campaign_name")] public string CampaignName { get; set; } = "";
+    [JsonPropertyName("application_name")] public string? ApplicationName { get; set; }
+    [JsonPropertyName("routing_mode")] public string RoutingMode { get; set; } = "line_manager";
+    [JsonPropertyName("closure_mode")] public string ClosureMode { get; set; } = "all_packets";
+    [JsonPropertyName("due_at")] public DateTime? DueAt { get; set; }
+    [JsonPropertyName("cc_audit_mailbox")] public string? CcAuditMailbox { get; set; }
+    [JsonPropertyName("recipient_display")] public string? RecipientDisplay { get; set; }
+    [JsonPropertyName("recipient_kind")] public string RecipientKind { get; set; } = "manager";
+    [JsonPropertyName("role_note")] public string? RoleNote { get; set; }
+    [JsonPropertyName("subjects")] public List<AttestationSubject> Subjects { get; set; } = new();
+    [JsonPropertyName("submitted_by_display")] public string? SubmittedByDisplay { get; set; }
+    [JsonPropertyName("submitted_at")] public DateTime? SubmittedAt { get; set; }
+    [JsonPropertyName("decisions")] public List<AttestationDecisionView> Decisions { get; set; } = new();
+}
+
+/// <summary>A subject to attest. email/enabled are current AD attributes (null/true
+/// when AD hasn't been synced yet); sam + display are the launch-time snapshot.</summary>
+public class AttestationSubject
+{
+    [JsonPropertyName("subject_sam")] public string SubjectSam { get; set; } = "";
+    [JsonPropertyName("subject_display")] public string? SubjectDisplay { get; set; }
+    [JsonPropertyName("subject_email")] public string? SubjectEmail { get; set; }
+    [JsonPropertyName("enabled")] public bool Enabled { get; set; } = true;
+}
+
+/// <summary>A recorded decision, shown read-only once a packet/campaign is submitted.</summary>
+public class AttestationDecisionView
+{
+    [JsonPropertyName("subject_sam")] public string SubjectSam { get; set; } = "";
+    [JsonPropertyName("decision")] public string Decision { get; set; } = "keep";
+    [JsonPropertyName("comment")] public string? Comment { get; set; }
+}
+
+/// <summary>Inbound submit payload (one decision per subject).</summary>
+public class AttestationSubmitRequest
+{
+    [JsonPropertyName("decisions")] public List<AttestationDecisionInput> Decisions { get; set; } = new();
+}
+
+public class AttestationDecisionInput
+{
+    [JsonPropertyName("subject_sam")] public string SubjectSam { get; set; } = "";
+    [JsonPropertyName("decision")] public string Decision { get; set; } = "keep";
+    [JsonPropertyName("comment")] public string? Comment { get; set; }
+}
+
+/// <summary>Service result for a submit attempt, mapped to a status code by the controller.</summary>
+public class AttestationSubmitResult
+{
+    public AttestationSubmitOutcome Outcome { get; set; }
+    public AttestationView? View { get; set; }
+    public string? Error { get; set; }
+}
+
+public enum AttestationSubmitOutcome { Ok, NotFound, Conflict, BadRequest }
+
+// ---- Campaign launch (Slice 3) ----
+
+/// <summary>Launch a campaign for an application. due_at overrides the per-app
+/// default window (launched_at + audit_due_period_days) when supplied.</summary>
+public class CampaignLaunchRequest
+{
+    [JsonPropertyName("application_id")] public int ApplicationId { get; set; }
+    [JsonPropertyName("name")] public string Name { get; set; } = "";
+    [JsonPropertyName("due_at")] public DateOnly? DueAt { get; set; }
+}
+
+/// <summary>Result of a launch: the campaign + the freshly-minted attestation links.
+/// The raw links appear ONCE here (never stored) so an OpsAdmin can distribute them
+/// manually until email delivery lands in the email slice.</summary>
+public class CampaignLaunchResult
+{
+    [JsonPropertyName("campaign_id")] public int CampaignId { get; set; }
+    [JsonPropertyName("name")] public string Name { get; set; } = "";
+    [JsonPropertyName("routing_mode")] public string RoutingMode { get; set; } = "";
+    [JsonPropertyName("packets")] public List<LaunchedPacket> Packets { get; set; } = new();
+}
+
+public class LaunchedPacket
+{
+    [JsonPropertyName("recipient_sam")] public string RecipientSam { get; set; } = "";
+    [JsonPropertyName("recipient_display")] public string? RecipientDisplay { get; set; }
+    [JsonPropertyName("recipient_email")] public string? RecipientEmail { get; set; }
+    [JsonPropertyName("recipient_kind")] public string RecipientKind { get; set; } = "";
+    [JsonPropertyName("subject_count")] public int SubjectCount { get; set; }
+    [JsonPropertyName("attestation_url")] public string AttestationUrl { get; set; } = "";
+}

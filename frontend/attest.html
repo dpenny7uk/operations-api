@@ -136,9 +136,20 @@
   const D = window.AUDITING_DATA;
   const root = document.getElementById('root');
 
-  // Read ?t=<token> from URL.
+  // Read ?t=<token> from URL. Tokens beginning 'demo-' use the bundled fixture
+  // (offline prototype); anything else is a real signed token resolved via
+  // GET/POST /api/auditing/public/attestation/{token}.
   const params = new URLSearchParams(location.search);
   const token = params.get('t');
+
+  const API_BASE = window.location.hostname === 'localhost'
+    ? 'http://localhost:5000/api'
+    : window.location.origin + '/api';
+
+  // Mutable submit state (pending mode): one keep/revoke + optional comment per subject.
+  const pending = {};
+  const comments = {};
+  let demoMode = false;
 
   function fmtDateTime(s) {
     if (!s) return '—';
@@ -153,108 +164,201 @@
     el.classList.add('show');
     setTimeout(() => el.classList.remove('show'), 3500);
   }
-
   function renderEmpty(title, sub) {
     root.innerHTML = '';
-    root.appendChild(h('div.empty-state', null,
-      h('h2', null, title),
-      h('div', null, sub),
-    ));
+    root.appendChild(h('div.empty-state', null, h('h2', null, title), h('div', null, sub)));
+  }
+  function renderLoading() {
+    root.innerHTML = '';
+    root.appendChild(h('div.empty-state', null, h('div', null, 'Loading…')));
   }
 
-  if (!D) {
-    renderEmpty('Demo data unavailable', 'auditing-demo-data.js did not load. Check the script tag.');
-    return;
-  }
   if (!token) {
     renderEmpty('No token provided',
-      'Open this page with ?t=demo-pending to see a fresh attestation form, or ?t=demo-completed to see the read-only state.');
-    return;
-  }
-  const packet = D.getPacketByToken(token);
-  if (!packet) {
-    renderEmpty('Invalid or expired link',
-      'This attestation link is not recognised. In the real app, this means the token signature is invalid, the packet was deleted, or the link has been tampered with.');
+      'Open this page with the signed link from your attestation email. (Demo: ?t=demo-pending or ?t=demo-completed.)');
     return;
   }
 
-  const campaign = D.getCampaign(packet.campaign_id);
-  // Subjects come from the packet's own list (line_manager mode: this manager's
-  // direct reports who are in the app's bound groups; nominees mode: the full
-  // app roster, same for every nominee).
-  const subjects = (packet.subjects || []).map(sam => D.getUser(sam)).filter(Boolean);
+  start();
 
-  // Submission state: either this packet itself was submitted, OR the campaign
-  // was closed by another packet in nominees mode (ANY-closes semantics).
-  const ownPacketSubmitted = !!packet.submitted_at;
-  const closingPacket = D.getClosingPacket(packet.campaign_id);
-  const closedByOther = !ownPacketSubmitted && !!closingPacket;
-  const isCompleted = ownPacketSubmitted || closedByOther;
+  async function start() {
+    let view = null;
+    if (token.indexOf('demo-') === 0) {
+      demoMode = true;
+      if (!D) { renderEmpty('Demo data unavailable', 'auditing-demo-data.js did not load.'); return; }
+      view = buildDemoView(token);
+      if (!view) { renderEmpty('Invalid or expired link', 'This demo token is not recognised. Try ?t=demo-pending or ?t=demo-completed.'); return; }
+    } else {
+      renderLoading();
+      let resp;
+      try {
+        const r = await fetch(API_BASE + '/auditing/public/attestation/' + encodeURIComponent(token), { credentials: 'omit' });
+        if (!r.ok) {
+          renderEmpty('Invalid or expired link',
+            'This attestation link is not recognised — the token may be invalid, expired, or already revoked.');
+          return;
+        }
+        resp = await r.json();
+      } catch (e) {
+        renderEmpty('Could not load attestation', 'The server could not be reached. Please try again shortly.');
+        return;
+      }
+      view = buildApiView(resp);
+    }
+    initDecisions(view);
+    render(view);
+  }
 
-  // Decisions to show: if our packet was submitted, its own; if closed by
-  // another nominee, surface the closing packet's decisions read-only.
-  const decisions = {};
-  subjects.forEach(s => { decisions[s.sam] = null; });
-  const comments = {};
-  if (isCompleted) {
-    const sourcePacketId = ownPacketSubmitted ? packet.packet_id : closingPacket.packet_id;
-    D.getDecisionsByPacket(sourcePacketId).forEach(d => {
-      decisions[d.subject_sam] = d.decision;
-      if (d.comment) comments[d.subject_sam] = d.comment;
+  function initDecisions(view) {
+    view.subjects.forEach(s => { pending[s.sam] = null; });
+    if (view.state !== 'pending') {
+      Object.keys(view.decisions).forEach(sam => {
+        pending[sam] = view.decisions[sam].decision;
+        if (view.decisions[sam].comment) comments[sam] = view.decisions[sam].comment;
+      });
+    }
+  }
+
+  function buildDemoView(tok) {
+    const packet = D.getPacketByToken(tok);
+    if (!packet) return null;
+    const campaign = D.getCampaign(packet.campaign_id);
+    const subjects = (packet.subjects || []).map(sam => {
+      const u = D.getUser(sam) || { sam: sam, display: sam, email: '', enabled: true };
+      return { sam: u.sam, display: u.display, email: u.email, enabled: u.enabled };
     });
+    const ownSubmitted = !!packet.submitted_at;
+    const closing = D.getClosingPacket(packet.campaign_id);
+    const closedByOther = !ownSubmitted && !!closing;
+    const state = ownSubmitted ? 'submitted' : closedByOther ? 'closed_by_other' : 'pending';
+    const decisions = {};
+    if (state !== 'pending') {
+      const srcPid = ownSubmitted ? packet.packet_id : closing.packet_id;
+      D.getDecisionsByPacket(srcPid).forEach(d => { decisions[d.subject_sam] = { decision: d.decision, comment: d.comment || '' }; });
+    }
+    return {
+      state: state,
+      campaignName: campaign ? campaign.name : 'Access Attestation',
+      applicationName: campaign ? campaign.application_name : null,
+      dueAt: campaign ? campaign.due_at : null,
+      ccMailbox: campaign ? campaign.cc_audit_mailbox : null,
+      recipientDisplay: packet.recipient_display,
+      recipientKind: packet.recipient_kind,
+      roleNote: packet.role_note,
+      subjects: subjects,
+      submittedByDisplay: ownSubmitted ? packet.submitted_by_display : (closing ? closing.submitted_by_display : null),
+      submittedAt: ownSubmitted ? packet.submitted_at : (closing ? closing.submitted_at : null),
+      decisions: decisions,
+    };
   }
 
-  function render() {
+  function buildApiView(r) {
+    const decisions = {};
+    (r.decisions || []).forEach(d => { decisions[d.subject_sam] = { decision: d.decision, comment: d.comment || '' }; });
+    return {
+      state: r.state || 'pending',
+      campaignName: r.campaign_name || 'Access Attestation',
+      applicationName: r.application_name || null,
+      dueAt: r.due_at || null,
+      ccMailbox: r.cc_audit_mailbox || null,
+      recipientDisplay: r.recipient_display,
+      recipientKind: r.recipient_kind,
+      roleNote: r.role_note,
+      subjects: (r.subjects || []).map(s => ({
+        sam: s.subject_sam, display: s.subject_display || s.subject_sam,
+        email: s.subject_email || '', enabled: s.enabled !== false,
+      })),
+      submittedByDisplay: r.submitted_by_display || null,
+      submittedAt: r.submitted_at || null,
+      decisions: decisions,
+    };
+  }
+
+  async function submit(view) {
+    const stillPending = view.subjects.filter(s => !pending[s.sam]).length;
+    if (stillPending > 0) return;
+
+    if (demoMode) {
+      showToast('Thank you — submission received. (Demo token: nothing was actually sent.)');
+      return;
+    }
+
+    const decisions = view.subjects.map(s => ({
+      subject_sam: s.sam, decision: pending[s.sam], comment: comments[s.sam] || null,
+    }));
+
+    let r;
+    try {
+      r = await fetch(API_BASE + '/auditing/public/attestation/' + encodeURIComponent(token), {
+        method: 'POST', credentials: 'omit',
+        headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'ops-api' },
+        body: JSON.stringify({ decisions: decisions }),
+      });
+    } catch (e) {
+      showToast('Network error — could not submit. Please try again.');
+      return;
+    }
+
+    if (r.ok || r.status === 409) {
+      const body = await r.json().catch(() => null);
+      if (body) {
+        const v = buildApiView(body);
+        initDecisions(v);
+        render(v);
+        showToast(r.ok ? 'Submitted — thank you.' : 'This attestation was already completed.');
+        return;
+      }
+    }
+    if (r.status === 400) {
+      const t = await r.text().catch(() => '');
+      showToast(t || 'Invalid submission.');
+      return;
+    }
+    showToast('Could not submit (' + r.status + '). Please try again.');
+  }
+
+  function render(view) {
     root.innerHTML = '';
+    const isCompleted = view.state !== 'pending';
 
-    // Phase 0 disclosure
-    root.appendChild(h('div.demo-ribbon-attest', null,
-      h('b', null, 'DEMO DATA'),
-      h('span', null, 'Phase 0 prototype — this page does not send your submission. Use ?t=demo-pending or ?t=demo-completed to test the two states.'),
-    ));
+    if (demoMode) {
+      root.appendChild(h('div.demo-ribbon-attest', null,
+        h('b', null, 'DEMO DATA'),
+        h('span', null, 'Demo token — this page will not send your submission. Use a real campaign link to submit live.'),
+      ));
+    }
 
-    // Header — addressed to the recipient with their routing context.
-    const recipientGreeting = packet.recipient_kind === 'nominee'
+    const recipientGreeting = view.recipientKind === 'nominee'
       ? 'You have been nominated to attest access for this application.'
       : 'You have been asked to attest access for your direct reports.';
 
     root.appendChild(h('div.attest-header', null,
       h('div.brand', null, 'OPERATIONS CONSOLE · ACCESS ATTESTATION'),
-      h('h1', null, campaign ? campaign.name : 'Access Attestation'),
+      h('h1', null, view.campaignName),
       h('div.sub', null, recipientGreeting),
     ));
 
-    // Meta line — recipient + application + routing + due + CC
     root.appendChild(h('div.attest-meta', null,
-      h('span', null, 'For: ', h('b', null, packet.recipient_display + (packet.role_note ? ' (' + packet.role_note + ')' : ''))),
-      campaign ? h('span', null, 'Application: ', h('b', null, campaign.application_name)) : null,
-      h('span', null, 'Routing: ', h('b', null, packet.recipient_kind === 'nominee' ? 'Nominee' : 'Line manager')),
-      campaign ? h('span', null, 'Due: ', h('b', null, (campaign.due_at || '—').slice(0, 10))) : null,
-      campaign && campaign.cc_audit_mailbox ? h('span', null, 'CC: ', h('b', null, campaign.cc_audit_mailbox)) : null,
+      h('span', null, 'For: ', h('b', null, (view.recipientDisplay || '—') + (view.roleNote ? ' (' + view.roleNote + ')' : ''))),
+      view.applicationName ? h('span', null, 'Application: ', h('b', null, view.applicationName)) : null,
+      h('span', null, 'Routing: ', h('b', null, view.recipientKind === 'nominee' ? 'Nominee' : 'Line manager')),
+      view.dueAt ? h('span', null, 'Due: ', h('b', null, String(view.dueAt).slice(0, 10))) : null,
+      view.ccMailbox ? h('span', null, 'CC: ', h('b', null, view.ccMailbox)) : null,
     ));
 
-    // Completed / closed-by-other banner
     if (isCompleted) {
-      let title, subFrag;
-      if (ownPacketSubmitted) {
-        title = 'This attestation has already been completed.';
-        subFrag = ['Submitted by ', h('b', { style: { color: 'var(--ink)' } }, packet.submitted_by_display),
-                   ' on ', fmtDateTime(packet.submitted_at), '. Decisions are shown below as a record.'];
-      } else {
-        title = 'This campaign was closed by another nominee.';
-        subFrag = ['Submitted by ', h('b', { style: { color: 'var(--ink)' } }, closingPacket.submitted_by_display),
-                   ' on ', fmtDateTime(closingPacket.submitted_at),
-                   '. The decisions they recorded are shown below for your records.'];
-      }
+      const title = view.state === 'submitted'
+        ? 'This attestation has already been completed.'
+        : 'This campaign was closed by another nominee.';
       root.appendChild(h('div.completed-banner', null,
         h('span.icon', null, '✓'),
         h('div.text', null,
           h('div.title', null, title),
-          h('div.sub', null, ...subFrag),
+          h('div.sub', null, 'Submitted by ', h('b', { style: { color: 'var(--ink)' } }, view.submittedByDisplay || '—'),
+            ' on ', fmtDateTime(view.submittedAt), '. The decisions are shown below for your records.'),
         ),
       ));
     } else {
-      // Instructions
       root.appendChild(h('div.instructions', null,
         h('b', null, 'For each person:'), ' choose ',
         h('b', { style: { color: 'var(--ok)' } }, 'Keep'),
@@ -262,63 +366,54 @@
         h('b', { style: { color: 'var(--crit)' } }, 'Revoke'),
         ' if their access should be removed. ',
         'Add a comment if useful. Submit when you have decided every row. ',
-        packet.recipient_kind === 'nominee'
+        view.recipientKind === 'nominee'
           ? h('span', null, 'Note: as a nominee, the first nominee to submit closes the attestation for everyone.')
           : null,
       ));
     }
 
-    // Decision summary
-    const sumKeep = Object.values(decisions).filter(v => v === 'keep').length;
-    const sumRevoke = Object.values(decisions).filter(v => v === 'revoke').length;
-    const sumPending = subjects.length - sumKeep - sumRevoke;
+    const sumKeep = view.subjects.filter(s => pending[s.sam] === 'keep').length;
+    const sumRevoke = view.subjects.filter(s => pending[s.sam] === 'revoke').length;
+    const sumPending = view.subjects.length - sumKeep - sumRevoke;
 
     const tableWrap = h('div.subjects-table');
     tableWrap.appendChild(h('div.decision-summary', null,
       h('span.keep', null, h('b', null, String(sumKeep)), ' to keep'),
       h('span.revoke', null, h('b', null, String(sumRevoke)), ' to revoke'),
       isCompleted ? null : h('span', { style: { color: 'var(--ink-3)' } }, h('b', null, String(sumPending)), ' pending'),
-      h('span', { style: { marginLeft: 'auto', color: 'var(--ink-3)' } }, subjects.length + ' subject' + (subjects.length === 1 ? '' : 's') + ' total'),
+      h('span', { style: { marginLeft: 'auto', color: 'var(--ink-3)' } }, view.subjects.length + ' subject' + (view.subjects.length === 1 ? '' : 's') + ' total'),
     ));
 
-    subjects.forEach(m => {
+    view.subjects.forEach(m => {
       const row = h('div.row' + (m.enabled ? '' : '.disabled-user'));
-      const nameCell = h('div.subj-name', null,
+      row.appendChild(h('div.subj-name', null,
         h('span.display', null, m.display),
         h('span.sam', null, m.sam),
         m.enabled ? null : h('span.subj-disabled-flag', null, 'AD account disabled'),
-      );
-      row.appendChild(nameCell);
+      ));
       row.appendChild(h('div.subj-email', null, m.email));
 
-      const cur = decisions[m.sam];
-      const keepCls = cur === 'keep' ? '.keep-on' : '';
-      const revokeCls = cur === 'revoke' ? '.revoke-on' : '';
-      const disabledCls = isCompleted ? '.disabled' : '';
-
+      const cur = pending[m.sam];
       const decisionCell = h('div', null,
         h('div.decision-cell', null,
-          h('label' + keepCls + disabledCls, null,
+          h('label' + (cur === 'keep' ? '.keep-on' : '') + (isCompleted ? '.disabled' : ''), null,
             h('input', {
-              type: 'radio', name: 'd-' + m.sam, value: 'keep',
-              checked: cur === 'keep', disabled: isCompleted,
-              on: { change: () => { if (!isCompleted) { decisions[m.sam] = 'keep'; render(); } } },
+              type: 'radio', name: 'd-' + m.sam, value: 'keep', checked: cur === 'keep', disabled: isCompleted,
+              on: { change: () => { if (!isCompleted) { pending[m.sam] = 'keep'; render(view); } } },
             }),
             h('span', null, 'Keep'),
           ),
-          h('label' + revokeCls + disabledCls, null,
+          h('label' + (cur === 'revoke' ? '.revoke-on' : '') + (isCompleted ? '.disabled' : ''), null,
             h('input', {
-              type: 'radio', name: 'd-' + m.sam, value: 'revoke',
-              checked: cur === 'revoke', disabled: isCompleted,
-              on: { change: () => { if (!isCompleted) { decisions[m.sam] = 'revoke'; render(); } } },
+              type: 'radio', name: 'd-' + m.sam, value: 'revoke', checked: cur === 'revoke', disabled: isCompleted,
+              on: { change: () => { if (!isCompleted) { pending[m.sam] = 'revoke'; render(view); } } },
             }),
             h('span', null, 'Revoke'),
           ),
         ),
         (cur === 'revoke' || (isCompleted && comments[m.sam])) ? h('div.comment-cell', null,
           h('input', {
-            type: 'text', placeholder: 'Reason (optional)', value: comments[m.sam] || '',
-            disabled: isCompleted,
+            type: 'text', placeholder: 'Reason (optional)', value: comments[m.sam] || '', disabled: isCompleted,
             on: { input: (e) => { comments[m.sam] = e.target.value; } },
           }),
         ) : null,
@@ -328,26 +423,16 @@
     });
     root.appendChild(tableWrap);
 
-    // Actions
     if (!isCompleted) {
       const canSubmit = sumPending === 0;
-      const submitBtn = h('button.primary', {
-        disabled: !canSubmit,
-        on: {
-          click: () => {
-            if (!canSubmit) return;
-            showToast('Thank you — submission received. (Phase 0 prototype: nothing was actually sent.)');
-          },
-        },
-      }, 'Submit attestation');
       root.appendChild(h('div.actions', null,
-        submitBtn,
-        h('span.hint', null, canSubmit ? 'All ' + subjects.length + ' decisions ready to submit' : sumPending + ' decision' + (sumPending === 1 ? '' : 's') + ' still pending'),
+        h('button.primary', { disabled: !canSubmit, on: { click: () => submit(view) } }, 'Submit attestation'),
+        h('span.hint', null, canSubmit
+          ? 'All ' + view.subjects.length + ' decisions ready to submit'
+          : sumPending + ' decision' + (sumPending === 1 ? '' : 's') + ' still pending'),
       ));
     }
   }
-
-  render();
 })();
 </script>
 </body>
