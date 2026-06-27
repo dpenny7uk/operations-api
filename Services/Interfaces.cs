@@ -149,4 +149,7 @@ public interface ICampaignService
     // business_owner fallback). Returns the minted attestation links (shown once).
     Task<CampaignLaunchResult> LaunchAsync(CampaignLaunchRequest req, string actor);
     Task<bool> CloseAsync(int campaignId, string actor);
+    // Re-sends the attestation link to every not-yet-submitted packet of an active
+    // campaign, stamps reminder_sent_at, and logs each send. Returns the count sent.
+    Task<int> RemindAsync(int campaignId, string actor);
 }

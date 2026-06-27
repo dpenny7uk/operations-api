@@ -27,8 +27,22 @@ public class CampaignServiceTests : IntegrationTestBase
             ["Auditing:TokenTtlDays"] = "14",
         }).Build();
 
+    private readonly FakeEmail _email = new();
+
+    // Records sends; succeeds when there's a recipient (mirrors the real "no address
+    // -> failure" behaviour) so we can assert email_log success rows without SMTP.
+    private sealed class FakeEmail : IEmailService
+    {
+        public int Sent;
+        public Task<EmailResult> SendAsync(EmailRequest req, System.Threading.CancellationToken ct = default)
+        {
+            Sent++;
+            return Task.FromResult(new EmailResult { Success = !string.IsNullOrWhiteSpace(req.To), Response = "fake" });
+        }
+    }
+
     private AuditingService Aud() => new(OpenConnection(), NullLogger<AuditingService>.Instance, Tokens);
-    private CampaignService Camp() => new(OpenConnection(), NullLogger<CampaignService>.Instance, Tokens, Config());
+    private CampaignService Camp() => new(OpenConnection(), NullLogger<CampaignService>.Instance, Tokens, _email, Config());
 
     private const string Dn = "CN=APP-X,OU=AppGroups,DC=contoso,DC=com";
 
@@ -269,5 +283,57 @@ public class CampaignServiceTests : IntegrationTestBase
                 new() { SubjectSam = "intruder", Decision = "keep" },
             }, null);
         Assert.Equal(AttestationSubmitOutcome.BadRequest, stranger.Outcome);
+    }
+
+    // ── Email (Slice 4) ──────────────────────────────────────────────
+
+    [DockerFact]
+    public async Task Launch_sends_an_invite_per_packet_and_logs_them()
+    {
+        await Reset(); await SeedAd();
+        var app = await NewApp("Email App", "line_manager", "paul");
+
+        var result = await Camp().LaunchAsync(new CampaignLaunchRequest { ApplicationId = app.ApplicationId, Name = "email review" }, "tester");
+
+        Assert.Equal(2, result.Packets.Count);       // paul + alice
+        Assert.True(_email.Sent >= 2);
+
+        var detail = await Aud().GetCampaignAsync(result.CampaignId);
+        var invites = detail!.EmailLog.Where(e => e.Kind == "invite").ToList();
+        Assert.Equal(2, invites.Count);
+        Assert.All(invites, e => Assert.True(e.Success));
+    }
+
+    [DockerFact]
+    public async Task Remind_resends_to_pending_packets_only_and_logs_reminders()
+    {
+        await Reset(); await SeedAd();
+        var app = await NewApp("Remind App", "line_manager", "paul");
+        var camp = Camp();
+        var result = await camp.LaunchAsync(new CampaignLaunchRequest { ApplicationId = app.ApplicationId, Name = "remind review" }, "tester");
+
+        // Submit alice's packet (subject carol) so only paul's packet stays pending.
+        var aud = Aud();
+        var aliceToken = TokenFrom(result.Packets.Single(p => p.RecipientSam == "alice"));
+        await aud.SubmitAttestationAsync(aliceToken, new List<AttestationDecisionInput> { new() { SubjectSam = "carol", Decision = "keep" } }, null);
+
+        var sent = await camp.RemindAsync(result.CampaignId, "tester");
+        Assert.Equal(1, sent);
+
+        var detail = await aud.GetCampaignAsync(result.CampaignId);
+        Assert.Single(detail!.EmailLog, e => e.Kind == "reminder");
+        Assert.NotNull(detail.Packets.Single(p => p.RecipientSam == "paul").ReminderSentAt);
+    }
+
+    [DockerFact]
+    public async Task Remind_refuses_a_closed_campaign()
+    {
+        await Reset(); await SeedAd();
+        var app = await NewApp("Closed Remind App", "line_manager", "paul");
+        var camp = Camp();
+        var result = await camp.LaunchAsync(new CampaignLaunchRequest { ApplicationId = app.ApplicationId, Name = "x" }, "tester");
+        await camp.CloseAsync(result.CampaignId, "tester");
+
+        await Assert.ThrowsAsync<ConflictException>(() => camp.RemindAsync(result.CampaignId, "tester"));
     }
 }

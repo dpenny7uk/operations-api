@@ -6,24 +6,27 @@ using OperationsApi.Models;
 namespace OperationsApi.Services;
 
 /// <summary>
-/// Campaign launch (Surface 09, Slice 3). Snapshots the app's routing config,
-/// builds the subject roster from the bound groups' membership, and creates one
+/// Campaign launch (Surface 09, Slices 3-4). Snapshots the app's routing config,
+/// builds the subject roster from the bound groups' membership, creates one
 /// signed-token packet per recipient (manager per line_manager group, or per
-/// nominee). DB-only: emails are logged as pending (delivery lands in the email
-/// slice); the minted links are returned once so an OpsAdmin can distribute them.
+/// nominee), emails each recipient their attestation link, and logs every send to
+/// auditing.email_log. The minted links are also returned once so an OpsAdmin can
+/// hand-deliver to any recipient without an email address.
 /// </summary>
 public class CampaignService : BaseService<CampaignService>, ICampaignService
 {
     private readonly IAttestationTokenService _tokens;
+    private readonly IEmailService _email;
     private readonly string _baseUrl;
     private readonly string _ccMailbox;
     private readonly int _tokenTtlDays;
 
     public CampaignService(IDbConnection db, ILogger<CampaignService> logger,
-        IAttestationTokenService tokens, IConfiguration config)
+        IAttestationTokenService tokens, IEmailService email, IConfiguration config)
         : base(db, logger)
     {
         _tokens = tokens;
+        _email = email;
         _baseUrl = (config["Auditing:BaseUrl"] ?? "https://ops/").TrimEnd('/') + "/";
         _ccMailbox = config["Auditing:CcAuditMailbox"] ?? "";
         _tokenTtlDays = int.TryParse(config["Auditing:TokenTtlDays"], out var t) ? t : 14;
@@ -31,6 +34,7 @@ public class CampaignService : BaseService<CampaignService>, ICampaignService
 
     private sealed class AppConfigRow
     {
+        public string ApplicationName { get; set; } = "";
         public string RoutingMode { get; set; } = "line_manager";
         public int DuePeriodDays { get; set; }
         public string? BusinessOwner { get; set; }
@@ -75,8 +79,8 @@ public class CampaignService : BaseService<CampaignService>, ICampaignService
         if (string.IsNullOrWhiteSpace(req.Name)) throw new ConflictException("Campaign name is required.");
 
         var app = await Db.QueryFirstOrDefaultAsync<AppConfigRow>($@"
-            SELECT audit_routing_mode AS RoutingMode, audit_due_period_days AS DuePeriodDays,
-                   business_owner AS BusinessOwner
+            SELECT application_name AS ApplicationName, audit_routing_mode AS RoutingMode,
+                   audit_due_period_days AS DuePeriodDays, business_owner AS BusinessOwner
             FROM {Sql.Tables.Applications}
             WHERE application_id = @Id AND is_active",
             new { Id = req.ApplicationId });
@@ -182,6 +186,7 @@ public class CampaignService : BaseService<CampaignService>, ICampaignService
         // due_period <= 7 suppresses the reminder (it would fire before/at launch).
         DateTime? reminderStamp = app.DuePeriodDays <= 7 ? DateTime.UtcNow : null;
         var result = new CampaignLaunchResult { CampaignId = campaignId, Name = req.Name.Trim(), RoutingMode = app.RoutingMode };
+        var sends = new List<(Guid PacketId, string? To, string? Display, string Kind, string Url)>();
 
         foreach (var p in plans)
         {
@@ -206,20 +211,27 @@ public class CampaignService : BaseService<CampaignService>, ICampaignService
                     new { Pid = packetId, Sam = s.Sam, Disp = s.Display }, tx);
             }
 
-            await Db.ExecuteAsync($@"
-                INSERT INTO {Sql.Tables.AuditEmailLog} (packet_id, campaign_id, to_addr, cc_addr, subject, kind, success)
-                VALUES (@Pid, @Cid, @To, @Cc, @Subject, 'invite', FALSE)",
-                new { Pid = packetId, Cid = campaignId, To = p.Email, Cc = Cc(), Subject = req.Name.Trim() + " - your attestation" }, tx);
-
+            var url = _baseUrl + "attest.html?t=" + minted.Raw;
+            sends.Add((packetId, p.Email, p.Display, p.Kind, url));
             result.Packets.Add(new LaunchedPacket
             {
                 RecipientSam = p.Sam, RecipientDisplay = p.Display, RecipientEmail = p.Email,
-                RecipientKind = p.Kind, SubjectCount = p.Subjects.Count,
-                AttestationUrl = _baseUrl + "attest.html?t=" + minted.Raw,
+                RecipientKind = p.Kind, SubjectCount = p.Subjects.Count, AttestationUrl = url,
             });
         }
 
         tx.Commit();
+
+        // Deliver invites + log every attempt OUTSIDE the transaction: SMTP I/O must
+        // not hold the DB tx open, and a delivery failure must not roll back the launch.
+        var subject = req.Name.Trim() + " - your attestation";
+        foreach (var s in sends)
+        {
+            var (text, html) = BuildBody("invite", s.Display, app.ApplicationName, req.Name.Trim(), dueAt, s.Url, s.Kind == "nominee");
+            var res = await _email.SendAsync(new EmailRequest { To = s.To ?? "", Cc = Cc(), Subject = subject, TextBody = text, HtmlBody = html });
+            await LogEmailAsync(s.PacketId, campaignId, s.To, subject, "invite", res);
+        }
+
         return result;
     });
 
@@ -229,6 +241,104 @@ public class CampaignService : BaseService<CampaignService>, ICampaignService
             SET status = 'closed', closed_at = NOW()
             WHERE campaign_id = @Id AND status <> 'closed'",
             new { Id = campaignId }) > 0);
+
+    private sealed class RemindCampaign
+    {
+        public string Name { get; set; } = "";
+        public string Status { get; set; } = "";
+        public DateTime? DueAt { get; set; }
+        public string ApplicationName { get; set; } = "";
+    }
+
+    private sealed class PendingPacket
+    {
+        public Guid PacketId { get; set; }
+        public string? Email { get; set; }
+        public string? Display { get; set; }
+        public string Kind { get; set; } = "manager";
+        public DateTime? TokenExpiresAt { get; set; }
+    }
+
+    public Task<int> RemindAsync(int campaignId, string actor) => RunDbAsync(async () =>
+    {
+        var c = await Db.QueryFirstOrDefaultAsync<RemindCampaign>($@"
+            SELECT c.name AS Name, c.status AS Status, c.due_at AS DueAt, a.application_name AS ApplicationName
+            FROM {Sql.Tables.AuditCampaigns} c
+            JOIN {Sql.Tables.Applications} a ON a.application_id = c.application_id
+            WHERE c.campaign_id = @Id",
+            new { Id = campaignId });
+        if (c == null) throw new ConflictException("Campaign not found.");
+        if (c.Status != "active") throw new ConflictException("Only active campaigns can be reminded.");
+
+        var pending = (await Db.QueryAsync<PendingPacket>($@"
+            SELECT packet_id AS PacketId, recipient_email AS Email, recipient_display_name AS Display,
+                   recipient_kind AS Kind, token_expires_at AS TokenExpiresAt
+            FROM {Sql.Tables.AuditPackets}
+            WHERE campaign_id = @Id AND submitted_at IS NULL",
+            new { Id = campaignId })).ToList();
+
+        var subject = "Reminder: " + c.Name + " - your attestation";
+        var sent = 0;
+        foreach (var p in pending)
+        {
+            // Re-issue the link. Under the current (deterministic HMAC) scheme this
+            // regenerates the same token, so the token_hash update is a no-op; writing
+            // it anyway keeps this correct if the token scheme later becomes random.
+            var expiry = p.TokenExpiresAt.HasValue
+                ? new DateTimeOffset(DateTime.SpecifyKind(p.TokenExpiresAt.Value, DateTimeKind.Utc), TimeSpan.Zero)
+                : new DateTimeOffset(DateTime.SpecifyKind(DateTime.UtcNow.Date, DateTimeKind.Utc), TimeSpan.Zero).AddDays(_tokenTtlDays);
+            var minted = _tokens.Mint(p.PacketId, expiry);
+            await Db.ExecuteAsync($@"
+                UPDATE {Sql.Tables.AuditPackets}
+                SET token_hash = @Hash, reminder_sent_at = NOW()
+                WHERE packet_id = @Pid",
+                new { Hash = minted.Hash, Pid = p.PacketId });
+
+            var url = _baseUrl + "attest.html?t=" + minted.Raw;
+            var (text, html) = BuildBody("reminder", p.Display, c.ApplicationName, c.Name, c.DueAt, url, p.Kind == "nominee");
+            var res = await _email.SendAsync(new EmailRequest { To = p.Email ?? "", Cc = Cc(), Subject = subject, TextBody = text, HtmlBody = html });
+            await LogEmailAsync(p.PacketId, campaignId, p.Email, subject, "reminder", res);
+            if (res.Success) sent++;
+        }
+        return sent;
+    });
+
+    private Task LogEmailAsync(Guid packetId, int campaignId, string? to, string subject, string kind, EmailResult res)
+        => Db.ExecuteAsync($@"
+            INSERT INTO {Sql.Tables.AuditEmailLog}
+                (packet_id, campaign_id, to_addr, cc_addr, subject, kind, sent_at, smtp_response, success)
+            VALUES (@Pid, @Cid, @To, @Cc, @Subject, @Kind, NOW(), @Resp, @Success)",
+            new { Pid = packetId, Cid = campaignId, To = to, Cc = Cc(), Subject = subject, Kind = kind, Resp = res.Response, Success = res.Success });
+
+    private static (string Text, string Html) BuildBody(string kind, string? recipientDisplay, string? appName,
+        string campaignName, DateTime? dueAt, string url, bool isNominee)
+    {
+        var who = string.IsNullOrWhiteSpace(recipientDisplay) ? "there" : recipientDisplay!;
+        var due = dueAt.HasValue ? dueAt.Value.ToString("d MMMM yyyy") : "the due date";
+        var lead = kind == "reminder"
+            ? "This is a reminder that an access attestation is awaiting your response."
+            : "You have been asked to review and confirm who should keep access to an application.";
+        var roleLine = isNominee
+            ? "You are a nominee for this review; the first nominee to submit closes it for everyone."
+            : "Please confirm access for your direct reports listed at the link.";
+
+        var text =
+            $"Hello {who},\n\n{lead}\n\n" +
+            $"Application: {appName}\nReview: {campaignName}\nDue: {due}\n\n" +
+            $"{roleLine}\n\nOpen your attestation:\n{url}\n\n" +
+            "If you were not expecting this, please contact Service Operations.";
+
+        var html =
+            $"<p>Hello {Enc(who)},</p><p>{Enc(lead)}</p>" +
+            $"<p><b>Application:</b> {Enc(appName)}<br><b>Review:</b> {Enc(campaignName)}<br><b>Due:</b> {Enc(due)}</p>" +
+            $"<p>{Enc(roleLine)}</p>" +
+            $"<p><a href=\"{Enc(url)}\">Open your attestation</a></p>" +
+            "<p style=\"color:#888;font-size:12px\">If you were not expecting this, please contact Service Operations.</p>";
+
+        return (text, html);
+    }
+
+    private static string Enc(string? s) => System.Net.WebUtility.HtmlEncode(s ?? "");
 
     private string? Cc() => string.IsNullOrEmpty(_ccMailbox) ? null : _ccMailbox;
 }

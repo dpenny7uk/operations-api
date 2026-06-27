@@ -4076,10 +4076,12 @@
       h('input', { 'data-fk':'lic-add-notice', type:'number', style: inputStyle, value: String(formState.notice_period_days || ''),
         on:{input:(e)=>{ formState.notice_period_days = parseInt(e.target.value, 10) || 0; }}}),
     ));
-    grid.appendChild(h('label', { style: fieldStyle },
+    formState._ownerSearch = formState._ownerSearch || { q:'', sam: formState.audit_owner_sam || '', display: null };
+    grid.appendChild(h('div', { style: fieldStyle },
       h('span', { style: labelStyle }, 'Licence audit owner'),
-      h('input', { 'data-fk':'lic-add-owner', type:'text', style: inputStyle, value: formState.audit_owner_sam, placeholder:'Enter Name',
-        on:{input:(e)=>{ formState.audit_owner_sam = e.target.value; }}}),
+      _renderUserSearch(mount, formState._ownerSearch, 'lic-add-owner', 'Search audit owner', (sam) => {
+        formState.audit_owner_sam = sam;
+      }),
     ));
 
     wrap.appendChild(grid);
@@ -4190,10 +4192,12 @@
       h('input', { type:'number', style: inputStyle, value: String(state.notice_period_days || ''),
         on:{input:(e)=>{ state.notice_period_days = parseInt(e.target.value, 10) || 0; }}}),
     ));
-    grid.appendChild(h('label', { style: fieldStyle },
+    state._ownerSearch = state._ownerSearch || { q:'', sam: state.audit_owner_sam || '', display: null };
+    grid.appendChild(h('div', { style: fieldStyle },
       h('span', { style: labelStyle }, 'Licence audit owner'),
-      h('input', { type:'text', style: inputStyle, value: state.audit_owner_sam, placeholder:'Enter Name',
-        on:{input:(e)=>{ state.audit_owner_sam = e.target.value; }}}),
+      _renderUserSearch(mount, state._ownerSearch, 'lic-edit-owner-' + l.licence_id, 'Search audit owner', (sam) => {
+        state.audit_owner_sam = sam;
+      }),
     ));
     grid.appendChild(h('label', { style: fieldStyle },
       h('span', { style: labelStyle }, 'Status'),
@@ -4362,19 +4366,20 @@
       h('input', { 'data-fk':'aud-newapp-name', type:'text', style: inputStyle, value: formState.name, placeholder:'e.g. Confluence Data Center',
         on:{input:(e)=>{ formState.name = e.target.value; }}}),
     ));
-    grid1.appendChild(h('label', { style: fieldStyle },
+    // Business + technical owner: live AD user search (demo fixture fallback).
+    formState._boSearch = formState._boSearch || { q:'', sam: formState.business_owner || '', display: formState.business_owner_display || null };
+    grid1.appendChild(h('div', { style: fieldStyle },
       h('span', { style: labelStyle }, 'Business owner *'),
-      h('select', { style: inputStyle, on:{change:(e)=>{ formState.business_owner = e.target.value; }}},
-        h('option', { value:'', selected: !formState.business_owner }, '— Pick a person —'),
-        ...D.USERS.map(u => h('option', { value: u.sam, selected: formState.business_owner === u.sam }, u.display + ' (' + u.sam + ')')),
-      ),
+      _renderUserSearch(mount, formState._boSearch, 'aud-bo-newapp', 'Search business owner', (sam, display) => {
+        formState.business_owner = sam; formState.business_owner_display = display;
+      }),
     ));
-    grid1.appendChild(h('label', { style: fieldStyle },
+    formState._toSearch = formState._toSearch || { q:'', sam: formState.technical_owner || '', display: formState.technical_owner_display || null };
+    grid1.appendChild(h('div', { style: fieldStyle },
       h('span', { style: labelStyle }, 'Technical owner (optional)'),
-      h('select', { style: inputStyle, on:{change:(e)=>{ formState.technical_owner = e.target.value; }}},
-        h('option', { value:'' }, '— None —'),
-        ...D.USERS.map(u => h('option', { value: u.sam, selected: formState.technical_owner === u.sam }, u.display + ' (' + u.sam + ')')),
-      ),
+      _renderUserSearch(mount, formState._toSearch, 'aud-to-newapp', 'Search technical owner', (sam, display) => {
+        formState.technical_owner = sam; formState.technical_owner_display = display;
+      }),
     ));
     wrap.appendChild(grid1);
 
@@ -4412,7 +4417,7 @@
     wrap.appendChild(_renderGroupNameSearch(mount, pickState, formState.bindings, (dn) => {
       if (!formState.bindings.includes(dn)) formState.bindings.push(dn);
       pickState.q = '';
-    }));
+    }, 'aud-grp-newapp'));
 
     // Routing / cadence / due / auto grid
     const grid2 = h('div', { style:{display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(200px, 1fr))',gap:'12px',marginTop:'4px',paddingTop:'10px',borderTop:'1px solid var(--rule)'} });
@@ -4864,7 +4869,7 @@
       } else if (!app.bindings.includes(dn)) {
         app.bindings.push(dn);
       }
-    }));
+    }, 'aud-grp-app-' + app.application_id));
     return wrap;
   }
 
@@ -4872,7 +4877,7 @@
   // existing-app binding controls. Phase 0 filters the fixture; Phase 1 will
   // call GET /api/auditing/ad-groups/search?q=... which hits LDAP live.
   // Args: searchState ({q:string}), alreadyBoundDNs (string[]), onBind(dn).
-  function _renderGroupNameSearch(mount, searchState, alreadyBoundDNs, onBind) {
+  function _renderGroupNameSearch(mount, searchState, alreadyBoundDNs, onBind, fk) {
     const D = _audData();
     const inputStyle = { padding:'8px 10px',border:'1px solid var(--rule)',background:'var(--card)',fontFamily:'inherit',fontSize:'12.5px',color:'var(--ink)' };
     const qRaw = (searchState.q || '').trim();
@@ -4914,7 +4919,7 @@
 
     wrap.appendChild(h('div', { style:{display:'flex',gap:'8px',alignItems:'center'} },
       h('input', {
-        type:'text', placeholder:'Search AD group name (e.g. APP-Tableau)',
+        type:'text', 'data-fk': fk || 'aud-grp-search', placeholder:'Search AD group name (e.g. APP-Tableau)',
         style: Object.assign({}, inputStyle, { flex:'1' }),
         value: searchState.q || '',
         on:{input:(e)=>{
@@ -4945,6 +4950,100 @@
             h('span.chip.neutral', null, g.type),
             h('span', { style:{color:'var(--ink-4)',fontSize:'10.5px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',flex:'1'} }, g.dn),
             h('span', { style:{color:'var(--signal)',fontFamily:'var(--mono)',fontSize:'10.5px',letterSpacing:'.06em',textTransform:'uppercase'} }, '+ Bind'),
+          );
+          results.appendChild(row);
+        });
+      }
+      wrap.appendChild(results);
+    }
+
+    return wrap;
+  }
+
+  // Single-user AD search picker (owner fields). state: { q, sam, display, ... }.
+  // onPick(sam, display) fires on select; ('', null) on clear. Demo-fixture fallback.
+  function _renderUserSearch(mount, state, fk, placeholder, onPick) {
+    const D = _audData();
+    const inputStyle = { padding:'8px 10px',border:'1px solid var(--rule)',background:'var(--card)',fontFamily:'inherit',fontSize:'12.5px',color:'var(--ink)' };
+    const qRaw = (state.q || '').trim();
+    const q = qRaw.toLowerCase();
+    const canLive = !!(window.OC_API && window.OC_API.searchAdUsers);
+
+    if (canLive && qRaw.length >= 2 && state._liveQ !== qRaw) {
+      state._liveQ = qRaw;
+      state._loading = true;
+      window.OC_API.searchAdUsers(qRaw).then(res => {
+        if (state._liveQ !== qRaw) return;
+        state._loading = false;
+        state._liveFor = qRaw;
+        state._live = Array.isArray(res) ? res : null;
+        state._err = !Array.isArray(res);
+        window.RERENDER_PAGE(mount);
+      });
+    }
+
+    const liveRows = (canLive && state._liveFor === qRaw && Array.isArray(state._live))
+      ? state._live.slice(0, 8).map(u => ({ sam: u.sam, display: u.display || u.sam, email: u.email }))
+      : null;
+    const demoUsers = (D && Array.isArray(D.USERS)) ? D.USERS : [];
+    const demoRows = q
+      ? demoUsers.filter(u => u.sam.toLowerCase().includes(q) || (u.display || '').toLowerCase().includes(q)).slice(0, 8)
+          .map(u => ({ sam: u.sam, display: u.display, email: u.email }))
+      : [];
+    const rows = liveRows != null ? liveRows : demoRows;
+
+    const statusLabel = state._loading ? 'searching AD...'
+      : liveRows != null ? 'live AD results'
+      : (canLive && state._err) ? 'AD search unavailable - demo / type a username'
+      : canLive ? 'live AD search' : 'demo fixture';
+
+    const wrap = h('div', { style:{display:'flex',flexDirection:'column',gap:'4px'} });
+
+    if (state.sam) {
+      wrap.appendChild(h('div', { style:{display:'flex',alignItems:'center',gap:'8px',padding:'6px 10px',background:'var(--paper-2)',border:'1px solid var(--rule)',fontFamily:'var(--mono)',fontSize:'11.5px'} },
+        h('span.chip.ok', null, 'Selected'),
+        h('b', { style:{color:'var(--ink)'} }, state.display || state.sam),
+        state.display ? h('span', { style:{color:'var(--ink-3)'} }, '(' + state.sam + ')') : null,
+        h('button', {
+          style:{marginLeft:'auto',padding:'2px 8px',background:'transparent',border:'1px solid var(--rule)',color:'var(--ink-3)',cursor:'pointer',fontFamily:'var(--mono)',fontSize:'10px',letterSpacing:'.06em',textTransform:'uppercase'},
+          on:{click:()=>{ state.sam=''; state.display=null; state.q=''; onPick('', null); window.RERENDER_PAGE(mount); }},
+        }, 'Clear'),
+      ));
+    }
+
+    wrap.appendChild(h('div', { style:{display:'flex',gap:'8px',alignItems:'center'} },
+      h('input', {
+        type:'text', 'data-fk': fk, placeholder: placeholder || 'Search name or username',
+        style: Object.assign({}, inputStyle, { flex:'1' }),
+        value: state.q || '',
+        on:{input:(e)=>{
+          state.q = e.target.value;
+          if (state._t) clearTimeout(state._t);
+          state._t = setTimeout(() => { window.RERENDER_PAGE(mount); }, 180);
+        }},
+      }),
+      h('span', { style:{fontFamily:'var(--mono)',fontSize:'10.5px',color:'var(--ink-3)'} }, statusLabel),
+    ));
+
+    if (qRaw) {
+      const results = h('div', { style:{border:'1px solid var(--rule)',background:'var(--card)',maxHeight:'180px',overflowY:'auto'} });
+      if (!rows.length) {
+        results.appendChild(h('div', { style:{padding:'10px 12px',fontFamily:'var(--mono)',fontSize:'11.5px',color:'var(--ink-3)',fontStyle:'italic'} },
+          state._loading ? 'Searching Active Directory...' : 'No matching users. Type the username directly if needed.'));
+      } else {
+        rows.forEach(u => {
+          const row = h('div', {
+            style:{display:'flex',gap:'10px',alignItems:'center',padding:'8px 12px',cursor:'pointer',borderBottom:'1px solid var(--rule)',fontFamily:'var(--mono)',fontSize:'11.5px'},
+            on:{
+              click:()=>{ state.sam = u.sam; state.display = u.display || u.sam; state.q = ''; onPick(u.sam, state.display); window.RERENDER_PAGE(mount); },
+              mouseenter:(e)=>{ e.currentTarget.style.background = 'var(--paper-2)'; },
+              mouseleave:(e)=>{ e.currentTarget.style.background = 'transparent'; },
+            },
+          },
+            h('b', { style:{color:'var(--ink)'} }, u.display || u.sam),
+            h('span', { style:{color:'var(--ink-3)'} }, u.sam),
+            u.email ? h('span', { style:{color:'var(--ink-4)',fontSize:'10.5px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',flex:'1'} }, u.email) : null,
+            h('span', { style:{color:'var(--signal)',fontFamily:'var(--mono)',fontSize:'10.5px',letterSpacing:'.06em',textTransform:'uppercase'} }, 'Select'),
           );
           results.appendChild(row);
         });
@@ -5341,6 +5440,16 @@
       c.status === 'active'
         ? h('button', {
             style:{marginLeft:'auto',padding:'6px 12px',background:'transparent',border:'1px solid var(--rule)',color:'var(--ink-3)',cursor:'pointer',fontFamily:'var(--mono)',fontSize:'10.5px',letterSpacing:'.06em',textTransform:'uppercase'},
+            on:{click:()=>{
+              const A = window.OC_ACTIONS;
+              if (A && A.remindAuditCampaign) { A.remindAuditCampaign(c.campaign_id); }
+              else { alert('Reminders need the API.'); }
+            }},
+          }, 'Send reminders')
+        : null,
+      c.status === 'active'
+        ? h('button', {
+            style:{padding:'6px 12px',background:'transparent',border:'1px solid var(--rule)',color:'var(--ink-3)',cursor:'pointer',fontFamily:'var(--mono)',fontSize:'10.5px',letterSpacing:'.06em',textTransform:'uppercase'},
             on:{click:()=>{
               if (!confirm('Close "' + c.name + '" now? Recipients who have not yet submitted will no longer be able to.')) return;
               const A = window.OC_ACTIONS;

@@ -118,6 +118,9 @@ builder.Services.AddSingleton<IAttestationTokenService>(_ =>
     return new AttestationTokenService(key);
 });
 
+// SMTP transport for auditing attestation emails (internal relay; see Smtp config).
+builder.Services.AddSingleton<IEmailService, SmtpEmailService>();
+
 // Live AD group search for the binding picker (Windows/app-pool identity).
 builder.Services.AddMemoryCache();
 #pragma warning disable CA1416 // AdDirectoryService is Windows-only; the host is Windows/IIS.

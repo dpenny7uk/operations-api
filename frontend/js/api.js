@@ -169,6 +169,8 @@ export const apiAuditing = {
   // Launch returns the minted attestation links (shown once); close ends a campaign.
   launchCampaign: (body)       => apiPost('/auditing/campaigns/launch', body),
   closeCampaign:  (id)         => apiPost(`/auditing/campaigns/${id}/close`, {}),
-  // Live AD group search for the binding picker (null on 503/unreachable).
+  remindCampaign: (id)         => apiPost(`/auditing/campaigns/${id}/remind`, {}),
+  // Live AD search for the binding + owner pickers (null on 503/unreachable).
   searchGroups:   (q, limit=10)=> api('/auditing/ad-groups/search?q=' + encodeURIComponent(q) + '&limit=' + limit),
+  searchUsers:    (q, limit=10)=> api('/auditing/ad-users/search?q=' + encodeURIComponent(q) + '&limit=' + limit),
 };

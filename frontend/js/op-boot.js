@@ -941,10 +941,12 @@ window.OC_API = {
     return api('/eol/' + encodeURIComponent(product) + '/' + encodeURIComponent(version) + qs);
   },
 
-  // Live AD group search for the auditing binding picker. Returns an array of
-  // { dn, sam, group_type } or null (503/unreachable -> picker falls back to demo).
+  // Live AD search for the auditing binding + owner pickers. Returns an array
+  // ({dn,sam,group_type} / {sam,display,email}) or null (503/unreachable -> demo fallback).
   searchAdGroups: (q, limit = 10) =>
     api('/auditing/ad-groups/search?q=' + encodeURIComponent(q) + '&limit=' + limit),
+  searchAdUsers: (q, limit = 10) =>
+    api('/auditing/ad-users/search?q=' + encodeURIComponent(q) + '&limit=' + limit),
 
   // Refetch /api/disks + /api/disks/summary scoped to the given filters.
   // Any filter can be falsy / '__all' to mean unfiltered. Status is the
@@ -1327,6 +1329,15 @@ Object.assign(window.OC_ACTIONS, {
     const res = await apiPost('/auditing/campaigns/' + id + '/close', {});
     if (!res.ok) { alert('Could not close campaign (' + res.status + '): ' + (res.error || 'unknown error')); return; }
     await refetchAuditing(); if (onDone) onDone();
+  },
+
+  remindAuditCampaign: async (id, onDone) => {
+    const res = await apiPost('/auditing/campaigns/' + id + '/remind', {});
+    if (!res.ok) { alert('Could not send reminders (' + res.status + '): ' + (res.error || 'unknown error')); return; }
+    const sent = (res.data && res.data.sent != null) ? res.data.sent : '?';
+    await refetchAuditing();
+    alert(sent + ' reminder(s) sent.');
+    if (onDone) onDone();
   },
 });
 

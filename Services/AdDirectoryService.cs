@@ -10,6 +10,9 @@ public interface IAdDirectoryService
     /// matches the fragment. Binds as the host (app-pool) identity. Throws on
     /// directory errors — the caller maps that to 503.</summary>
     List<AdGroupResult> SearchGroups(string query, int limit);
+
+    /// <summary>Search AD for user accounts (name / sam / email) for the owner pickers.</summary>
+    List<AdUserResult> SearchUsers(string query, int limit);
 }
 
 /// <summary>
@@ -52,6 +55,42 @@ public sealed class AdDirectoryService : IAdDirectoryService
                 Dn = Prop(r, "distinguishedName") ?? "",
                 Sam = Prop(r, "sAMAccountName"),
                 GroupType = ClassifyGroupType(r),
+            });
+            if (results.Count >= limit) break;
+        }
+        return results;
+    }
+
+    public List<AdUserResult> SearchUsers(string query, int limit)
+    {
+        limit = Math.Clamp(limit, 1, 50);
+        var safe = EscapeLdap(query);
+
+        using var root = string.IsNullOrEmpty(_rootPath)
+            ? new DirectoryEntry()
+            : new DirectoryEntry(_rootPath);
+        using var searcher = new DirectorySearcher(root)
+        {
+            Filter = $"(&(objectCategory=person)(objectClass=user)(|(displayName=*{safe}*)(sAMAccountName=*{safe}*)(cn=*{safe}*)(mail=*{safe}*)))",
+            PageSize = 256,
+            SizeLimit = limit,
+        };
+        searcher.PropertiesToLoad.Add("sAMAccountName");
+        searcher.PropertiesToLoad.Add("displayName");
+        searcher.PropertiesToLoad.Add("cn");
+        searcher.PropertiesToLoad.Add("mail");
+
+        var results = new List<AdUserResult>();
+        using var found = searcher.FindAll();
+        foreach (SearchResult r in found)
+        {
+            var sam = Prop(r, "sAMAccountName");
+            if (string.IsNullOrEmpty(sam)) continue;
+            results.Add(new AdUserResult
+            {
+                Sam = sam,
+                Display = Prop(r, "displayName") ?? Prop(r, "cn") ?? sam,
+                Email = Prop(r, "mail"),
             });
             if (results.Count >= limit) break;
         }

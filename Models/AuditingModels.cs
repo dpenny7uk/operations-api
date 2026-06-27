@@ -292,3 +292,11 @@ public class AdGroupResult
     [JsonPropertyName("sam")] public string? Sam { get; set; }
     [JsonPropertyName("group_type")] public string? GroupType { get; set; }
 }
+
+/// <summary>A user returned by the live AD search (owner / nominee pickers).</summary>
+public class AdUserResult
+{
+    [JsonPropertyName("sam")] public string Sam { get; set; } = "";
+    [JsonPropertyName("display")] public string? Display { get; set; }
+    [JsonPropertyName("email")] public string? Email { get; set; }
+}
