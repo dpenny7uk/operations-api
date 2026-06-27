@@ -941,6 +941,11 @@ window.OC_API = {
     return api('/eol/' + encodeURIComponent(product) + '/' + encodeURIComponent(version) + qs);
   },
 
+  // Live AD group search for the auditing binding picker. Returns an array of
+  // { dn, sam, group_type } or null (503/unreachable -> picker falls back to demo).
+  searchAdGroups: (q, limit = 10) =>
+    api('/auditing/ad-groups/search?q=' + encodeURIComponent(q) + '&limit=' + limit),
+
   // Refetch /api/disks + /api/disks/summary scoped to the given filters.
   // Any filter can be falsy / '__all' to mean unfiltered. Status is the
   // alert-status filter (1=OK, 2=Warning, 3=Critical). Updates

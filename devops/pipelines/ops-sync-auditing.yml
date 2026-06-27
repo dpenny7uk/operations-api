@@ -1,0 +1,87 @@
+# Operations API - Auditing AD Membership Sync (Surface 09, Slice 5)
+# Step 1: Build the bound-group DN list from auditing.application_groups
+# Step 2: PowerShell expands recursive AD membership + managers (CSV)
+# Step 3: Python syncs the CSVs into auditing.ad_users + auditing.group_memberships
+# Runs daily at 05:00 UTC on a DOMAIN-JOINED agent (ActiveDirectory module required).
+
+trigger: none
+
+schedules:
+  - cron: "0 5 * * *"
+    displayName: "Daily AD membership sync at 05:00"
+    branches:
+      include:
+        - main
+    always: true
+
+pool:
+  name: 'Default'
+
+variables:
+  - group: operations-api-prod
+
+steps:
+  # Step 1: Build the bound-group list from the database.
+  - powershell: |
+      $groupList = "$(Build.StagingDirectory)\audit-groups.txt"
+      $repoRoot = "$(Build.SourcesDirectory)\operations-api"
+      python "$repoRoot\sync\auditing\query_bindings.py" $groupList
+      if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      $entries = @(Get-Content $groupList | Where-Object { $_.Trim() -ne '' })
+      Write-Host "Found $($entries.Count) active group binding(s)."
+      Write-Host "##vso[task.setvariable variable=bindingCount]$($entries.Count)"
+    displayName: 'Build bound-group list from database'
+    timeoutInMinutes: 5
+    errorActionPreference: stop
+    env:
+      OPS_DB_HOST: $(OPS_DB_HOST)
+      OPS_DB_PORT: $(OPS_DB_PORT)
+      OPS_DB_NAME: $(OPS_DB_NAME)
+      OPS_DB_USER: $(OPS_DB_USER)
+      OPS_DB_PASSWORD: $(OPS_DB_PASSWORD)
+      OPS_DB_SSLMODE: $(OPS_DB_SSLMODE)
+
+  # Step 2: Expand AD membership. Skipped when there are no bindings yet.
+  - powershell: |
+      $repoRoot = "$(Build.SourcesDirectory)\operations-api"
+      & "$repoRoot\sync\auditing\Get-ADGroupMembership.ps1" `
+          -GroupListPath "$(Build.StagingDirectory)\audit-groups.txt" `
+          -OutputPath "$(Build.StagingDirectory)"
+    displayName: 'Expand AD group membership'
+    timeoutInMinutes: 30
+    errorActionPreference: stop
+    condition: and(succeeded(), ne(variables['bindingCount'], '0'))
+
+  # Step 3: Prepare the sync environment.
+  - powershell: |
+      $repoRoot = "$(Build.SourcesDirectory)\operations-api"
+      $workDir = "$(Build.StagingDirectory)\sync_run"
+      New-Item -ItemType Directory -Force -Path $workDir | Out-Null
+      Copy-Item "$repoRoot\sync\common.py" "$workDir\"
+      Copy-Item "$repoRoot\sync\auditing\sync_auditing.py" "$workDir\"
+      pip install -r "$repoRoot\sync\requirements.txt"
+      if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    displayName: 'Prepare sync environment'
+    timeoutInMinutes: 10
+    errorActionPreference: stop
+    condition: and(succeeded(), ne(variables['bindingCount'], '0'))
+
+  # Step 3b: Sync the membership CSVs into PostgreSQL.
+  - powershell: |
+      Set-Location "$(Build.StagingDirectory)\sync_run"
+      python sync_auditing.py `
+          --members "$(Build.StagingDirectory)\auditing-members-*.csv" `
+          --users "$(Build.StagingDirectory)\auditing-users-*.csv" `
+          --verbose
+      if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    displayName: 'Sync AD membership to PostgreSQL'
+    timeoutInMinutes: 20
+    errorActionPreference: stop
+    condition: and(succeeded(), ne(variables['bindingCount'], '0'))
+    env:
+      OPS_DB_HOST: $(OPS_DB_HOST)
+      OPS_DB_PORT: $(OPS_DB_PORT)
+      OPS_DB_NAME: $(OPS_DB_NAME)
+      OPS_DB_USER: $(OPS_DB_USER)
+      OPS_DB_PASSWORD: $(OPS_DB_PASSWORD)
+      OPS_DB_SSLMODE: $(OPS_DB_SSLMODE)

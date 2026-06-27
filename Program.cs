@@ -45,6 +45,7 @@ if (string.IsNullOrEmpty(connStringCheck) && !builder.Environment.IsDevelopment(
 // There is no bypass mode. For local development without Active Directory,
 // configure a test account in IIS Express or use a mocked auth middleware in a test project.
 var adminRole = config.GetValue<string>("Authentication:AdminRole") ?? "";
+var auditorRole = config.GetValue<string>("Authentication:AuditorRole") ?? "";
 builder.Services
     .AddAuthentication(NegotiateDefaults.AuthenticationScheme)
     .AddNegotiate();
@@ -57,6 +58,19 @@ builder.Services.AddAuthorization(options =>
         options.AddPolicy("OpsAdmin", policy => policy.RequireRole(adminRole));
     else
         options.AddPolicy("OpsAdmin", policy => policy.RequireAuthenticatedUser());
+
+    // OpsAuditor: read-only auditing access. Falls back to "any authenticated" when
+    // no AuditorRole is configured (preserves current open-read behaviour); when set,
+    // it is the auditor role OR the admin role (admins always satisfy it).
+    if (!string.IsNullOrWhiteSpace(auditorRole))
+    {
+        var auditorRoles = string.IsNullOrWhiteSpace(adminRole) ? new[] { auditorRole } : new[] { auditorRole, adminRole };
+        options.AddPolicy("OpsAuditor", policy => policy.RequireRole(auditorRoles));
+    }
+    else
+    {
+        options.AddPolicy("OpsAuditor", policy => policy.RequireAuthenticatedUser());
+    }
 });
 
 // Database connection - explicit pool settings for production predictability
@@ -91,17 +105,24 @@ builder.Services.AddScoped<ICampaignService, CampaignService>();
 
 // Attestation token signing (HMAC). Key from config (env var in prod); a fixed
 // dev placeholder keeps local development working without secrets configured.
+// A missing key in prod is logged loudly but does NOT take the app (or the
+// auditing read endpoints) down — only launch + attestation need it, and they
+// fail clearly until it's set.
 builder.Services.AddSingleton<IAttestationTokenService>(_ =>
 {
     var key = config["Auditing:SigningKey"];
-    if (string.IsNullOrEmpty(key))
-    {
-        if (!builder.Environment.IsDevelopment())
-            throw new InvalidOperationException("Auditing:SigningKey must be configured (32+ bytes) outside Development.");
+    if (string.IsNullOrEmpty(key) && builder.Environment.IsDevelopment())
         key = "dev-insecure-attestation-signing-key-change-me";
-    }
+    if (string.IsNullOrEmpty(key))
+        Log.Warning("Auditing:SigningKey is not configured. Campaign launch and attestation links are disabled until Auditing__SigningKey is set (32+ bytes); the rest of the auditing surface is unaffected.");
     return new AttestationTokenService(key);
 });
+
+// Live AD group search for the binding picker (Windows/app-pool identity).
+builder.Services.AddMemoryCache();
+#pragma warning disable CA1416 // AdDirectoryService is Windows-only; the host is Windows/IIS.
+builder.Services.AddSingleton<IAdDirectoryService, AdDirectoryService>();
+#pragma warning restore CA1416
 
 // API configuration
 builder.WebHost.ConfigureKestrel(options =>

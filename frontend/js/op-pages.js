@@ -4875,10 +4875,40 @@
   function _renderGroupNameSearch(mount, searchState, alreadyBoundDNs, onBind) {
     const D = _audData();
     const inputStyle = { padding:'8px 10px',border:'1px solid var(--rule)',background:'var(--card)',fontFamily:'inherit',fontSize:'12.5px',color:'var(--ink)' };
-    const q = (searchState.q || '').trim().toLowerCase();
-    const matches = q
+    const qRaw = (searchState.q || '').trim();
+    const q = qRaw.toLowerCase();
+    const canLive = !!(window.OC_API && window.OC_API.searchAdGroups);
+
+    // Kick off a live AD search once per distinct query (2+ chars). Results land
+    // in searchState and trigger a re-render; the input handler debounces so we
+    // don't fire a request on every keystroke.
+    if (canLive && qRaw.length >= 2 && searchState._liveQ !== qRaw) {
+      searchState._liveQ = qRaw;
+      searchState._loading = true;
+      window.OC_API.searchAdGroups(qRaw).then(res => {
+        if (searchState._liveQ !== qRaw) return; // a newer query superseded this one
+        searchState._loading = false;
+        searchState._liveFor = qRaw;
+        searchState._live = Array.isArray(res) ? res : null;
+        searchState._err = !Array.isArray(res);
+        window.RERENDER_PAGE(mount);
+      });
+    }
+
+    // Live results for the current query, else the demo-fixture fallback.
+    const liveRows = (canLive && searchState._liveFor === qRaw && Array.isArray(searchState._live))
+      ? searchState._live.filter(g => !alreadyBoundDNs.includes(g.dn)).slice(0, 8)
+          .map(g => ({ dn: g.dn, sam: g.sam || _shortGroup(g.dn), type: g.group_type || 'Security' }))
+      : null;
+    const demoRows = q
       ? D.GROUPS.filter(g => !alreadyBoundDNs.includes(g.dn) && g.sam.toLowerCase().includes(q)).slice(0, 8)
       : [];
+    const rows = liveRows != null ? liveRows : demoRows;
+
+    const statusLabel = searchState._loading ? 'searching AD...'
+      : liveRows != null ? 'live AD results'
+      : (canLive && searchState._err) ? 'AD search unavailable - demo / type a DN'
+      : canLive ? 'live AD search' : 'demo fixture';
 
     const wrap = h('div', { style:{display:'flex',flexDirection:'column',gap:'4px'} });
 
@@ -4887,19 +4917,22 @@
         type:'text', placeholder:'Search AD group name (e.g. APP-Tableau)',
         style: Object.assign({}, inputStyle, { flex:'1' }),
         value: searchState.q || '',
-        on:{input:(e)=>{ searchState.q = e.target.value; window.RERENDER_PAGE(mount); }},
+        on:{input:(e)=>{
+          searchState.q = e.target.value;
+          if (searchState._t) clearTimeout(searchState._t);
+          searchState._t = setTimeout(() => { window.RERENDER_PAGE(mount); }, 180);
+        }},
       }),
-      h('span', { style:{fontFamily:'var(--mono)',fontSize:'10.5px',color:'var(--ink-3)'} },
-        q ? 'live AD search would query here' : 'live AD search'),
+      h('span', { style:{fontFamily:'var(--mono)',fontSize:'10.5px',color:'var(--ink-3)'} }, statusLabel),
     ));
 
-    if (q) {
+    if (qRaw) {
       const results = h('div', { style:{border:'1px solid var(--rule)',background:'var(--card)',maxHeight:'180px',overflowY:'auto'} });
-      if (!matches.length) {
+      if (!rows.length) {
         results.appendChild(h('div', { style:{padding:'10px 12px',fontFamily:'var(--mono)',fontSize:'11.5px',color:'var(--ink-3)',fontStyle:'italic'} },
-          'No matching groups in the demo fixture. In production, the live AD search would query Active Directory for "', h('b', { style:{color:'var(--ink-2)'} }, searchState.q), '".'));
+          searchState._loading ? 'Searching Active Directory...' : 'No matching groups. Type the full group DN to bind it directly.'));
       } else {
-        matches.forEach(g => {
+        rows.forEach(g => {
           const row = h('div', {
             style:{display:'flex',gap:'10px',alignItems:'center',padding:'8px 12px',cursor:'pointer',borderBottom:'1px solid var(--rule)',fontFamily:'var(--mono)',fontSize:'11.5px'},
             on:{

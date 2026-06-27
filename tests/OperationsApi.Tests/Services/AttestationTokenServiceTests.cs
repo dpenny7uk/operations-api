@@ -61,4 +61,15 @@ public class AttestationTokenServiceTests
         Assert.Equal(Svc.ComputeHash(a.Raw), a.Hash);
         Assert.NotEqual(a.Hash, b.Hash);
     }
+
+    // With no signing key configured the service must construct (so token-independent
+    // endpoints keep working) but refuse to mint, and verify nothing.
+    [Fact]
+    public void Unconfigured_key_constructs_but_disables_minting_and_verifying()
+    {
+        var unconfigured = new AttestationTokenService(null);
+        Assert.Throws<InvalidOperationException>(() => unconfigured.Mint(Guid.NewGuid(), DateTimeOffset.UtcNow.AddDays(1)));
+        var minted = Svc.Mint(Guid.NewGuid(), DateTimeOffset.UtcNow.AddDays(1));
+        Assert.Null(unconfigured.Verify(minted.Raw));
+    }
 }

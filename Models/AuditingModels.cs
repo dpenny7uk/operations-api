@@ -282,3 +282,13 @@ public class LaunchedPacket
     [JsonPropertyName("subject_count")] public int SubjectCount { get; set; }
     [JsonPropertyName("attestation_url")] public string AttestationUrl { get; set; } = "";
 }
+
+// ---- Live AD group search (Slice 5, binding picker) ----
+
+/// <summary>A group returned by the live AD search.</summary>
+public class AdGroupResult
+{
+    [JsonPropertyName("dn")] public string Dn { get; set; } = "";
+    [JsonPropertyName("sam")] public string? Sam { get; set; }
+    [JsonPropertyName("group_type")] public string? GroupType { get; set; }
+}

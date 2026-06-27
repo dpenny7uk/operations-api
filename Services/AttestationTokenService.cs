@@ -40,15 +40,16 @@ public sealed class AttestationTokenService : IAttestationTokenService
 {
     private readonly byte[] _key;
 
-    public AttestationTokenService(string signingKey)
-    {
-        if (string.IsNullOrEmpty(signingKey))
-            throw new ArgumentException("Signing key is required.", nameof(signingKey));
-        _key = Encoding.UTF8.GetBytes(signingKey);
-    }
+    // A missing key is tolerated at construction so token-independent endpoints
+    // (the auditing dashboards) keep working. Only Mint (launch) and Verify
+    // (attestation) actually require it — they fail clearly when it's absent.
+    public AttestationTokenService(string? signingKey)
+        => _key = string.IsNullOrEmpty(signingKey) ? Array.Empty<byte>() : Encoding.UTF8.GetBytes(signingKey);
 
     public MintedToken Mint(Guid packetId, DateTimeOffset expiresAt)
     {
+        if (_key.Length == 0)
+            throw new InvalidOperationException("Auditing:SigningKey is not configured; cannot mint attestation tokens.");
         var pid = packetId.ToByteArray();
         var exp = ToBigEndian(expiresAt.ToUnixTimeSeconds());
         var mac = Hmac(pid, exp);
@@ -58,7 +59,7 @@ public sealed class AttestationTokenService : IAttestationTokenService
 
     public Guid? Verify(string rawToken)
     {
-        if (string.IsNullOrEmpty(rawToken)) return null;
+        if (_key.Length == 0 || string.IsNullOrEmpty(rawToken)) return null;
         var parts = rawToken.Split('.');
         if (parts.Length != 3) return null;
 

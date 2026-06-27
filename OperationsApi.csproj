@@ -27,5 +27,7 @@
     <PackageReference Include="AspNetCore.HealthChecks.Npgsql" Version="9.0.0" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.3" />
     <PackageReference Include="Scalar.AspNetCore" Version="2.4.18" />
+    <!-- Live AD group search for the auditing binding picker (Windows-only). -->
+    <PackageReference Include="System.DirectoryServices" Version="9.0.0" />
   </ItemGroup>
 </Project>
