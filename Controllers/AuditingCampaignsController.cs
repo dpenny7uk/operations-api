@@ -82,4 +82,24 @@ public class AuditingCampaignsController : ControllerBase
         var closed = await _campaigns.CloseAsync(id, actor);
         return closed ? Ok() : NotFound();
     }
+
+    /// <summary>Re-send the attestation link to every not-yet-submitted recipient of
+    /// an active campaign. Returns the number of reminders sent. Requires OpsAdmin role.</summary>
+    [HttpPost("campaigns/{id}/remind")]
+    [Authorize(Policy = "OpsAdmin")]
+    [ProducesResponseType(200)]
+    [ProducesResponseType(409)]
+    public async Task<IActionResult> Remind(int id)
+    {
+        var actor = User.Identity?.Name ?? "unknown";
+        try
+        {
+            var sent = await _campaigns.RemindAsync(id, actor);
+            return Ok(new { sent });
+        }
+        catch (ConflictException ex)
+        {
+            return Conflict(ex.Message);
+        }
+    }
 }
