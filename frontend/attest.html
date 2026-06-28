@@ -128,19 +128,17 @@
 <div id="toast" class="toast"></div>
 
 <script src="js/op-h.js?v=__BUILD_HASH__"></script>
-<script src="js/auditing-demo-data.js?v=__BUILD_HASH__"></script>
 <script>
 (function () {
   'use strict';
   const h = window.H;
-  const D = window.AUDITING_DATA;
   const root = document.getElementById('root');
 
-  // Read ?t=<token> from URL. Tokens beginning 'demo-' use the bundled fixture
-  // (offline prototype); anything else is a real signed token resolved via
-  // GET/POST /api/auditing/public/attestation/{token}.
+  // Read ?p=<packetId> from URL. The recipient is authenticated by the app's
+  // Windows SSO; GET/POST /api/auditing/attestation/{packetId} verifies their
+  // identity matches the packet's recipient (403 otherwise). No bearer token.
   const params = new URLSearchParams(location.search);
-  const token = params.get('t');
+  const packetId = params.get('p');
 
   const API_BASE = window.location.hostname === 'localhost'
     ? 'http://localhost:5000/api'
@@ -149,7 +147,6 @@
   // Mutable submit state (pending mode): one keep/revoke + optional comment per subject.
   const pending = {};
   const comments = {};
-  let demoMode = false;
 
   function fmtDateTime(s) {
     if (!s) return '—';
@@ -173,38 +170,40 @@
     root.appendChild(h('div.empty-state', null, h('div', null, 'Loading…')));
   }
 
-  if (!token) {
-    renderEmpty('No token provided',
-      'Open this page with the signed link from your attestation email. (Demo: ?t=demo-pending or ?t=demo-completed.)');
+  if (!packetId) {
+    renderEmpty('No attestation specified',
+      'Open this page using the link from your attestation email.');
     return;
   }
 
   start();
 
   async function start() {
-    let view = null;
-    if (token.indexOf('demo-') === 0) {
-      demoMode = true;
-      if (!D) { renderEmpty('Demo data unavailable', 'auditing-demo-data.js did not load.'); return; }
-      view = buildDemoView(token);
-      if (!view) { renderEmpty('Invalid or expired link', 'This demo token is not recognised. Try ?t=demo-pending or ?t=demo-completed.'); return; }
-    } else {
-      renderLoading();
-      let resp;
-      try {
-        const r = await fetch(API_BASE + '/auditing/public/attestation/' + encodeURIComponent(token), { credentials: 'omit' });
-        if (!r.ok) {
-          renderEmpty('Invalid or expired link',
-            'This attestation link is not recognised — the token may be invalid, expired, or already revoked.');
-          return;
-        }
-        resp = await r.json();
-      } catch (e) {
-        renderEmpty('Could not load attestation', 'The server could not be reached. Please try again shortly.');
+    renderLoading();
+    let resp;
+    try {
+      const r = await fetch(API_BASE + '/auditing/attestation/' + encodeURIComponent(packetId), { credentials: 'include' });
+      if (r.status === 403) {
+        renderEmpty('Not addressed to you',
+          'You are signed in as a different user than this attestation is for. If you believe this is wrong, contact Service Operations.');
         return;
       }
-      view = buildApiView(resp);
+      if (r.status === 404) {
+        renderEmpty('Attestation not found',
+          'This link is not recognised — the attestation may have been removed.');
+        return;
+      }
+      if (!r.ok) {
+        renderEmpty('Could not load attestation',
+          'The server returned an error (' + r.status + '). Please try again shortly.');
+        return;
+      }
+      resp = await r.json();
+    } catch (e) {
+      renderEmpty('Could not load attestation', 'The server could not be reached. Please try again shortly.');
+      return;
     }
+    const view = buildApiView(resp);
     initDecisions(view);
     render(view);
   }
@@ -217,39 +216,6 @@
         if (view.decisions[sam].comment) comments[sam] = view.decisions[sam].comment;
       });
     }
-  }
-
-  function buildDemoView(tok) {
-    const packet = D.getPacketByToken(tok);
-    if (!packet) return null;
-    const campaign = D.getCampaign(packet.campaign_id);
-    const subjects = (packet.subjects || []).map(sam => {
-      const u = D.getUser(sam) || { sam: sam, display: sam, email: '', enabled: true };
-      return { sam: u.sam, display: u.display, email: u.email, enabled: u.enabled };
-    });
-    const ownSubmitted = !!packet.submitted_at;
-    const closing = D.getClosingPacket(packet.campaign_id);
-    const closedByOther = !ownSubmitted && !!closing;
-    const state = ownSubmitted ? 'submitted' : closedByOther ? 'closed_by_other' : 'pending';
-    const decisions = {};
-    if (state !== 'pending') {
-      const srcPid = ownSubmitted ? packet.packet_id : closing.packet_id;
-      D.getDecisionsByPacket(srcPid).forEach(d => { decisions[d.subject_sam] = { decision: d.decision, comment: d.comment || '' }; });
-    }
-    return {
-      state: state,
-      campaignName: campaign ? campaign.name : 'Access Attestation',
-      applicationName: campaign ? campaign.application_name : null,
-      dueAt: campaign ? campaign.due_at : null,
-      ccMailbox: campaign ? campaign.cc_audit_mailbox : null,
-      recipientDisplay: packet.recipient_display,
-      recipientKind: packet.recipient_kind,
-      roleNote: packet.role_note,
-      subjects: subjects,
-      submittedByDisplay: ownSubmitted ? packet.submitted_by_display : (closing ? closing.submitted_by_display : null),
-      submittedAt: ownSubmitted ? packet.submitted_at : (closing ? closing.submitted_at : null),
-      decisions: decisions,
-    };
   }
 
   function buildApiView(r) {
@@ -278,19 +244,14 @@
     const stillPending = view.subjects.filter(s => !pending[s.sam]).length;
     if (stillPending > 0) return;
 
-    if (demoMode) {
-      showToast('Thank you — submission received. (Demo token: nothing was actually sent.)');
-      return;
-    }
-
     const decisions = view.subjects.map(s => ({
       subject_sam: s.sam, decision: pending[s.sam], comment: comments[s.sam] || null,
     }));
 
     let r;
     try {
-      r = await fetch(API_BASE + '/auditing/public/attestation/' + encodeURIComponent(token), {
-        method: 'POST', credentials: 'omit',
+      r = await fetch(API_BASE + '/auditing/attestation/' + encodeURIComponent(packetId), {
+        method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'ops-api' },
         body: JSON.stringify({ decisions: decisions }),
       });
@@ -299,6 +260,10 @@
       return;
     }
 
+    if (r.status === 403) {
+      showToast('This attestation is not addressed to your account.');
+      return;
+    }
     if (r.ok || r.status === 409) {
       const body = await r.json().catch(() => null);
       if (body) {
@@ -320,13 +285,6 @@
   function render(view) {
     root.innerHTML = '';
     const isCompleted = view.state !== 'pending';
-
-    if (demoMode) {
-      root.appendChild(h('div.demo-ribbon-attest', null,
-        h('b', null, 'DEMO DATA'),
-        h('span', null, 'Demo token — this page will not send your submission. Use a real campaign link to submit live.'),
-      ));
-    }
 
     const recipientGreeting = view.recipientKind === 'nominee'
       ? 'You have been nominated to attest access for this application.'

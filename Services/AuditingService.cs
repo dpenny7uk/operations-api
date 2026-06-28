@@ -1,5 +1,4 @@
 using System.Data;
-using System.Security.Cryptography;
 using Dapper;
 using Npgsql;
 using OperationsApi.Infrastructure;
@@ -15,10 +14,8 @@ namespace OperationsApi.Services;
 /// </summary>
 public class AuditingService : BaseService<AuditingService>, IAuditingService
 {
-    private readonly IAttestationTokenService _tokens;
-
-    public AuditingService(IDbConnection db, ILogger<AuditingService> logger, IAttestationTokenService tokens)
-        : base(db, logger) => _tokens = tokens;
+    public AuditingService(IDbConnection db, ILogger<AuditingService> logger)
+        : base(db, logger) { }
 
     // An application "belongs" to auditing once it has audit config or an active
     // binding. Estate apps that were never registered (no cadence, no auto-launch,
@@ -379,19 +376,24 @@ public class AuditingService : BaseService<AuditingService>, IAuditingService
         WHERE s.packet_id = @Pid
         ORDER BY s.subject_display_name, s.subject_sam";
 
-    public Task<AttestationView?> GetAttestationAsync(string rawToken) => RunDbAsync(async () =>
+    public Task<AttestationGetResult> GetAttestationAsync(Guid packetId, string callerSam) => RunDbAsync(async () =>
     {
-        var row = await ResolvePacketAsync(rawToken, null);
-        return row == null ? null : await BuildViewAsync(row, null);
+        var row = await LoadPacketAsync(packetId, null);
+        if (row == null) return new AttestationGetResult { Outcome = AttestationGetOutcome.NotFound };
+        if (!SamEquals(row.RecipientSam, callerSam)) return new AttestationGetResult { Outcome = AttestationGetOutcome.Forbidden };
+        return new AttestationGetResult { Outcome = AttestationGetOutcome.Ok, View = await BuildViewAsync(row, null) };
     });
 
-    public Task<AttestationSubmitResult> SubmitAttestationAsync(string rawToken, List<AttestationDecisionInput> decisions, string? ip) => RunDbAsync(async () =>
+    public Task<AttestationSubmitResult> SubmitAttestationAsync(Guid packetId, string callerSam, List<AttestationDecisionInput> decisions, string? ip) => RunDbAsync(async () =>
     {
         if (Db.State != ConnectionState.Open) Db.Open();
         using var tx = Db.BeginTransaction();
 
-        var row = await ResolvePacketAsync(rawToken, tx);
+        var row = await LoadPacketAsync(packetId, tx);
         if (row == null) { tx.Rollback(); return new AttestationSubmitResult { Outcome = AttestationSubmitOutcome.NotFound }; }
+
+        // SSO identity gate: only the packet's intended recipient may submit.
+        if (!SamEquals(row.RecipientSam, callerSam)) { tx.Rollback(); return new AttestationSubmitResult { Outcome = AttestationSubmitOutcome.Forbidden }; }
 
         // Already done (this packet submitted, or the campaign was closed by another
         // nominee) -> return the read-only view, no write.
@@ -420,11 +422,11 @@ public class AuditingService : BaseService<AuditingService>, IAuditingService
             UPDATE {Sql.Tables.AuditPackets}
             SET submitted_at = NOW(), submitted_by_sam = @Sam, submitted_by_display = @Disp, submitted_ip = @Ip::inet
             WHERE packet_id = @Pid AND submitted_at IS NULL",
-            new { Pid = row.PacketId, Sam = row.RecipientSam, Disp = row.RecipientDisplay, Ip = ip }, tx);
+            new { Pid = row.PacketId, Sam = callerSam, Disp = row.RecipientDisplay, Ip = ip }, tx);
 
         if (claimed == 0)
         {
-            var fresh = await ResolvePacketAsync(rawToken, tx);
+            var fresh = await LoadPacketAsync(row.PacketId, tx);
             var view = fresh != null ? await BuildViewAsync(fresh, tx) : null;
             tx.Rollback();
             return new AttestationSubmitResult { Outcome = AttestationSubmitOutcome.Conflict, View = view };
@@ -461,7 +463,7 @@ public class AuditingService : BaseService<AuditingService>, IAuditingService
 
         tx.Commit();
 
-        var after = await ResolvePacketAsync(rawToken, null);
+        var after = await LoadPacketAsync(row.PacketId, null);
         return new AttestationSubmitResult
         {
             Outcome = AttestationSubmitOutcome.Ok,
@@ -475,24 +477,20 @@ public class AuditingService : BaseService<AuditingService>, IAuditingService
         return new AttestationSubmitResult { Outcome = AttestationSubmitOutcome.BadRequest, Error = msg };
     }
 
-    private async Task<AttestationPacketRow?> ResolvePacketAsync(string rawToken, IDbTransaction? tx)
-    {
-        var packetId = _tokens.Verify(rawToken);
-        if (packetId == null) return null;
+    // Case-insensitive sAMAccountName compare. callerSam arrives already normalised
+    // (bare sam) from the controller; recipient_sam is the AD sAMAccountName.
+    private static bool SamEquals(string? recipientSam, string? callerSam)
+        => !string.IsNullOrEmpty(recipientSam) && !string.IsNullOrEmpty(callerSam)
+           && string.Equals(recipientSam, callerSam, StringComparison.OrdinalIgnoreCase);
 
-        var row = await Db.QueryFirstOrDefaultAsync<AttestationPacketRow>($@"
+    private Task<AttestationPacketRow?> LoadPacketAsync(Guid packetId, IDbTransaction? tx)
+        => Db.QueryFirstOrDefaultAsync<AttestationPacketRow>($@"
             SELECT {AttestPacketColumns}
             FROM {Sql.Tables.AuditPackets} p
             JOIN {Sql.Tables.AuditCampaigns} c ON c.campaign_id = p.campaign_id
             JOIN {Sql.Tables.Applications} a ON a.application_id = c.application_id
             WHERE p.packet_id = @Pid",
-            new { Pid = packetId.Value }, tx);
-
-        if (row?.TokenHash == null) return null;
-        // Revocation / wrong-token: the raw must hash to the stored hash (constant time).
-        if (!CryptographicOperations.FixedTimeEquals(_tokens.ComputeHash(rawToken), row.TokenHash)) return null;
-        return row;
-    }
+            new { Pid = packetId }, tx);
 
     private async Task<AttestationView> BuildViewAsync(AttestationPacketRow row, IDbTransaction? tx)
     {

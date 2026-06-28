@@ -71,7 +71,10 @@ public sealed class AdDirectoryService : IAdDirectoryService
             : new DirectoryEntry(_rootPath);
         using var searcher = new DirectorySearcher(root)
         {
-            Filter = $"(&(objectCategory=person)(objectClass=user)(|(displayName=*{safe}*)(sAMAccountName=*{safe}*)(cn=*{safe}*)(mail=*{safe}*)))",
+            // Exclude disabled accounts: the bitwise rule (OID 1.2.840.113556.1.4.803)
+            // tests the ACCOUNTDISABLE flag (0x2) in userAccountControl; negated, it
+            // keeps only enabled users so the owner/nominee pickers don't surface leavers.
+            Filter = $"(&(objectCategory=person)(objectClass=user)(!(userAccountControl:1.2.840.113556.1.4.803:=2))(|(displayName=*{safe}*)(sAMAccountName=*{safe}*)(cn=*{safe}*)(mail=*{safe}*)))",
             PageSize = 256,
             SizeLimit = limit,
         };

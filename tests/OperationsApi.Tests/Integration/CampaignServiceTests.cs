@@ -16,15 +16,11 @@ public class CampaignServiceTests : IntegrationTestBase
 {
     public CampaignServiceTests(DatabaseFixture db) : base(db) { }
 
-    private static readonly IAttestationTokenService Tokens =
-        new AttestationTokenService("integration-tests-signing-key-0123456789");
-
     private static IConfiguration Config() => new ConfigurationBuilder()
         .AddInMemoryCollection(new Dictionary<string, string?>
         {
             ["Auditing:BaseUrl"] = "https://ops/",
             ["Auditing:CcAuditMailbox"] = "audit@contoso.com",
-            ["Auditing:TokenTtlDays"] = "14",
         }).Build();
 
     private readonly FakeEmail _email = new();
@@ -34,15 +30,23 @@ public class CampaignServiceTests : IntegrationTestBase
     private sealed class FakeEmail : IEmailService
     {
         public int Sent;
+        public int Batches;
         public Task<EmailResult> SendAsync(EmailRequest req, System.Threading.CancellationToken ct = default)
         {
             Sent++;
             return Task.FromResult(new EmailResult { Success = !string.IsNullOrWhiteSpace(req.To), Response = "fake" });
         }
+        public Task<IReadOnlyList<EmailResult>> SendBatchAsync(IReadOnlyList<EmailRequest> reqs, System.Threading.CancellationToken ct = default)
+        {
+            Batches++;
+            var list = new List<EmailResult>();
+            foreach (var r in reqs) { Sent++; list.Add(new EmailResult { Success = !string.IsNullOrWhiteSpace(r.To), Response = "fake" }); }
+            return Task.FromResult<IReadOnlyList<EmailResult>>(list);
+        }
     }
 
-    private AuditingService Aud() => new(OpenConnection(), NullLogger<AuditingService>.Instance, Tokens);
-    private CampaignService Camp() => new(OpenConnection(), NullLogger<CampaignService>.Instance, Tokens, _email, Config());
+    private AuditingService Aud() => new(OpenConnection(), NullLogger<AuditingService>.Instance);
+    private CampaignService Camp() => new(OpenConnection(), NullLogger<CampaignService>.Instance, _email, Config());
 
     private const string Dn = "CN=APP-X,OU=AppGroups,DC=contoso,DC=com";
 
@@ -82,10 +86,12 @@ public class CampaignServiceTests : IntegrationTestBase
             new { dn = Dn });
     }
 
-    private static string TokenFrom(LaunchedPacket p)
+    // The SSO link is attest.html?p=<packetId>; pull the packet id back out for the
+    // attestation tests (the caller's sam is passed separately as the identity).
+    private static System.Guid PacketIdFrom(LaunchedPacket p)
     {
-        var i = p.AttestationUrl.IndexOf("t=", System.StringComparison.Ordinal);
-        return p.AttestationUrl.Substring(i + 2);
+        var i = p.AttestationUrl.IndexOf("?p=", System.StringComparison.Ordinal);
+        return System.Guid.Parse(p.AttestationUrl.Substring(i + 3));
     }
 
     private async Task<AuditApplicationDetail> NewApp(string name, string mode, string? businessOwner)
@@ -150,6 +156,26 @@ public class CampaignServiceTests : IntegrationTestBase
     }
 
     [DockerFact]
+    public async Task Launch_refuses_a_second_open_campaign_for_the_same_app()
+    {
+        await Reset(); await SeedAd();
+        var app = await NewApp("Dup App", "line_manager", "paul");
+        var camp = Camp();
+
+        await camp.LaunchAsync(new CampaignLaunchRequest { ApplicationId = app.ApplicationId, Name = "first" }, "tester");
+
+        // Second launch while one is open -> refused.
+        await Assert.ThrowsAsync<ConflictException>(() =>
+            camp.LaunchAsync(new CampaignLaunchRequest { ApplicationId = app.ApplicationId, Name = "second" }, "tester"));
+
+        // Close the open one, then a fresh launch is allowed again.
+        var firstId = (await Aud().ListCampaignsAsync()).First(c => c.ApplicationId == app.ApplicationId).CampaignId;
+        await camp.CloseAsync(firstId, "tester");
+        var third = await camp.LaunchAsync(new CampaignLaunchRequest { ApplicationId = app.ApplicationId, Name = "third" }, "tester");
+        Assert.True(third.CampaignId > 0);
+    }
+
+    [DockerFact]
     public async Task Launch_nominees_creates_one_full_roster_packet_per_nominee()
     {
         await Reset(); await SeedAd();
@@ -173,25 +199,53 @@ public class CampaignServiceTests : IntegrationTestBase
         await Reset(); await SeedAd();
         var app = await NewApp("Submit App", "line_manager", "paul");
         var result = await Camp().LaunchAsync(new CampaignLaunchRequest { ApplicationId = app.ApplicationId, Name = "submit review" }, "tester");
-        var aliceToken = TokenFrom(result.Packets.Single(p => p.RecipientSam == "alice")); // subjects: carol
+        var alicePid = PacketIdFrom(result.Packets.Single(p => p.RecipientSam == "alice")); // subjects: carol
 
         var aud = Aud();
-        var view = await aud.GetAttestationAsync(aliceToken);
-        Assert.NotNull(view);
-        Assert.Equal("pending", view!.State);
-        Assert.Single(view.Subjects);
+        var view = await aud.GetAttestationAsync(alicePid, "alice");
+        Assert.Equal(AttestationGetOutcome.Ok, view.Outcome);
+        Assert.Equal("pending", view.View!.State);
+        Assert.Single(view.View.Subjects);
 
-        var submit = await aud.SubmitAttestationAsync(aliceToken,
+        var submit = await aud.SubmitAttestationAsync(alicePid, "alice",
             new List<AttestationDecisionInput> { new() { SubjectSam = "carol", Decision = "revoke", Comment = "left team" } }, "10.0.0.9");
         Assert.Equal(AttestationSubmitOutcome.Ok, submit.Outcome);
         Assert.Equal("submitted", submit.View!.State);
         Assert.Single(submit.View.Decisions);
         Assert.Equal("revoke", submit.View.Decisions[0].Decision);
 
+        // submitted_by is the authenticated caller (recorded from the SSO identity).
+        await using (var conn = new NpgsqlConnection(Db.ConnectionString))
+        {
+            await conn.OpenAsync();
+            var sam = await conn.QuerySingleAsync<string>(
+                "SELECT submitted_by_sam FROM auditing.attestation_packets WHERE packet_id=@id", new { id = alicePid });
+            Assert.Equal("alice", sam);
+        }
+
         // Re-submitting the same packet now conflicts with the read-only view.
-        var again = await aud.SubmitAttestationAsync(aliceToken,
+        var again = await aud.SubmitAttestationAsync(alicePid, "alice",
             new List<AttestationDecisionInput> { new() { SubjectSam = "carol", Decision = "keep" } }, null);
         Assert.Equal(AttestationSubmitOutcome.Conflict, again.Outcome);
+    }
+
+    [DockerFact]
+    public async Task Attestation_refuses_a_caller_who_is_not_the_recipient()
+    {
+        await Reset(); await SeedAd();
+        var app = await NewApp("Forbidden App", "line_manager", "paul");
+        var result = await Camp().LaunchAsync(new CampaignLaunchRequest { ApplicationId = app.ApplicationId, Name = "forbidden review" }, "tester");
+        var alicePid = PacketIdFrom(result.Packets.Single(p => p.RecipientSam == "alice"));
+        var aud = Aud();
+
+        // Bob is authenticated, but the packet is addressed to alice -> 403 on read and submit.
+        Assert.Equal(AttestationGetOutcome.Forbidden, (await aud.GetAttestationAsync(alicePid, "bob")).Outcome);
+        var submit = await aud.SubmitAttestationAsync(alicePid, "bob",
+            new List<AttestationDecisionInput> { new() { SubjectSam = "carol", Decision = "keep" } }, null);
+        Assert.Equal(AttestationSubmitOutcome.Forbidden, submit.Outcome);
+
+        // The identity match is case-insensitive (AD sAMAccountName casing isn't guaranteed).
+        Assert.Equal(AttestationGetOutcome.Ok, (await aud.GetAttestationAsync(alicePid, "ALICE")).Outcome);
     }
 
     [DockerFact]
@@ -209,7 +263,7 @@ public class CampaignServiceTests : IntegrationTestBase
 
         // Submit paul's packet (alice, bob, zara) -> campaign still active (alice pending).
         var paul = result.Packets.Single(p => p.RecipientSam == "paul");
-        await aud.SubmitAttestationAsync(TokenFrom(paul),
+        await aud.SubmitAttestationAsync(PacketIdFrom(paul), "paul",
             new List<AttestationDecisionInput> {
                 new() { SubjectSam = "alice", Decision = "keep" },
                 new() { SubjectSam = "bob", Decision = "keep" },
@@ -219,7 +273,7 @@ public class CampaignServiceTests : IntegrationTestBase
 
         // Submit alice's packet (carol) -> last one in -> campaign auto-closes.
         var alice = result.Packets.Single(p => p.RecipientSam == "alice");
-        await aud.SubmitAttestationAsync(TokenFrom(alice),
+        await aud.SubmitAttestationAsync(PacketIdFrom(alice), "alice",
             new List<AttestationDecisionInput> { new() { SubjectSam = "carol", Decision = "keep" } }, null);
         Assert.Equal("closed", await Status());
     }
@@ -234,48 +288,49 @@ public class CampaignServiceTests : IntegrationTestBase
         await aud.AddNomineeAsync(app.ApplicationId, new NomineeCreateRequest { NomineeSam = "bob", NomineeDisplayName = "Bob" }, "tester");
 
         var result = await Camp().LaunchAsync(new CampaignLaunchRequest { ApplicationId = app.ApplicationId, Name = "nominee close" }, "tester");
-        var paulToken = TokenFrom(result.Packets.Single(p => p.RecipientSam == "paul"));
-        var bobToken = TokenFrom(result.Packets.Single(p => p.RecipientSam == "bob"));
+        var paulPid = PacketIdFrom(result.Packets.Single(p => p.RecipientSam == "paul"));
+        var bobPid = PacketIdFrom(result.Packets.Single(p => p.RecipientSam == "bob"));
 
         var roster = new[] { "alice", "bob", "carol", "zara" };
         var decisions = roster.Select(s => new AttestationDecisionInput { SubjectSam = s, Decision = "keep" }).ToList();
 
-        var submit = await aud.SubmitAttestationAsync(paulToken, decisions, null);
+        var submit = await aud.SubmitAttestationAsync(paulPid, "paul", decisions, null);
         Assert.Equal(AttestationSubmitOutcome.Ok, submit.Outcome);
 
-        // Bob's token still resolves, but now shows the read-only closed-by-other view.
-        var bobView = await aud.GetAttestationAsync(bobToken);
-        Assert.NotNull(bobView);
-        Assert.Equal("closed_by_other", bobView!.State);
-        Assert.Equal("Paul", bobView.SubmittedByDisplay);
-        Assert.Equal(4, bobView.Decisions.Count);
+        // Bob's packet still resolves for bob, but now shows the read-only closed-by-other view.
+        var bobView = await aud.GetAttestationAsync(bobPid, "bob");
+        Assert.Equal(AttestationGetOutcome.Ok, bobView.Outcome);
+        Assert.Equal("closed_by_other", bobView.View!.State);
+        Assert.Equal("Paul", bobView.View.SubmittedByDisplay);
+        Assert.Equal(4, bobView.View.Decisions.Count);
 
         // And a submit attempt on bob's packet conflicts.
-        var bobSubmit = await aud.SubmitAttestationAsync(bobToken, decisions, null);
+        var bobSubmit = await aud.SubmitAttestationAsync(bobPid, "bob", decisions, null);
         Assert.Equal(AttestationSubmitOutcome.Conflict, bobSubmit.Outcome);
     }
 
     [DockerFact]
-    public async Task Attestation_rejects_unknown_token_and_validates_decisions()
+    public async Task Attestation_rejects_unknown_packet_and_validates_decisions()
     {
         await Reset(); await SeedAd();
         var app = await NewApp("Validate App", "line_manager", "paul");
         var result = await Camp().LaunchAsync(new CampaignLaunchRequest { ApplicationId = app.ApplicationId, Name = "validate" }, "tester");
         var aud = Aud();
 
-        // Garbage token -> not found.
-        Assert.Null(await aud.GetAttestationAsync("not-a-real-token"));
-        var bad = await aud.SubmitAttestationAsync("not-a-real-token", new List<AttestationDecisionInput>(), null);
+        // Unknown packet id -> not found.
+        var unknown = System.Guid.NewGuid();
+        Assert.Equal(AttestationGetOutcome.NotFound, (await aud.GetAttestationAsync(unknown, "paul")).Outcome);
+        var bad = await aud.SubmitAttestationAsync(unknown, "paul", new List<AttestationDecisionInput>(), null);
         Assert.Equal(AttestationSubmitOutcome.NotFound, bad.Outcome);
 
         // Missing a decision for a subject -> bad request.
-        var aliceToken = TokenFrom(result.Packets.Single(p => p.RecipientSam == "paul")); // 3 subjects
-        var partial = await aud.SubmitAttestationAsync(aliceToken,
+        var paulPid = PacketIdFrom(result.Packets.Single(p => p.RecipientSam == "paul")); // 3 subjects
+        var partial = await aud.SubmitAttestationAsync(paulPid, "paul",
             new List<AttestationDecisionInput> { new() { SubjectSam = "alice", Decision = "keep" } }, null);
         Assert.Equal(AttestationSubmitOutcome.BadRequest, partial.Outcome);
 
         // A decision for a subject not in the packet -> bad request.
-        var stranger = await aud.SubmitAttestationAsync(aliceToken,
+        var stranger = await aud.SubmitAttestationAsync(paulPid, "paul",
             new List<AttestationDecisionInput> {
                 new() { SubjectSam = "alice", Decision = "keep" },
                 new() { SubjectSam = "bob", Decision = "keep" },
@@ -314,8 +369,8 @@ public class CampaignServiceTests : IntegrationTestBase
 
         // Submit alice's packet (subject carol) so only paul's packet stays pending.
         var aud = Aud();
-        var aliceToken = TokenFrom(result.Packets.Single(p => p.RecipientSam == "alice"));
-        await aud.SubmitAttestationAsync(aliceToken, new List<AttestationDecisionInput> { new() { SubjectSam = "carol", Decision = "keep" } }, null);
+        var alicePid = PacketIdFrom(result.Packets.Single(p => p.RecipientSam == "alice"));
+        await aud.SubmitAttestationAsync(alicePid, "alice", new List<AttestationDecisionInput> { new() { SubjectSam = "carol", Decision = "keep" } }, null);
 
         var sent = await camp.RemindAsync(result.CampaignId, "tester");
         Assert.Equal(1, sent);

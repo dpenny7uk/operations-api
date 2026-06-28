@@ -24,6 +24,12 @@ public sealed class EmailResult
 public interface IEmailService
 {
     Task<EmailResult> SendAsync(EmailRequest req, CancellationToken ct = default);
+
+    /// <summary>Send many messages over a SINGLE SMTP connection (one connect for the
+    /// whole batch). Results are positional, one per request; a per-message failure
+    /// doesn't abort the rest. Used by campaign launch/reminders so a 30-recipient
+    /// campaign is one connection, not 30.</summary>
+    Task<IReadOnlyList<EmailResult>> SendBatchAsync(IReadOnlyList<EmailRequest> reqs, CancellationToken ct = default);
 }
 
 /// <summary>
@@ -51,35 +57,83 @@ public sealed class SmtpEmailService : IEmailService
     }
 
     public async Task<EmailResult> SendAsync(EmailRequest req, CancellationToken ct = default)
-    {
-        if (string.IsNullOrWhiteSpace(_host) || string.IsNullOrWhiteSpace(_from))
-            return new EmailResult { Success = false, Response = "SMTP not configured (Smtp:Host / Smtp:From)." };
-        if (string.IsNullOrWhiteSpace(req.To))
-            return new EmailResult { Success = false, Response = "No recipient address." };
+        => (await SendBatchAsync(new[] { req }, ct))[0];
 
+    public async Task<IReadOnlyList<EmailResult>> SendBatchAsync(IReadOnlyList<EmailRequest> reqs, CancellationToken ct = default)
+    {
+        var results = new EmailResult[reqs.Count];
+
+        if (string.IsNullOrWhiteSpace(_host) || string.IsNullOrWhiteSpace(_from))
+        {
+            for (var i = 0; i < reqs.Count; i++)
+                results[i] = new EmailResult { Success = false, Response = "SMTP not configured (Smtp:Host / Smtp:From)." };
+            return results;
+        }
+
+        // Mark recipient-less requests up front; only open a connection if something
+        // is actually sendable (so a no-recipient batch never touches the network).
+        var anySendable = false;
+        for (var i = 0; i < reqs.Count; i++)
+        {
+            if (string.IsNullOrWhiteSpace(reqs[i].To))
+                results[i] = new EmailResult { Success = false, Response = "No recipient address." };
+            else
+                anySendable = true;
+        }
+        if (!anySendable) return results;
+
+        var client = new SmtpClient { Timeout = 15000 };
         try
         {
-            var msg = new MimeMessage();
-            msg.From.Add(MailboxAddress.Parse(_from));
-            msg.To.Add(MailboxAddress.Parse(req.To));
-            if (!string.IsNullOrWhiteSpace(req.Cc)) msg.Cc.Add(MailboxAddress.Parse(req.Cc));
-            msg.Subject = req.Subject;
-            var body = new BodyBuilder { TextBody = req.TextBody };
-            if (!string.IsNullOrWhiteSpace(req.HtmlBody)) body.HtmlBody = req.HtmlBody;
-            msg.Body = body.ToMessageBody();
-
-            using var client = new SmtpClient { Timeout = 15000 };
             var tls = _useStartTls ? SecureSocketOptions.StartTls : SecureSocketOptions.None;
             await client.ConnectAsync(_host, _port, tls, ct);
-            var response = await client.SendAsync(msg, ct);
-            await client.DisconnectAsync(true, ct);
-            return new EmailResult { Success = true, Response = Trunc(response) };
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "SMTP send to {To} failed", req.To);
-            return new EmailResult { Success = false, Response = Trunc(ex.Message) };
+            _logger.LogWarning(ex, "SMTP connect to {Host}:{Port} failed", _host, _port);
+            client.Dispose();
+            var msg = Trunc(ex.Message);
+            for (var i = 0; i < reqs.Count; i++)
+                results[i] ??= new EmailResult { Success = false, Response = msg };
+            return results;
         }
+
+        try
+        {
+            for (var i = 0; i < reqs.Count; i++)
+            {
+                if (results[i] != null) continue; // recipient-less, already marked
+                try
+                {
+                    var response = await client.SendAsync(BuildMime(reqs[i]), ct);
+                    results[i] = new EmailResult { Success = true, Response = Trunc(response) };
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "SMTP send to {To} failed", reqs[i].To);
+                    results[i] = new EmailResult { Success = false, Response = Trunc(ex.Message) };
+                }
+            }
+        }
+        finally
+        {
+            try { if (client.IsConnected) await client.DisconnectAsync(true, ct); } catch { /* best effort */ }
+            client.Dispose();
+        }
+        return results;
+    }
+
+    private MimeMessage BuildMime(EmailRequest req)
+    {
+        var msg = new MimeMessage();
+        msg.From.Add(MailboxAddress.Parse(_from));
+        msg.To.Add(MailboxAddress.Parse(req.To));
+        if (!string.IsNullOrWhiteSpace(req.Cc)) msg.Cc.Add(MailboxAddress.Parse(req.Cc));
+        msg.Subject = req.Subject;
+        var body = new BodyBuilder { TextBody = req.TextBody };
+        if (!string.IsNullOrWhiteSpace(req.HtmlBody)) body.HtmlBody = req.HtmlBody;
+        msg.Body = body.ToMessageBody();
+        return msg;
     }
 
     private static string? Trunc(string? s) => string.IsNullOrEmpty(s) || s.Length <= 1000 ? s : s[..1000];

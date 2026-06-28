@@ -4269,6 +4269,15 @@
     if (isNaN(d.getTime())) return s;
     return d.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});
   }
+  // Small "N of M responses in" progress widget (bar + count) for campaign rows/detail.
+  function _auditProgress(submitted, total) {
+    const pct = total > 0 ? Math.round((submitted / total) * 100) : 0;
+    return h('div.aud-progress-wrap', null,
+      h('div.aud-progress', { title: submitted + ' of ' + total + ' responses in' },
+        h('span.fill', { style:{ width: pct + '%' } })),
+      h('span.aud-progress-label', null, submitted + ' of ' + total),
+    );
+  }
   function _shortGroup(dn) {
     const m = /^CN=([^,]+)/i.exec(dn || '');
     return m ? m[1] : (dn || '');
@@ -4363,7 +4372,7 @@
     const grid1 = h('div', { style:{display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(220px, 1fr))',gap:'12px'} });
     grid1.appendChild(h('label', { style: fieldStyle },
       h('span', { style: labelStyle }, 'Application name *'),
-      h('input', { 'data-fk':'aud-newapp-name', type:'text', style: inputStyle, value: formState.name, placeholder:'e.g. Confluence Data Center',
+      h('input', { 'data-fk':'aud-newapp-name', type:'text', style: inputStyle, value: formState.name,
         on:{input:(e)=>{ formState.name = e.target.value; }}}),
     ));
     // Business + technical owner: live AD user search (demo fixture fallback).
@@ -4545,7 +4554,7 @@
       on:{click:()=>{ aState.tab = 'campaigns'; aState.selectedCampaignId = null; window.RERENDER_PAGE(mount); }},
     },
       h('div.cs-label', null, 'Reminders due this week'),
-      h('div.cs-value', null, String(c.remindersDue), h('span.cs-unit', null, c.remindersDue === 1 ? 'packet' : 'packets')),
+      h('div.cs-value', null, String(c.remindersDue), h('span.cs-unit', null, c.remindersDue === 1 ? 'reminder' : 'reminders')),
       h('div.cs-sub', null, c.remindersDue > 0
         ? 'Will fire on the next daily tick'
         : 'No reminders queued this week'),
@@ -4558,20 +4567,20 @@
     },
       h('div.cs-label', null, 'Active campaigns'),
       h('div.cs-value', null, String(c.activeCampaigns), h('span.cs-unit', null, 'in flight')),
-      h('div.cs-sub', null, c.activeCampaigns > 0 ? 'Awaiting recipient submissions' : 'No campaigns running'),
+      h('div.cs-sub', null, c.activeCampaigns > 0 ? 'Reviewers still responding' : 'No campaigns running'),
       c.activeCampaigns > 0 ? h('div.cs-link', null, 'Open campaigns tab') : null,
     ));
 
-    // Pending packets
+    // Awaiting responses
     strip.appendChild(h('div.cs-cell.' + (c.pendingPackets > 0 ? 'warn' : 'info'), {
       on:{click:()=>{ aState.tab = 'campaigns'; aState.selectedCampaignId = null; window.RERENDER_PAGE(mount); }},
     },
-      h('div.cs-label', null, 'Pending packets'),
-      h('div.cs-value', null, String(c.pendingPackets), h('span.cs-unit', null, 'unsubmitted')),
+      h('div.cs-label', null, 'Awaiting responses'),
+      h('div.cs-value', null, String(c.pendingPackets), h('span.cs-unit', null, 'yet to respond')),
       h('div.cs-sub', null, c.pendingPackets > 0
         ? 'Across all in-flight campaigns'
-        : 'Every recipient has responded'),
-      c.pendingPackets > 0 ? h('div.cs-link', null, 'See recipients') : null,
+        : 'Everyone has responded'),
+      c.pendingPackets > 0 ? h('div.cs-link', null, 'See who') : null,
     ));
 
     // Healthy
@@ -4915,11 +4924,13 @@
       : (canLive && searchState._err) ? 'AD search unavailable - demo / type a DN'
       : canLive ? 'live AD search' : 'demo fixture';
 
+    const labelStyle = { fontFamily:'var(--mono)',fontSize:'10px',letterSpacing:'.1em',textTransform:'uppercase',color:'var(--ink-3)' };
     const wrap = h('div', { style:{display:'flex',flexDirection:'column',gap:'4px'} });
+    wrap.appendChild(h('span', { style: labelStyle }, 'Search AD group name'));
 
     wrap.appendChild(h('div', { style:{display:'flex',gap:'8px',alignItems:'center'} },
       h('input', {
-        type:'text', 'data-fk': fk || 'aud-grp-search', placeholder:'Search AD group name (e.g. APP-Tableau)',
+        type:'text', 'data-fk': fk || 'aud-grp-search',
         style: Object.assign({}, inputStyle, { flex:'1' }),
         value: searchState.q || '',
         on:{input:(e)=>{
@@ -5095,8 +5106,8 @@
       panel.appendChild(h('div', { style:{fontFamily:'var(--mono)',fontSize:'12px',color:'var(--ink-2)',lineHeight:'1.55'} },
         h('b', { style:{color:'var(--ink)'} }, String(totalSubjects)), ' subject' + (totalSubjects === 1 ? '' : 's'),
         ' across ', h('b', { style:{color:'var(--ink)'} }, String(app.bindings.length)), ' bound group' + (app.bindings.length === 1 ? '' : 's'),
-        ' → ', h('b', { style:{color:'var(--ink)'} }, String(realManagers)), ' manager packet' + (realManagers === 1 ? '' : 's'),
-        fallbackBucket ? h('span', { style:{color:'var(--warn)'} }, ' + 1 fallback packet (subjects with no manager_sam)') : null,
+        ' → ', h('b', { style:{color:'var(--ink)'} }, String(realManagers)), ' manager request' + (realManagers === 1 ? '' : 's'),
+        fallbackBucket ? h('span', { style:{color:'var(--warn)'} }, ' + 1 fallback request (subjects with no manager)') : null,
       ));
 
       const list = h('div', { style:{display:'flex',flexDirection:'column',gap:'4px'} });
@@ -5116,7 +5127,7 @@
 
       panel.appendChild(h('div', { style:{fontFamily:'var(--mono)',fontSize:'11px',color:'var(--ink-3)',lineHeight:'1.55',borderTop:'1px solid var(--rule)',paddingTop:'10px'} },
         'On launch, each manager receives one email listing only their direct reports in this app. ',
-        'Phase 1: subject lookup runs at launch time so the packets snapshot exactly who was in scope.',
+        'The subject list is captured at launch time, so each request snapshots exactly who was in scope.',
       ));
     } else if (isNominees) {
       const nominees = D.getNomineesOfApp(app.application_id);
@@ -5124,7 +5135,7 @@
       panel.appendChild(h('div', { style:{fontFamily:'var(--mono)',fontSize:'12px',color:'var(--ink-2)',lineHeight:'1.55'} },
         h('b', { style:{color:'var(--ink)'} }, String(nominees.length)), ' nominee' + (nominees.length === 1 ? '' : 's'),
         ' configured · ', h('b', { style:{color: enabledCount === nominees.length ? 'var(--ink)' : 'var(--warn)'} }, String(enabledCount)), ' enabled.',
-        ' ANY one nominee submission closes the campaign.',
+        ' ANY one nominee response closes the campaign.',
       ));
 
       const list = h('div', { style:{display:'flex',flexDirection:'column',gap:'6px'} });
@@ -5356,7 +5367,7 @@
                 h('b', { style:{color:'var(--crit)'} }, String(summary.revoke)), ' revoked')
             : '—')
         : c.status === 'active'
-        ? h('span', { style:{fontFamily:'var(--mono)',fontSize:'11.5px',color:'var(--ink-3)'} }, prog.submitted + ' / ' + prog.total + ' submitted')
+        ? h('span', { style:{fontFamily:'var(--mono)',fontSize:'11.5px',color:'var(--ink-3)'} }, prog.submitted + ' of ' + prog.total + ' responses in')
         : '—';
       tb.appendChild(h('tr', {
         on:{click:()=>{ aState.tab='campaigns'; aState.selectedAppId=null; aState.selectedCampaignId=c.campaign_id; window.RERENDER_PAGE(mount); }},
@@ -5410,7 +5421,7 @@
         h('td', null, c.application_name),
         h('td', null, statusBadge),
         h('td.mono.muted', null, _fmtDate(c.due_at)),
-        h('td.mono', null, prog.submitted + ' / ' + prog.total + ' submitted'),
+        h('td', null, _auditProgress(prog.submitted, prog.total)),
         h('td.mono.muted', null, _fmtDate(c.created_at) + ' by ' + c.created_by),
         h('td', null, h('span', { style:{color:'var(--ink-3)',fontFamily:'var(--mono)',fontSize:'11px'} }, 'View →')),
       ));
@@ -5451,7 +5462,7 @@
         ? h('button', {
             style:{padding:'6px 12px',background:'transparent',border:'1px solid var(--rule)',color:'var(--ink-3)',cursor:'pointer',fontFamily:'var(--mono)',fontSize:'10.5px',letterSpacing:'.06em',textTransform:'uppercase'},
             on:{click:()=>{
-              if (!confirm('Close "' + c.name + '" now? Recipients who have not yet submitted will no longer be able to.')) return;
+              if (!confirm('Close "' + c.name + '" now? Reviewers who have not yet responded will no longer be able to.')) return;
               const A = window.OC_ACTIONS;
               if (A && A.closeAuditCampaign) { A.closeAuditCampaign(c.campaign_id); }
               else { alert('Closing needs the API.'); }
@@ -5477,40 +5488,39 @@
       if (closingPkt) {
         wrap.appendChild(h('div', { style:{padding:'12px 16px',border:'1px solid var(--ok)',background:'var(--ok-wash)',fontFamily:'var(--mono)',fontSize:'12px',color:'var(--ink)'} },
           'Closed by ', h('b', null, closingPkt.submitted_by_display),
-          ' on ', _fmtDateTime(closingPkt.submitted_at), '. Other nominees\' tokens still resolve but show a read-only banner with these decisions.'));
+          ' on ', _fmtDateTime(closingPkt.submitted_at), '. Other nominees\' links still open but show a read-only banner with these decisions.'));
       }
     }
 
-    // Active line_manager mode: show "waiting on N managers" so the closure
-    // rule is visible — campaign won't close until every packet is in.
+    // Active line_manager mode: show "still to respond" so the closure rule is
+    // visible — the review won't close until every reviewer has responded.
     if (c.status === 'active' && c.closure_mode === 'all_packets') {
       const allPackets = D.getPacketsOfCampaign(c.campaign_id);
       const pending = allPackets.filter(p => !p.submitted_at);
       const submitted = allPackets.length - pending.length;
-      wrap.appendChild(h('div', { style:{padding:'12px 16px',border:'1px solid var(--warn)',background:'var(--warn-wash)',fontFamily:'var(--mono)',fontSize:'12px',color:'var(--ink)',display:'flex',flexDirection:'column',gap:'4px'} },
-        h('div', null,
-          h('b', null, String(submitted) + ' / ' + allPackets.length),
-          ' packets submitted. Campaign closes only when every line manager has responded.'),
+      wrap.appendChild(h('div', { style:{padding:'12px 16px',border:'1px solid var(--warn)',background:'var(--warn-wash)',fontFamily:'var(--mono)',fontSize:'12px',color:'var(--ink)',display:'flex',flexDirection:'column',gap:'8px'} },
+        _auditProgress(submitted, allPackets.length),
+        h('div', null, 'The review closes once every line manager has responded.'),
         pending.length
           ? h('div', { style:{color:'var(--ink-2)'} },
-              'Waiting on: ',
+              'Still to respond: ',
               h('b', null, pending.map(p => p.recipient_display).join(', ')))
-          : h('div', { style:{color:'var(--ok)'} }, 'All packets in — campaign should be auto-closing on the next tick.'),
+          : h('div', { style:{color:'var(--ok)'} }, 'All responses in — the review will close automatically.'),
       ));
     }
 
     const tblWrap = h('div.table-wrap');
     const tbl = h('table.op');
     tbl.appendChild(h('thead', null, h('tr', null,
-      h('th', null, 'Recipient'),
-      h('th', null, 'Kind'),
+      h('th', null, 'Reviewer'),
+      h('th', null, 'Role'),
       h('th.num', null, 'Subjects'),
       h('th', null, 'Status'),
-      h('th', null, 'Submitted by'),
-      h('th', null, 'Submitted at'),
+      h('th', null, 'Responded by'),
+      h('th', null, 'Responded at'),
       h('th.num', null, 'Decisions'),
       h('th', null, 'Reminder'),
-      h('th', null, 'Token'),
+      h('th', null, 'Link'),
     )));
     const tb = h('tbody');
     const packets = D.getPacketsOfCampaign(c.campaign_id);
@@ -5528,18 +5538,18 @@
           : h('span.chip.neutral', null, 'Manager')),
         h('td.num', null, String((p.subjects || []).length)),
         h('td', null, submitted
-          ? h('span.chip.ok', null, h('span.dot'), 'Submitted')
+          ? h('span.chip.ok', null, h('span.dot'), 'Responded')
           : isClosedByOther
-          ? h('span.chip.neutral', null, 'Closed by other')
-          : h('span.chip.warn', null, h('span.dot'), 'Pending')),
+          ? h('span.chip.neutral', null, 'Done by another')
+          : h('span.chip.warn', null, h('span.dot'), 'Awaiting')),
         h('td.muted', null, p.submitted_by_display || '—'),
         h('td.mono.muted', null, _fmtDateTime(p.submitted_at)),
         h('td.num', null, submitted ? (summary.keep + ' keep / ' + summary.revoke + ' revoke') : '—'),
         h('td.mono.muted', null, p.reminder_sent_at ? _fmtDate(p.reminder_sent_at) : (c.status === 'active' ? 'Not yet' : '—')),
-        h('td', null, p.token
-          ? h('a', { href:'/attest.html?t=' + encodeURIComponent(p.token), target:'_blank', rel:'noopener',
+        h('td', null, p.packet_id
+          ? h('a', { href:'/attest.html?p=' + encodeURIComponent(p.packet_id), target:'_blank', rel:'noopener',
               style:{fontFamily:'var(--mono)',fontSize:'11px',color:'var(--ink-2)'} }, 'Open link ↗')
-          : h('span', { style:{fontFamily:'var(--mono)',fontSize:'10.5px',color:'var(--ink-3)'} }, 'sent at launch')),
+          : h('span', { style:{fontFamily:'var(--mono)',fontSize:'10.5px',color:'var(--ink-3)'} }, '—')),
       ));
     }
     tbl.appendChild(tb);
@@ -5670,8 +5680,8 @@
         canLaunch = keys.length > 0 && (!fallbackKey || !!app.business_owner);
         preview.appendChild(h('div', { style:{fontFamily:'var(--mono)',fontSize:'11.5px',color:'var(--ink-2)'} },
           h('b', { style:{color:'var(--ink)'} }, String(totalSubjects)), ' subject' + (totalSubjects === 1 ? '' : 's'),
-          ' → ', h('b', { style:{color:'var(--ink)'} }, String(realMgrs.length)), ' manager packet' + (realMgrs.length === 1 ? '' : 's'),
-          fallbackKey ? h('span', { style:{color:'var(--warn)'} }, ' + 1 fallback packet (business_owner)') : null,
+          ' → ', h('b', { style:{color:'var(--ink)'} }, String(realMgrs.length)), ' manager request' + (realMgrs.length === 1 ? '' : 's'),
+          fallbackKey ? h('span', { style:{color:'var(--warn)'} }, ' + 1 fallback request (business owner)') : null,
         ));
         const list = h('div', { style:{display:'flex',flexDirection:'column',gap:'4px',marginTop:'4px'} });
         keys.forEach(k => {
@@ -5690,7 +5700,7 @@
         const roster = D.getAppRoster(app.application_id);
         canLaunch = enabled.length > 0;
         preview.appendChild(h('div', { style:{fontFamily:'var(--mono)',fontSize:'11.5px',color:'var(--ink-2)'} },
-          h('b', { style:{color:'var(--ink)'} }, String(enabled.length)), ' nominee packet' + (enabled.length === 1 ? '' : 's'),
+          h('b', { style:{color:'var(--ink)'} }, String(enabled.length)), ' nominee request' + (enabled.length === 1 ? '' : 's'),
           ' · each with full roster of ', h('b', { style:{color:'var(--ink)'} }, String(roster.length)), ' subjects',
         ));
         if (!enabled.length) {
@@ -5729,10 +5739,10 @@
       const lp = h('div', { style:{border:'1px solid var(--ok)',background:'var(--ok-wash)',padding:'16px 18px',display:'flex',flexDirection:'column',gap:'10px',marginTop:'4px'} });
       lp.appendChild(h('div', { style:{display:'flex',alignItems:'center',gap:'10px'} },
         h('span', { style:{fontFamily:'var(--mono)',fontSize:'11px',letterSpacing:'.1em',textTransform:'uppercase',color:'var(--ok)',fontWeight:'600'} }, 'Campaign launched'),
-        h('span', { style:{fontFamily:'var(--mono)',fontSize:'11.5px',color:'var(--ink-2)'} }, (result.packets || []).length + ' packet(s) created'),
+        h('span', { style:{fontFamily:'var(--mono)',fontSize:'11.5px',color:'var(--ink-2)'} }, (result.packets || []).length + ' review request' + ((result.packets || []).length === 1 ? '' : 's') + ' sent'),
       ));
       lp.appendChild(h('div', { style:{fontFamily:'var(--mono)',fontSize:'11px',color:'var(--ink-2)',lineHeight:'1.5'} },
-        'These signed attestation links are shown ONCE (email delivery lands in a later slice). Copy and send each to its recipient:'));
+        'Each reviewer has been emailed their attestation link. You can also copy a link below to share it directly (the recipient signs in to confirm it is them):'));
       (result.packets || []).forEach(p => {
         lp.appendChild(h('div', { style:{display:'flex',flexDirection:'column',gap:'2px',padding:'8px 10px',background:'var(--card)',border:'1px solid var(--rule)'} },
           h('div', { style:{fontFamily:'var(--mono)',fontSize:'11.5px'} },

@@ -100,6 +100,21 @@
 }
 .kpi .microbar span { display: block; height: 100%; }
 
+/* Auditing campaign progress: a small "N of M responses in" bar + label.
+   Mirrors the .microbar / .env-row .bar idiom but isn't parent-scoped so it can
+   sit in a table cell or an inline banner. */
+.aud-progress-wrap { display: flex; align-items: center; gap: 8px; }
+.aud-progress {
+  flex: 0 1 160px;
+  min-width: 64px;
+  height: 8px;
+  border-radius: var(--r-sm);
+  background: var(--paper-2);
+  overflow: hidden;
+}
+.aud-progress .fill { display: block; height: 100%; background: var(--ok); transition: width var(--t); }
+.aud-progress-label { font-family: var(--mono); font-size: 11px; color: var(--ink-2); white-space: nowrap; }
+
 /* ── TABLES ─────────────────────────────────────────── */
 .table-wrap {
   border: 1px solid var(--rule);

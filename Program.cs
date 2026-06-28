@@ -103,21 +103,6 @@ builder.Services.AddScoped<ILicensingService, LicensingService>();
 builder.Services.AddScoped<IAuditingService, AuditingService>();
 builder.Services.AddScoped<ICampaignService, CampaignService>();
 
-// Attestation token signing (HMAC). Key from config (env var in prod); a fixed
-// dev placeholder keeps local development working without secrets configured.
-// A missing key in prod is logged loudly but does NOT take the app (or the
-// auditing read endpoints) down — only launch + attestation need it, and they
-// fail clearly until it's set.
-builder.Services.AddSingleton<IAttestationTokenService>(_ =>
-{
-    var key = config["Auditing:SigningKey"];
-    if (string.IsNullOrEmpty(key) && builder.Environment.IsDevelopment())
-        key = "dev-insecure-attestation-signing-key-change-me";
-    if (string.IsNullOrEmpty(key))
-        Log.Warning("Auditing:SigningKey is not configured. Campaign launch and attestation links are disabled until Auditing__SigningKey is set (32+ bytes); the rest of the auditing surface is unaffected.");
-    return new AttestationTokenService(key);
-});
-
 // SMTP transport for auditing attestation emails (internal relay; see Smtp config).
 builder.Services.AddSingleton<IEmailService, SmtpEmailService>();
 

@@ -455,11 +455,11 @@ function applyLicensing(items) {
 //
 // appDetails/campDetails are the per-id detail responses (the list endpoints
 // don't embed bindings/nominees/packets), fetched in parallel by the caller.
-function applyAuditing(appDetails, campDetails) {
-  const D = window.AUDITING_DATA;
-  if (!D || !Array.isArray(D.APPLICATIONS)) return;
-
-  const apps = (appDetails || []).filter(Boolean).map(a => ({
+// Reshape one API app-detail into the demo-fixture shape the SPA reads. The id
+// maps let the OC_ACTIONS write helpers resolve binding_id/nominee_id (the UI
+// works in DNs/sams).
+function _shapeAuditApp(a) {
+  return {
     application_id: a.application_id,
     name: a.name,
     business_owner: a.business_owner || '',
@@ -471,10 +471,27 @@ function applyAuditing(appDetails, campDetails) {
     audit_routing_mode: a.audit_routing_mode || 'line_manager',
     audit_due_period_days: a.audit_due_period_days || 21,
     nominees: (a.nominees || []).map(n => ({ nominee_sam: n.nominee_sam, role_note: n.role_note || '' })),
-    // id maps used by the OC_ACTIONS write helpers (the UI works in DNs/sams).
     _bindingIds: Object.fromEntries((a.bindings || []).map(b => [b.group_dn, b.binding_id])),
     _nomineeIds: Object.fromEntries((a.nominees || []).map(n => [n.nominee_sam, n.nominee_id])),
-  }));
+  };
+}
+
+// Replace (or insert) a single app in the live AUDITING_DATA — used for the
+// targeted refresh after an app/binding/nominee write so we don't reload the
+// whole auditing dataset each time.
+function applyAuditingApp(detail) {
+  const D = window.AUDITING_DATA;
+  if (!D || !Array.isArray(D.APPLICATIONS) || !detail) return;
+  const shaped = _shapeAuditApp(detail);
+  const i = D.APPLICATIONS.findIndex(a => a.application_id === shaped.application_id);
+  if (i >= 0) D.APPLICATIONS[i] = shaped; else D.APPLICATIONS.push(shaped);
+}
+
+function applyAuditing(appDetails, campDetails) {
+  const D = window.AUDITING_DATA;
+  if (!D || !Array.isArray(D.APPLICATIONS)) return;
+
+  const apps = (appDetails || []).filter(Boolean).map(_shapeAuditApp);
 
   const campaigns = [], packets = [], decisions = [], emailLog = [];
   (campDetails || []).filter(Boolean).forEach(c => {
@@ -504,8 +521,7 @@ function applyAuditing(appDetails, campDetails) {
       recipient_kind: p.recipient_kind,
       role_note: p.role_note || '',
       subjects: (p.subjects || []).map(s => s.subject_sam),
-      token: '', // raw token isn't exposed on dashboards; attestation links land in Slice 2
-      token_expires_at: p.token_expires_at || null,
+      // attestation links are SSO-gated and built from packet_id (attest.html?p=<packet_id>).
       submitted_at: p.submitted_at || null,
       submitted_by_sam: p.submitted_by_sam || null,
       submitted_by_display: p.submitted_by_display || null,
@@ -1278,7 +1294,7 @@ Object.assign(window.OC_ACTIONS, {
     const fail = (m) => { if (onError) onError(m); else alert(m); };
     const res = await apiPatch('/auditing/applications/' + id, fields);
     if (!res.ok) { fail('Could not update application (' + res.status + '): ' + (res.error || 'unknown error')); return; }
-    await refetchAuditing(); if (onDone) onDone();
+    await refetchAuditingApp(id); if (onDone) onDone();
   },
 
   deleteAuditApp: async (id, onDone) => {
@@ -1291,28 +1307,28 @@ Object.assign(window.OC_ACTIONS, {
     const fail = (m) => { if (onError) onError(m); else alert(m); };
     const res = await apiPost('/auditing/applications/' + id + '/bindings', body);
     if (!res.ok) { fail('Could not bind group (' + res.status + '): ' + (res.error || 'unknown error')); return; }
-    await refetchAuditing(); if (onDone) onDone();
+    await refetchAuditingApp(id); if (onDone) onDone();
   },
 
   removeAuditBinding: async (id, bindingId, onDone) => {
     if (!bindingId) { alert('Cannot remove binding: no id (demo mode?).'); return; }
     const res = await apiDelete('/auditing/applications/' + id + '/bindings/' + bindingId);
     if (!res.ok) { alert('Could not remove binding (' + res.status + '): ' + (res.error || 'unknown error')); return; }
-    await refetchAuditing(); if (onDone) onDone();
+    await refetchAuditingApp(id); if (onDone) onDone();
   },
 
   addAuditNominee: async (id, body, onDone, onError) => {
     const fail = (m) => { if (onError) onError(m); else alert(m); };
     const res = await apiPost('/auditing/applications/' + id + '/nominees', body);
     if (!res.ok) { fail('Could not add nominee (' + res.status + '): ' + (res.error || 'unknown error')); return; }
-    await refetchAuditing(); if (onDone) onDone();
+    await refetchAuditingApp(id); if (onDone) onDone();
   },
 
   removeAuditNominee: async (id, nomineeId, onDone) => {
     if (!nomineeId) { alert('Cannot remove nominee: no id (demo mode?).'); return; }
     const res = await apiDelete('/auditing/applications/' + id + '/nominees/' + nomineeId);
     if (!res.ok) { alert('Could not remove nominee (' + res.status + '): ' + (res.error || 'unknown error')); return; }
-    await refetchAuditing(); if (onDone) onDone();
+    await refetchAuditingApp(id); if (onDone) onDone();
   },
 
   // payload = { application_id, name, due_at? }. onDone(result) receives the launch
@@ -1341,13 +1357,27 @@ Object.assign(window.OC_ACTIONS, {
   },
 });
 
+function _rerenderAuditing() {
+  const m = mount();
+  if (window.RERENDER_PAGE && m) window.RERENDER_PAGE(m);
+  if (window.RERENDER_SHELL) window.RERENDER_SHELL();
+}
+
 async function refetchAuditing() {
   let ok = false;
   try { ok = await fetchAuditing(); } catch (_) { ok = false; }
   if (ok) clearDemo('auditing'); else markDemo('auditing');
-  const m = mount();
-  if (window.RERENDER_PAGE && m) window.RERENDER_PAGE(m);
-  if (window.RERENDER_SHELL) window.RERENDER_SHELL();
+  _rerenderAuditing();
+}
+
+// Targeted refresh of a single application after an in-place write (binding /
+// nominee / config patch). Avoids the full list + per-app/per-campaign detail
+// reload that refetchAuditing does — important when binding many groups in a row.
+async function refetchAuditingApp(appId) {
+  let detail = null;
+  try { detail = await api('/auditing/applications/' + appId); } catch (_) {}
+  if (detail) { clearDemo('auditing'); applyAuditingApp(detail); }
+  _rerenderAuditing();
 }
 
 function _rerenderLic() {

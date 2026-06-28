@@ -133,10 +133,10 @@ public interface IAuditingService
     // Detail hydrates packets (+ their subjects), all decisions, and the email log.
     Task<AuditCampaignDetail?> GetCampaignAsync(int id);
 
-    // ---- Public attestation (anonymous, token-gated) ----
-    // Returns null when the token is malformed / tampered / expired / revoked.
-    Task<AttestationView?> GetAttestationAsync(string rawToken);
-    Task<AttestationSubmitResult> SubmitAttestationAsync(string rawToken, List<AttestationDecisionInput> decisions, string? ip);
+    // ---- Attestation (SSO-gated: caller's Windows identity must equal the packet recipient) ----
+    // GetResult/SubmitResult carry a Forbidden outcome when the packet is addressed to someone else.
+    Task<AttestationGetResult> GetAttestationAsync(Guid packetId, string callerSam);
+    Task<AttestationSubmitResult> SubmitAttestationAsync(Guid packetId, string callerSam, List<AttestationDecisionInput> decisions, string? ip);
 }
 
 public interface ICampaignService

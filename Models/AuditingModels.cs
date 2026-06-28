@@ -249,7 +249,17 @@ public class AttestationSubmitResult
     public string? Error { get; set; }
 }
 
-public enum AttestationSubmitOutcome { Ok, NotFound, Conflict, BadRequest }
+public enum AttestationSubmitOutcome { Ok, NotFound, Conflict, BadRequest, Forbidden }
+
+/// <summary>Service result for loading an attestation view, mapped to a status code by the controller.
+/// Forbidden = the packet exists but is addressed to a different recipient than the caller.</summary>
+public class AttestationGetResult
+{
+    public AttestationGetOutcome Outcome { get; set; }
+    public AttestationView? View { get; set; }
+}
+
+public enum AttestationGetOutcome { Ok, NotFound, Forbidden }
 
 // ---- Campaign launch (Slice 3) ----
 

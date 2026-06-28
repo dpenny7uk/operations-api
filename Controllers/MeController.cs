@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using OperationsApi.Infrastructure;
 
 namespace OperationsApi.Controllers;
 
@@ -17,7 +18,7 @@ public class MeController : ControllerBase
     {
         var raw = User.Identity?.Name ?? "unknown";
         // Strip "DOMAIN\" prefix so the frontend gets just the username.
-        var username = raw.Contains('\\') ? raw.Split('\\', 2)[1] : raw;
+        var username = User.CurrentSam();
         return Ok(new { username, fullName = raw });
     }
 
@@ -33,7 +34,7 @@ public class MeController : ControllerBase
     {
         var adminRole = config.GetValue<string>("Authentication:AdminRole") ?? "";
         var raw = User.Identity?.Name ?? "unknown";
-        var username = raw.Contains('\\') ? raw.Split('\\', 2)[1] : raw;
+        var username = User.CurrentSam();
         var claims = User.Claims.Select(c => new
         {
             type = c.Type,

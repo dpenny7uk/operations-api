@@ -1,5 +1,6 @@
 using System.Data;
 using Dapper;
+using Npgsql;
 using OperationsApi.Infrastructure;
 using OperationsApi.Models;
 
@@ -7,30 +8,30 @@ namespace OperationsApi.Services;
 
 /// <summary>
 /// Campaign launch (Surface 09, Slices 3-4). Snapshots the app's routing config,
-/// builds the subject roster from the bound groups' membership, creates one
-/// signed-token packet per recipient (manager per line_manager group, or per
-/// nominee), emails each recipient their attestation link, and logs every send to
-/// auditing.email_log. The minted links are also returned once so an OpsAdmin can
-/// hand-deliver to any recipient without an email address.
+/// builds the subject roster from the bound groups' membership, creates one packet
+/// per recipient (manager per line_manager group, or per nominee), emails each
+/// recipient their attestation link, and logs every send to auditing.email_log.
+/// The link carries only the packet_id — the recipient authenticates via Windows
+/// SSO and the attestation API verifies their identity (no bearer token). The links
+/// are also returned once so an OpsAdmin can hand-deliver to a recipient.
 /// </summary>
 public class CampaignService : BaseService<CampaignService>, ICampaignService
 {
-    private readonly IAttestationTokenService _tokens;
     private readonly IEmailService _email;
     private readonly string _baseUrl;
     private readonly string _ccMailbox;
-    private readonly int _tokenTtlDays;
 
     public CampaignService(IDbConnection db, ILogger<CampaignService> logger,
-        IAttestationTokenService tokens, IEmailService email, IConfiguration config)
+        IEmailService email, IConfiguration config)
         : base(db, logger)
     {
-        _tokens = tokens;
         _email = email;
         _baseUrl = (config["Auditing:BaseUrl"] ?? "https://ops/").TrimEnd('/') + "/";
         _ccMailbox = config["Auditing:CcAuditMailbox"] ?? "";
-        _tokenTtlDays = int.TryParse(config["Auditing:TokenTtlDays"], out var t) ? t : 14;
     }
+
+    // The recipient's attestation link: SSO-gated, identifies the packet only.
+    private string AttestUrl(Guid packetId) => _baseUrl + "attest.html?p=" + packetId;
 
     private sealed class AppConfigRow
     {
@@ -86,6 +87,16 @@ public class CampaignService : BaseService<CampaignService>, ICampaignService
             new { Id = req.ApplicationId });
         if (app == null) throw new ConflictException("Application not found.");
 
+        // One open campaign per app: refuse if an active/draft campaign already
+        // exists (a partial unique index is the race-safe backstop). Prevents
+        // double-launch -> duplicate links/emails + a forked audit trail.
+        var openExists = await Db.ExecuteScalarAsync<bool>($@"
+            SELECT EXISTS (SELECT 1 FROM {Sql.Tables.AuditCampaigns}
+                           WHERE application_id = @Id AND status IN ('active', 'draft'))",
+            new { Id = req.ApplicationId });
+        if (openExists)
+            throw new ConflictException("This application already has an open campaign. Close it before launching another.");
+
         // Roster = deduped members across the app's active bindings, with AD attrs
         // (display/email/manager). Empty until the AD sync has populated membership.
         var roster = (await Db.QueryAsync<RosterMember>($@"
@@ -106,7 +117,6 @@ public class CampaignService : BaseService<CampaignService>, ICampaignService
         var dueAt = req.DueAt.HasValue
             ? DateTime.SpecifyKind(req.DueAt.Value.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc)
             : DateTime.SpecifyKind(DateTime.UtcNow.Date, DateTimeKind.Utc).AddDays(app.DuePeriodDays);
-        var tokenExpiry = new DateTimeOffset(dueAt, TimeSpan.Zero).AddDays(_tokenTtlDays);
 
         // ---- Build packet plans by routing mode ----
         var plans = new List<PacketPlan>();
@@ -173,15 +183,25 @@ public class CampaignService : BaseService<CampaignService>, ICampaignService
         if (Db.State != ConnectionState.Open) Db.Open();
         using var tx = Db.BeginTransaction();
 
-        var campaignId = await Db.ExecuteScalarAsync<int>($@"
-            INSERT INTO {Sql.Tables.AuditCampaigns}
-                (application_id, name, status, due_at, created_by, created_at, launch_kind,
-                 routing_mode, closure_mode, cc_audit_mailbox)
-            VALUES (@AppId, @Name, 'active', @DueAt, @Actor, NOW(), 'manual',
-                    @RoutingMode, @ClosureMode, @Cc)
-            RETURNING campaign_id",
-            new { AppId = req.ApplicationId, Name = req.Name.Trim(), DueAt = dueAt, Actor = actor,
-                  RoutingMode = app.RoutingMode, ClosureMode = closureMode, Cc = Cc() }, tx);
+        int campaignId;
+        try
+        {
+            campaignId = await Db.ExecuteScalarAsync<int>($@"
+                INSERT INTO {Sql.Tables.AuditCampaigns}
+                    (application_id, name, status, due_at, created_by, created_at, launch_kind,
+                     routing_mode, closure_mode, cc_audit_mailbox)
+                VALUES (@AppId, @Name, 'active', @DueAt, @Actor, NOW(), 'manual',
+                        @RoutingMode, @ClosureMode, @Cc)
+                RETURNING campaign_id",
+                new { AppId = req.ApplicationId, Name = req.Name.Trim(), DueAt = dueAt, Actor = actor,
+                      RoutingMode = app.RoutingMode, ClosureMode = closureMode, Cc = Cc() }, tx);
+        }
+        catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.UniqueViolation)
+        {
+            // Lost the race against a concurrent launch (partial unique index).
+            tx.Rollback();
+            throw new ConflictException("This application already has an open campaign. Close it before launching another.");
+        }
 
         // due_period <= 7 suppresses the reminder (it would fire before/at launch).
         DateTime? reminderStamp = app.DuePeriodDays <= 7 ? DateTime.UtcNow : null;
@@ -190,17 +210,16 @@ public class CampaignService : BaseService<CampaignService>, ICampaignService
 
         foreach (var p in plans)
         {
-            // packet_id is generated client-side so we can mint the token before insert.
+            // packet_id is generated client-side so we can build the SSO link before insert.
             var packetId = Guid.NewGuid();
-            var minted = _tokens.Mint(packetId, tokenExpiry);
 
             await Db.ExecuteAsync($@"
                 INSERT INTO {Sql.Tables.AuditPackets}
                     (packet_id, campaign_id, recipient_sam, recipient_display_name, recipient_email,
-                     recipient_kind, role_note, token_hash, token_expires_at, reminder_sent_at)
-                VALUES (@Pid, @Cid, @Sam, @Disp, @Email, @Kind, @RoleNote, @Hash, @Exp, @Reminder)",
+                     recipient_kind, role_note, reminder_sent_at)
+                VALUES (@Pid, @Cid, @Sam, @Disp, @Email, @Kind, @RoleNote, @Reminder)",
                 new { Pid = packetId, Cid = campaignId, Sam = p.Sam, Disp = p.Display, Email = p.Email,
-                      Kind = p.Kind, RoleNote = p.RoleNote, Hash = minted.Hash, Exp = tokenExpiry.UtcDateTime, Reminder = reminderStamp }, tx);
+                      Kind = p.Kind, RoleNote = p.RoleNote, Reminder = reminderStamp }, tx);
 
             foreach (var s in p.Subjects)
             {
@@ -211,7 +230,7 @@ public class CampaignService : BaseService<CampaignService>, ICampaignService
                     new { Pid = packetId, Sam = s.Sam, Disp = s.Display }, tx);
             }
 
-            var url = _baseUrl + "attest.html?t=" + minted.Raw;
+            var url = AttestUrl(packetId);
             sends.Add((packetId, p.Email, p.Display, p.Kind, url));
             result.Packets.Add(new LaunchedPacket
             {
@@ -222,15 +241,18 @@ public class CampaignService : BaseService<CampaignService>, ICampaignService
 
         tx.Commit();
 
-        // Deliver invites + log every attempt OUTSIDE the transaction: SMTP I/O must
-        // not hold the DB tx open, and a delivery failure must not roll back the launch.
+        // Deliver invites + log every attempt OUTSIDE the transaction (SMTP I/O must
+        // not hold the DB tx open; a delivery failure must not roll back the launch),
+        // over a SINGLE SMTP connection for the whole campaign.
         var subject = req.Name.Trim() + " - your attestation";
-        foreach (var s in sends)
+        var requests = sends.Select(s =>
         {
             var (text, html) = BuildBody("invite", s.Display, app.ApplicationName, req.Name.Trim(), dueAt, s.Url, s.Kind == "nominee");
-            var res = await _email.SendAsync(new EmailRequest { To = s.To ?? "", Cc = Cc(), Subject = subject, TextBody = text, HtmlBody = html });
-            await LogEmailAsync(s.PacketId, campaignId, s.To, subject, "invite", res);
-        }
+            return new EmailRequest { To = s.To ?? "", Cc = Cc(), Subject = subject, TextBody = text, HtmlBody = html };
+        }).ToList();
+        var emailResults = await _email.SendBatchAsync(requests);
+        for (var i = 0; i < sends.Count; i++)
+            await LogEmailAsync(sends[i].PacketId, campaignId, sends[i].To, subject, "invite", emailResults[i]);
 
         return result;
     });
@@ -256,7 +278,6 @@ public class CampaignService : BaseService<CampaignService>, ICampaignService
         public string? Email { get; set; }
         public string? Display { get; set; }
         public string Kind { get; set; } = "manager";
-        public DateTime? TokenExpiresAt { get; set; }
     }
 
     public Task<int> RemindAsync(int campaignId, string actor) => RunDbAsync(async () =>
@@ -272,33 +293,36 @@ public class CampaignService : BaseService<CampaignService>, ICampaignService
 
         var pending = (await Db.QueryAsync<PendingPacket>($@"
             SELECT packet_id AS PacketId, recipient_email AS Email, recipient_display_name AS Display,
-                   recipient_kind AS Kind, token_expires_at AS TokenExpiresAt
+                   recipient_kind AS Kind
             FROM {Sql.Tables.AuditPackets}
             WHERE campaign_id = @Id AND submitted_at IS NULL",
             new { Id = campaignId })).ToList();
 
         var subject = "Reminder: " + c.Name + " - your attestation";
-        var sent = 0;
+
+        // Phase 1: build a reminder per not-yet-submitted packet. The link is just the
+        // packet_id (SSO-gated), so there's nothing to re-issue.
+        var items = new List<(Guid PacketId, string? To, EmailRequest Req)>();
         foreach (var p in pending)
         {
-            // Re-issue the link. Under the current (deterministic HMAC) scheme this
-            // regenerates the same token, so the token_hash update is a no-op; writing
-            // it anyway keeps this correct if the token scheme later becomes random.
-            var expiry = p.TokenExpiresAt.HasValue
-                ? new DateTimeOffset(DateTime.SpecifyKind(p.TokenExpiresAt.Value, DateTimeKind.Utc), TimeSpan.Zero)
-                : new DateTimeOffset(DateTime.SpecifyKind(DateTime.UtcNow.Date, DateTimeKind.Utc), TimeSpan.Zero).AddDays(_tokenTtlDays);
-            var minted = _tokens.Mint(p.PacketId, expiry);
-            await Db.ExecuteAsync($@"
-                UPDATE {Sql.Tables.AuditPackets}
-                SET token_hash = @Hash, reminder_sent_at = NOW()
-                WHERE packet_id = @Pid",
-                new { Hash = minted.Hash, Pid = p.PacketId });
-
-            var url = _baseUrl + "attest.html?t=" + minted.Raw;
+            var url = AttestUrl(p.PacketId);
             var (text, html) = BuildBody("reminder", p.Display, c.ApplicationName, c.Name, c.DueAt, url, p.Kind == "nominee");
-            var res = await _email.SendAsync(new EmailRequest { To = p.Email ?? "", Cc = Cc(), Subject = subject, TextBody = text, HtmlBody = html });
-            await LogEmailAsync(p.PacketId, campaignId, p.Email, subject, "reminder", res);
-            if (res.Success) sent++;
+            items.Add((p.PacketId, p.Email, new EmailRequest { To = p.Email ?? "", Cc = Cc(), Subject = subject, TextBody = text, HtmlBody = html }));
+        }
+
+        // Phase 2: send over one connection. Phase 3: log all, stamp reminder_sent_at only on success.
+        var results = await _email.SendBatchAsync(items.Select(x => x.Req).ToList());
+        var sent = 0;
+        for (var i = 0; i < items.Count; i++)
+        {
+            await LogEmailAsync(items[i].PacketId, campaignId, items[i].To, subject, "reminder", results[i]);
+            if (results[i].Success)
+            {
+                sent++;
+                await Db.ExecuteAsync($@"
+                    UPDATE {Sql.Tables.AuditPackets} SET reminder_sent_at = NOW() WHERE packet_id = @Pid",
+                    new { Pid = items[i].PacketId });
+            }
         }
         return sent;
     });
