@@ -30,10 +30,21 @@ public class AuditingSerializationTests
             AutoLaunch = false,
             AuditRoutingMode = "nominees",
             AuditDuePeriodDays = 21,
+            AuditStatus = "archived",
             BindingCount = 2,
             NomineeCount = 3,
-            Bindings = { new AuditBinding { BindingId = 5, ApplicationId = 1, GroupDn = "CN=APP-Jira-Users,OU=AppGroups,DC=contoso,DC=com", GroupSam = "APP-Jira-Users", GroupType = "Security", IsActive = true } },
+            Bindings =
+            {
+                new AuditBinding
+                {
+                    BindingId = 5, ApplicationId = 1, GroupDn = "CN=APP-Jira-Users,OU=AppGroups,DC=contoso,DC=com",
+                    GroupSam = "APP-Jira-Users", GroupType = "Security", IsActive = true,
+                    Members = { new AuditGroupMember { SamAccount = "alice.chen", DisplayName = "Alice Chen", Email = "alice.chen@contoso.com", Enabled = true, ManagerSam = "bob.harris" } },
+                    Owners = { new AuditGroupOwner { OwnerSam = "bob.harris", OwnerDisplayName = "Bob Harris", OwnerEmail = "bob.harris@contoso.com", Source = "managedBy" } },
+                },
+            },
             Nominees = { new AuditNominee { NomineeId = 9, ApplicationId = 1, NomineeSam = "sara.bennett", NomineeDisplayName = "Sara Bennett", NomineeEmail = "sara.bennett@contoso.com", RoleNote = "Tech owner" } },
+            RostersSyncedAt = new DateTime(2026, 6, 20, 6, 0, 0, DateTimeKind.Utc),
         };
 
         var json = JsonSerializer.Serialize(app, Web);
@@ -46,6 +57,7 @@ public class AuditingSerializationTests
         Assert.Contains("\"auto_launch\":false", json);
         Assert.Contains("\"audit_routing_mode\":\"nominees\"", json);
         Assert.Contains("\"audit_due_period_days\":21", json);
+        Assert.Contains("\"audit_status\":\"archived\"", json);
         Assert.Contains("\"binding_count\":2", json);
         Assert.Contains("\"nominee_count\":3", json);
         Assert.Contains("\"bindings\":", json);
@@ -53,12 +65,41 @@ public class AuditingSerializationTests
         Assert.Contains("\"group_dn\":", json);
         Assert.Contains("\"nominees\":", json);
         Assert.Contains("\"nominee_sam\":\"sara.bennett\"", json);
+        Assert.Contains("\"nominee_display_name\":\"Sara Bennett\"", json);
         Assert.Contains("\"role_note\":", json);
+        Assert.Contains("\"rosters_synced_at\":", json);
+        // Live AD roster embedded in each binding (read by the per-group panel).
+        Assert.Contains("\"members\":", json);
+        Assert.Contains("\"sam_account\":\"alice.chen\"", json);
+        Assert.Contains("\"manager_sam\":\"bob.harris\"", json);
+        Assert.Contains("\"owners\":", json);
+        Assert.Contains("\"owner_sam\":\"bob.harris\"", json);
+        Assert.Contains("\"owner_display_name\":\"Bob Harris\"", json);
+        Assert.Contains("\"source\":\"managedBy\"", json);
 
         // Guard against an accidental drop back to camelCase.
         Assert.DoesNotContain("applicationId", json);
         Assert.DoesNotContain("auditRoutingMode", json);
         Assert.DoesNotContain("bindingCount", json);
+        Assert.DoesNotContain("samAccount", json);
+        Assert.DoesNotContain("ownerSam", json);
+        Assert.DoesNotContain("managerSam", json);
+        Assert.DoesNotContain("auditStatus", json);
+    }
+
+    [Fact]
+    public void PatchRequest_binds_snake_case_body_including_name()
+    {
+        const string body = """
+            {"name":"Renamed App","business_owner":"sara.bennett","support_email":"x@contoso.com"}
+            """;
+
+        var req = JsonSerializer.Deserialize<AppPatchRequest>(body, Web);
+
+        Assert.NotNull(req);
+        Assert.Equal("Renamed App", req!.Name);
+        Assert.Equal("sara.bennett", req.BusinessOwner);
+        Assert.Equal("x@contoso.com", req.SupportEmail);
     }
 
     [Fact]

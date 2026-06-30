@@ -120,6 +120,19 @@ public class CampaignServiceTests : IntegrationTestBase
     }
 
     [DockerFact]
+    public async Task Launch_refuses_when_application_is_archived()
+    {
+        await Reset(); await SeedAd();
+        var aud = Aud();
+        var app = await NewApp("Archived App", "line_manager", "paul"); // has a real roster
+        await aud.ArchiveApplicationAsync(app.ApplicationId, "tester");
+
+        var ex = await Assert.ThrowsAsync<ConflictException>(() =>
+            Camp().LaunchAsync(new CampaignLaunchRequest { ApplicationId = app.ApplicationId, Name = "doomed" }, "tester"));
+        Assert.Contains("archived", ex.Message);
+    }
+
+    [DockerFact]
     public async Task Launch_line_manager_groups_by_manager_and_merges_fallback_into_business_owner()
     {
         await Reset(); await SeedAd();
@@ -390,5 +403,120 @@ public class CampaignServiceTests : IntegrationTestBase
         await camp.CloseAsync(result.CampaignId, "tester");
 
         await Assert.ThrowsAsync<ConflictException>(() => camp.RemindAsync(result.CampaignId, "tester"));
+    }
+
+    // ── Scheduled automation (auto-launch + reminders) ───────────────
+
+    private async Task<AuditApplicationDetail> NewAutoApp(string name, bool autoLaunch)
+    {
+        var aud = Aud();
+        var app = await aud.CreateApplicationAsync(new AppCreateRequest
+        {
+            Name = name, AuditRoutingMode = "line_manager", BusinessOwner = "paul",
+            AuditFrequencyMonths = 12, AuditDuePeriodDays = 21, AutoLaunch = autoLaunch,
+        }, "tester");
+        await aud.AddBindingAsync(app.ApplicationId, new BindingCreateRequest { GroupDn = Dn }, "tester");
+        return app;
+    }
+
+    private async Task<string?> LastAutoLaunchResult(int appId)
+    {
+        await using var c = new NpgsqlConnection(Db.ConnectionString);
+        await c.OpenAsync();
+        return await c.ExecuteScalarAsync<string?>(
+            "SELECT result FROM auditing.auto_launch_log WHERE application_id=@id ORDER BY log_id DESC LIMIT 1", new { id = appId });
+    }
+
+    [DockerFact]
+    public async Task AutoLaunch_launches_a_due_never_audited_auto_launch_app()
+    {
+        await Reset(); await SeedAd();
+        var app = await NewAutoApp("Auto Due", autoLaunch: true);
+
+        var launched = await Camp().AutoLaunchDueAsync("auto-launch");
+
+        Assert.Equal(1, launched);
+        await using var c = new NpgsqlConnection(Db.ConnectionString);
+        await c.OpenAsync();
+        var open = await c.ExecuteScalarAsync<int>(
+            "SELECT COUNT(*) FROM auditing.campaigns WHERE application_id=@id AND status='active'", new { id = app.ApplicationId });
+        Assert.Equal(1, open);
+        Assert.Equal("launched", await LastAutoLaunchResult(app.ApplicationId));
+    }
+
+    [DockerFact]
+    public async Task AutoLaunch_skips_and_logs_an_app_with_no_roster()
+    {
+        await Reset(); // no SeedAd -> bound group has no members
+        var app = await NewAutoApp("Auto Empty", autoLaunch: true);
+
+        var launched = await Camp().AutoLaunchDueAsync("auto-launch");
+
+        Assert.Equal(0, launched);
+        Assert.Equal("skipped", await LastAutoLaunchResult(app.ApplicationId));
+    }
+
+    [DockerFact]
+    public async Task AutoLaunch_ignores_apps_without_the_flag()
+    {
+        await Reset(); await SeedAd();
+        await NewAutoApp("Manual Only", autoLaunch: false);
+
+        Assert.Equal(0, await Camp().AutoLaunchDueAsync("auto-launch"));
+    }
+
+    [DockerFact]
+    public async Task SendDueReminders_sends_once_then_dedupes()
+    {
+        await Reset(); await SeedAd();
+        var app = await NewApp("Reminder Due App", "line_manager", "paul");
+        var due = DateOnly.FromDateTime(DateTime.UtcNow.Date).AddDays(3); // inside the 7-day window
+        await Camp().LaunchAsync(new CampaignLaunchRequest { ApplicationId = app.ApplicationId, Name = "rev", DueAt = due }, "tester");
+
+        var first = await Camp().SendDueRemindersAsync(7);
+        Assert.True(first > 0);
+
+        // reminder_sent_at is now stamped on every pending packet -> no re-nudge.
+        Assert.Equal(0, await Camp().SendDueRemindersAsync(7));
+    }
+
+    [DockerFact]
+    public async Task SendDueReminders_ignores_campaigns_outside_the_window()
+    {
+        await Reset(); await SeedAd();
+        var app = await NewApp("Far Due App", "line_manager", "paul");
+        await Camp().LaunchAsync(new CampaignLaunchRequest { ApplicationId = app.ApplicationId, Name = "rev" }, "tester"); // default due ~21d out
+
+        Assert.Equal(0, await Camp().SendDueRemindersAsync(7));
+    }
+
+    [DockerFact]
+    public async Task RemindPacket_resends_to_a_single_recipient_only()
+    {
+        await Reset(); await SeedAd();
+        var app = await NewApp("Single Remind App", "line_manager", "paul");
+        var result = await Camp().LaunchAsync(new CampaignLaunchRequest { ApplicationId = app.ApplicationId, Name = "rev" }, "tester");
+        Assert.True(result.Packets.Count > 1); // paul + alice
+        var packetId = PacketIdFrom(result.Packets.First());
+
+        var sent = await Camp().RemindPacketAsync(result.CampaignId, packetId, "tester");
+
+        Assert.Equal(1, sent);
+        await using var c = new NpgsqlConnection(Db.ConnectionString);
+        await c.OpenAsync();
+        var stamped = await c.ExecuteScalarAsync<int>(
+            "SELECT COUNT(*) FROM auditing.attestation_packets WHERE campaign_id=@cid AND reminder_sent_at IS NOT NULL",
+            new { cid = result.CampaignId });
+        Assert.Equal(1, stamped); // only the targeted packet was nudged
+    }
+
+    [DockerFact]
+    public async Task RemindPacket_refuses_an_unknown_packet()
+    {
+        await Reset(); await SeedAd();
+        var app = await NewApp("Unknown Packet App", "line_manager", "paul");
+        var result = await Camp().LaunchAsync(new CampaignLaunchRequest { ApplicationId = app.ApplicationId, Name = "rev" }, "tester");
+
+        await Assert.ThrowsAsync<ConflictException>(() => Camp().RemindPacketAsync(result.CampaignId, Guid.NewGuid(), "tester"));
     }
 }

@@ -37,6 +37,7 @@ public class AuditingService : BaseService<AuditingService>, IAuditingService
         a.auto_launch AS AutoLaunch,
         a.audit_routing_mode AS AuditRoutingMode,
         a.audit_due_period_days AS AuditDuePeriodDays,
+        a.audit_status AS AuditStatus,
         (SELECT COUNT(*) FROM auditing.application_groups g
          WHERE g.application_id = a.application_id AND g.is_active) AS BindingCount,
         (SELECT COUNT(*) FROM auditing.application_nominees n
@@ -105,10 +106,17 @@ public class AuditingService : BaseService<AuditingService>, IAuditingService
 
     public Task<AuditApplicationDetail?> PatchApplicationAsync(int id, AppPatchRequest req, string actor) => RunDbAsync(async () =>
     {
+        await GuardNotArchivedAsync(id);
+
+        // Snapshot the current name so a rename can be recorded in the lifecycle log.
+        string? oldName = req.Name == null ? null : await Db.ExecuteScalarAsync<string?>(
+            $"SELECT application_name FROM {Sql.Tables.Applications} WHERE application_id = @Id AND is_active", new { Id = id });
+
         var sets = new List<string>();
         var p = new DynamicParameters();
         p.Add("Id", id);
 
+        if (req.Name != null) { sets.Add("application_name = @Name"); p.Add("Name", req.Name); }
         if (req.BusinessOwner != null) { sets.Add("business_owner = @BusinessOwner"); p.Add("BusinessOwner", req.BusinessOwner); }
         if (req.TechnicalOwner != null) { sets.Add("technical_owner = @TechnicalOwner"); p.Add("TechnicalOwner", req.TechnicalOwner); }
         if (req.SupportEmail != null) { sets.Add("support_email = @SupportEmail"); p.Add("SupportEmail", req.SupportEmail); }
@@ -119,18 +127,95 @@ public class AuditingService : BaseService<AuditingService>, IAuditingService
 
         if (sets.Count == 0) return await LoadApplicationAsync(id);
 
-        var rows = await Db.ExecuteAsync($@"
+        // Renaming to an existing application_name trips the UNIQUE constraint -> 409.
+        var rows = await TranslateConflict(() => Db.ExecuteAsync($@"
             UPDATE {Sql.Tables.Applications}
             SET {string.Join(", ", sets)}
-            WHERE application_id = @Id AND is_active", p);
+            WHERE application_id = @Id AND is_active", p));
 
-        return rows == 0 ? null : await LoadApplicationAsync(id);
+        if (rows == 0) return null;
+        if (req.Name != null && oldName != null && !string.Equals(oldName, req.Name, StringComparison.Ordinal))
+            await LogLifecycleAsync(id, req.Name, "renamed", actor, $"'{oldName}' -> '{req.Name}'");
+        return await LoadApplicationAsync(id);
     });
+
+    public Task<AuditApplicationDetail?> ArchiveApplicationAsync(int id, string actor) => RunDbAsync(async () =>
+    {
+        if (await HasOpenCampaignAsync(id))
+            throw new ConflictException("This application has an open campaign. Close it before archiving.");
+
+        var rows = await Db.ExecuteAsync($@"
+            UPDATE {Sql.Tables.Applications}
+            SET audit_status = 'archived'
+            WHERE application_id = @Id AND is_active",
+            new { Id = id });
+
+        if (rows == 0) return null;
+        var detail = await LoadApplicationAsync(id);
+        await LogLifecycleAsync(id, detail?.Name, "archived", actor, null);
+        return detail;
+    });
+
+    public Task<AuditApplicationDetail?> RestoreApplicationAsync(int id, string actor) => RunDbAsync(async () =>
+    {
+        var rows = await Db.ExecuteAsync($@"
+            UPDATE {Sql.Tables.Applications}
+            SET audit_status = 'active'
+            WHERE application_id = @Id AND is_active",
+            new { Id = id });
+
+        if (rows == 0) return null;
+        var detail = await LoadApplicationAsync(id);
+        await LogLifecycleAsync(id, detail?.Name, "restored", actor, null);
+        return detail;
+    });
+
+    // True when the app has a campaign that isn't yet closed -- blocks archive + delete.
+    private Task<bool> HasOpenCampaignAsync(int id) => Db.ExecuteScalarAsync<bool>($@"
+        SELECT EXISTS (SELECT 1 FROM {Sql.Tables.AuditCampaigns}
+                       WHERE application_id = @Id AND status IN ('active', 'draft'))",
+        new { Id = id });
 
     public Task<bool> DeleteApplicationAsync(int id, string actor) => RunDbAsync(async () =>
     {
+        if (await HasOpenCampaignAsync(id))
+            throw new ConflictException("This application has an open campaign. Close it before deleting.");
+
         if (Db.State != ConnectionState.Open) Db.Open();
         using var tx = Db.BeginTransaction();
+
+        // Snapshot the name for the lifecycle log (survives a hard delete -- the log
+        // table has no FK back to shared.applications).
+        var appName = await Db.ExecuteScalarAsync<string?>($@"
+            SELECT application_name FROM {Sql.Tables.Applications} WHERE application_id = @Id AND is_active",
+            new { Id = id }, tx);
+
+        // Hard-delete is only safe when nothing outside auditing references the row
+        // (auditing.campaigns / licensing.licences / shared.servers have no ON DELETE
+        // CASCADE). When the app was created by auditing and has no such references,
+        // drop it outright so re-adding the same name later doesn't 409. Otherwise
+        // fall back to the soft unregister, preserving the shared row + its history.
+        var canHardDelete = await Db.ExecuteScalarAsync<bool>($@"
+            SELECT EXISTS (
+                SELECT 1 FROM {Sql.Tables.Applications} a
+                WHERE a.application_id = @Id
+                  AND a.is_active
+                  AND a.source_system = 'auditing'
+                  AND NOT EXISTS (SELECT 1 FROM {Sql.Tables.AuditCampaigns} c WHERE c.application_id = a.application_id)
+                  AND NOT EXISTS (SELECT 1 FROM {Sql.Tables.Licences} l WHERE l.application_id = a.application_id)
+                  AND NOT EXISTS (SELECT 1 FROM {Sql.Tables.Servers} s WHERE s.primary_application_id = a.application_id))",
+            new { Id = id }, tx);
+
+        if (canHardDelete)
+        {
+            await LogLifecycleAsync(id, appName, "deleted", actor, "hard delete (no history)", tx);
+            // CASCADE clears application_groups / application_nominees / auto_launch_log.
+            var deleted = await Db.ExecuteAsync($@"
+                DELETE FROM {Sql.Tables.Applications} WHERE application_id = @Id",
+                new { Id = id }, tx);
+            tx.Commit();
+            return deleted > 0;
+        }
 
         // Reset audit config to defaults so the app drops out of the registered list.
         var rows = await Db.ExecuteAsync($@"
@@ -138,7 +223,8 @@ public class AuditingService : BaseService<AuditingService>, IAuditingService
             SET audit_frequency_months = NULL,
                 auto_launch = FALSE,
                 audit_routing_mode = 'line_manager',
-                audit_due_period_days = 21
+                audit_due_period_days = 21,
+                audit_status = 'active'
             WHERE application_id = @Id AND is_active",
             new { Id = id }, tx);
 
@@ -158,6 +244,8 @@ public class AuditingService : BaseService<AuditingService>, IAuditingService
             DELETE FROM {Sql.Tables.AuditApplicationNominees} WHERE application_id = @Id",
             new { Id = id }, tx);
 
+        await LogLifecycleAsync(id, appName, "unregistered", actor, "soft delete (history preserved)", tx);
+
         tx.Commit();
         return true;
     });
@@ -167,6 +255,7 @@ public class AuditingService : BaseService<AuditingService>, IAuditingService
     public Task<AuditBinding?> AddBindingAsync(int appId, BindingCreateRequest req, string actor) => RunDbAsync(async () =>
     {
         if (!await ApplicationExistsAsync(appId)) return null;
+        await GuardNotArchivedAsync(appId);
 
         var bindingId = await TranslateConflictBinding(() => Db.ExecuteScalarAsync<int>($@"
             INSERT INTO {Sql.Tables.AuditApplicationGroups}
@@ -181,17 +270,21 @@ public class AuditingService : BaseService<AuditingService>, IAuditingService
     });
 
     public Task<bool> RemoveBindingAsync(int appId, int bindingId, string actor) => RunDbAsync(async () =>
-        await Db.ExecuteAsync($@"
+    {
+        await GuardNotArchivedAsync(appId);
+        return await Db.ExecuteAsync($@"
             UPDATE {Sql.Tables.AuditApplicationGroups}
             SET is_active = FALSE, updated_by = @Actor, updated_at = CURRENT_TIMESTAMP
             WHERE binding_id = @BindingId AND application_id = @AppId AND is_active",
-            new { BindingId = bindingId, AppId = appId, Actor = actor }) > 0);
+            new { BindingId = bindingId, AppId = appId, Actor = actor }) > 0;
+    });
 
     // ── Nominees ─────────────────────────────────────────────────────
 
     public Task<AuditNominee?> AddNomineeAsync(int appId, NomineeCreateRequest req, string actor) => RunDbAsync(async () =>
     {
         if (!await ApplicationExistsAsync(appId)) return null;
+        await GuardNotArchivedAsync(appId);
 
         var nomineeId = await TranslateConflictNominee(() => Db.ExecuteScalarAsync<int>($@"
             INSERT INTO {Sql.Tables.AuditApplicationNominees}
@@ -206,10 +299,13 @@ public class AuditingService : BaseService<AuditingService>, IAuditingService
     });
 
     public Task<bool> RemoveNomineeAsync(int appId, int nomineeId) => RunDbAsync(async () =>
-        await Db.ExecuteAsync($@"
+    {
+        await GuardNotArchivedAsync(appId);
+        return await Db.ExecuteAsync($@"
             DELETE FROM {Sql.Tables.AuditApplicationNominees}
             WHERE nominee_id = @NomineeId AND application_id = @AppId",
-            new { NomineeId = nomineeId, AppId = appId }) > 0);
+            new { NomineeId = nomineeId, AppId = appId }) > 0;
+    });
 
     // ── Campaigns (read-only) ────────────────────────────────────────
 
@@ -551,6 +647,26 @@ public class AuditingService : BaseService<AuditingService>, IAuditingService
             SELECT EXISTS (SELECT 1 FROM {Sql.Tables.Applications} WHERE application_id = @Id AND is_active)",
             new { Id = id });
 
+    // Archived apps are a read-only register -- block binding/nominee/config edits
+    // (defence-in-depth; the UI already hides the controls). Restore to edit again.
+    private async Task GuardNotArchivedAsync(int id)
+    {
+        var archived = await Db.ExecuteScalarAsync<bool>($@"
+            SELECT EXISTS (SELECT 1 FROM {Sql.Tables.Applications}
+                           WHERE application_id = @Id AND is_active AND audit_status = 'archived')",
+            new { Id = id });
+        if (archived) throw new ConflictException("This application is archived. Restore it before editing.");
+    }
+
+    // Append a lifecycle record (archived / restored / deleted / unregistered /
+    // renamed). application_name is snapshotted so a hard-delete's record stays
+    // readable. Pass tx when logging inside the delete transaction.
+    private Task LogLifecycleAsync(int appId, string? appName, string action, string actor, string? detail, IDbTransaction? tx = null)
+        => Db.ExecuteAsync($@"
+            INSERT INTO {Sql.Tables.AuditLifecycleLog} (application_id, application_name, action, actor, detail)
+            VALUES (@AppId, @AppName, @Action, @Actor, @Detail)",
+            new { AppId = appId, AppName = appName, Action = action, Actor = actor, Detail = detail }, tx);
+
     private async Task<AuditApplicationDetail?> LoadApplicationAsync(int id)
     {
         var detail = await Db.QueryFirstOrDefaultAsync<AuditApplicationDetail>($@"
@@ -568,6 +684,8 @@ public class AuditingService : BaseService<AuditingService>, IAuditingService
             ORDER BY group_dn",
             new { Id = id })).ToList();
 
+        await AttachGroupRostersAsync(detail.Bindings);
+
         detail.Nominees = (await Db.QueryAsync<AuditNominee>($@"
             SELECT {NomineeColumns}
             FROM {Sql.Tables.AuditApplicationNominees}
@@ -575,7 +693,87 @@ public class AuditingService : BaseService<AuditingService>, IAuditingService
             ORDER BY nominee_display_name, nominee_sam",
             new { Id = id })).ToList();
 
+        // Freshest membership sync across the app's bound groups (null = never synced).
+        detail.RostersSyncedAt = await Db.ExecuteScalarAsync<DateTime?>($@"
+            SELECT MAX(m.synced_at)
+            FROM auditing.group_memberships m
+            JOIN {Sql.Tables.AuditApplicationGroups} g ON g.group_dn = m.group_dn
+            WHERE g.application_id = @Id AND g.is_active",
+            new { Id = id });
+
         return detail;
+    }
+
+    // Attach the live AD membership + owners (from the auditing_ad_sync tables)
+    // to each active binding so the app-detail page shows the real roster, not
+    // the demo fixture. Two batched queries keyed by the bindings' DNs -- no N+1.
+    private async Task AttachGroupRostersAsync(IReadOnlyCollection<AuditBinding> bindings)
+    {
+        if (bindings.Count == 0) return;
+        var dns = bindings.Select(b => b.GroupDn).Distinct().ToArray();
+
+        var members = (await Db.QueryAsync<GroupMemberRow>(@"
+            SELECT m.group_dn AS GroupDn,
+                   m.sam_account AS SamAccount,
+                   COALESCE(u.display_name, m.sam_account) AS DisplayName,
+                   u.email AS Email,
+                   COALESCE(u.enabled, TRUE) AS Enabled,
+                   u.manager_sam AS ManagerSam
+            FROM auditing.group_memberships m
+            LEFT JOIN auditing.ad_users u ON u.sam_account = m.sam_account
+            WHERE m.group_dn = ANY(@Dns)
+            ORDER BY COALESCE(u.display_name, m.sam_account), m.sam_account",
+            new { Dns = dns })).ToList();
+
+        var owners = (await Db.QueryAsync<GroupOwnerRow>(@"
+            SELECT group_dn AS GroupDn,
+                   owner_sam AS OwnerSam,
+                   owner_display_name AS OwnerDisplayName,
+                   owner_email AS OwnerEmail,
+                   source AS Source
+            FROM auditing.group_owners
+            WHERE group_dn = ANY(@Dns)
+            ORDER BY COALESCE(owner_display_name, owner_sam), owner_sam",
+            new { Dns = dns })).ToList();
+
+        var membersByDn = members.GroupBy(m => m.GroupDn).ToDictionary(g => g.Key,
+            g => g.Select(m => new AuditGroupMember
+            {
+                SamAccount = m.SamAccount, DisplayName = m.DisplayName, Email = m.Email,
+                Enabled = m.Enabled, ManagerSam = m.ManagerSam,
+            }).ToList());
+
+        var ownersByDn = owners.GroupBy(o => o.GroupDn).ToDictionary(g => g.Key,
+            g => g.Select(o => new AuditGroupOwner
+            {
+                OwnerSam = o.OwnerSam, OwnerDisplayName = o.OwnerDisplayName,
+                OwnerEmail = o.OwnerEmail, Source = o.Source,
+            }).ToList());
+
+        foreach (var b in bindings)
+        {
+            if (membersByDn.TryGetValue(b.GroupDn, out var m)) b.Members = m;
+            if (ownersByDn.TryGetValue(b.GroupDn, out var o)) b.Owners = o;
+        }
+    }
+
+    private sealed class GroupMemberRow
+    {
+        public string GroupDn { get; set; } = "";
+        public string SamAccount { get; set; } = "";
+        public string? DisplayName { get; set; }
+        public string? Email { get; set; }
+        public bool Enabled { get; set; }
+        public string? ManagerSam { get; set; }
+    }
+
+    private sealed class GroupOwnerRow
+    {
+        public string GroupDn { get; set; } = "";
+        public string OwnerSam { get; set; } = "";
+        public string? OwnerDisplayName { get; set; }
+        public string? OwnerEmail { get; set; }
+        public string? Source { get; set; }
     }
 
     // Unique application_name (shared.applications) -> 409 on create.

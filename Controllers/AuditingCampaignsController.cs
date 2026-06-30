@@ -102,4 +102,24 @@ public class AuditingCampaignsController : ControllerBase
             return Conflict(ex.Message);
         }
     }
+
+    /// <summary>Re-send the attestation link to a single recipient (packet) of an active
+    /// campaign. Returns 1 if sent. Requires OpsAdmin role.</summary>
+    [HttpPost("campaigns/{id}/packets/{packetId}/remind")]
+    [Authorize(Policy = "OpsAdmin")]
+    [ProducesResponseType(200)]
+    [ProducesResponseType(409)]
+    public async Task<IActionResult> RemindPacket(int id, Guid packetId)
+    {
+        var actor = User.Identity?.Name ?? "unknown";
+        try
+        {
+            var sent = await _campaigns.RemindPacketAsync(id, packetId, actor);
+            return Ok(new { sent });
+        }
+        catch (ConflictException ex)
+        {
+            return Conflict(ex.Message);
+        }
+    }
 }

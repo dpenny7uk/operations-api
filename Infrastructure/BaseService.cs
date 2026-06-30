@@ -168,5 +168,6 @@ public static class Sql
         public const string AuditPacketSubjects = "auditing.attestation_packet_subjects";
         public const string AuditDecisions = "auditing.attestation_decisions";
         public const string AuditEmailLog = "auditing.email_log";
+        public const string AuditLifecycleLog = "auditing.app_lifecycle_log";
     }
 }

@@ -103,6 +103,10 @@ builder.Services.AddScoped<ILicensingService, LicensingService>();
 builder.Services.AddScoped<IAuditingService, AuditingService>();
 builder.Services.AddScoped<ICampaignService, CampaignService>();
 
+// Auditing scheduled automation (auto-launch due campaigns + reminders). OFF unless
+// Auditing:Scheduler:Enabled=true -- it sends real attestation emails.
+builder.Services.AddHostedService<AuditingSchedulerService>();
+
 // SMTP transport for auditing attestation emails (internal relay; see Smtp config).
 builder.Services.AddSingleton<IEmailService, SmtpEmailService>();
 

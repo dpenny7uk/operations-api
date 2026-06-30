@@ -39,6 +39,7 @@ public class CampaignService : BaseService<CampaignService>, ICampaignService
         public string RoutingMode { get; set; } = "line_manager";
         public int DuePeriodDays { get; set; }
         public string? BusinessOwner { get; set; }
+        public string AuditStatus { get; set; } = "active";
     }
 
     private sealed class RosterMember
@@ -81,11 +82,14 @@ public class CampaignService : BaseService<CampaignService>, ICampaignService
 
         var app = await Db.QueryFirstOrDefaultAsync<AppConfigRow>($@"
             SELECT application_name AS ApplicationName, audit_routing_mode AS RoutingMode,
-                   audit_due_period_days AS DuePeriodDays, business_owner AS BusinessOwner
+                   audit_due_period_days AS DuePeriodDays, business_owner AS BusinessOwner,
+                   audit_status AS AuditStatus
             FROM {Sql.Tables.Applications}
             WHERE application_id = @Id AND is_active",
             new { Id = req.ApplicationId });
         if (app == null) throw new ConflictException("Application not found.");
+        if (app.AuditStatus == "archived")
+            throw new ConflictException("This application is archived and cannot launch campaigns. Restore it first.");
 
         // One open campaign per app: refuse if an active/draft campaign already
         // exists (a partial unique index is the race-safe backstop). Prevents
@@ -291,6 +295,7 @@ public class CampaignService : BaseService<CampaignService>, ICampaignService
         if (c == null) throw new ConflictException("Campaign not found.");
         if (c.Status != "active") throw new ConflictException("Only active campaigns can be reminded.");
 
+        // Manual remind re-nudges everyone still outstanding (regardless of prior reminders).
         var pending = (await Db.QueryAsync<PendingPacket>($@"
             SELECT packet_id AS PacketId, recipient_email AS Email, recipient_display_name AS Display,
                    recipient_kind AS Kind
@@ -298,19 +303,47 @@ public class CampaignService : BaseService<CampaignService>, ICampaignService
             WHERE campaign_id = @Id AND submitted_at IS NULL",
             new { Id = campaignId })).ToList();
 
-        var subject = "Reminder: " + c.Name + " - your attestation";
+        return await SendRemindersAsync(campaignId, c.Name, c.ApplicationName, c.DueAt, pending);
+    });
 
-        // Phase 1: build a reminder per not-yet-submitted packet. The link is just the
-        // packet_id (SSO-gated), so there's nothing to re-issue.
+    public Task<int> RemindPacketAsync(int campaignId, Guid packetId, string actor) => RunDbAsync(async () =>
+    {
+        var c = await Db.QueryFirstOrDefaultAsync<RemindCampaign>($@"
+            SELECT c.name AS Name, c.status AS Status, c.due_at AS DueAt, a.application_name AS ApplicationName
+            FROM {Sql.Tables.AuditCampaigns} c
+            JOIN {Sql.Tables.Applications} a ON a.application_id = c.application_id
+            WHERE c.campaign_id = @Id",
+            new { Id = campaignId });
+        if (c == null) throw new ConflictException("Campaign not found.");
+        if (c.Status != "active") throw new ConflictException("Only active campaigns can be reminded.");
+
+        var pending = (await Db.QueryAsync<PendingPacket>($@"
+            SELECT packet_id AS PacketId, recipient_email AS Email, recipient_display_name AS Display, recipient_kind AS Kind
+            FROM {Sql.Tables.AuditPackets}
+            WHERE campaign_id = @Cid AND packet_id = @Pid AND submitted_at IS NULL",
+            new { Cid = campaignId, Pid = packetId })).ToList();
+        if (pending.Count == 0)
+            throw new ConflictException("That recipient has already submitted, or the packet was not found.");
+
+        return await SendRemindersAsync(campaignId, c.Name, c.ApplicationName, c.DueAt, pending);
+    });
+
+    // Build + send one reminder per pending packet, log each send, stamp
+    // reminder_sent_at on success. Shared by manual RemindAsync and the scheduler.
+    private async Task<int> SendRemindersAsync(int campaignId, string campaignName, string? appName, DateTime? dueAt, List<PendingPacket> pending)
+    {
+        if (pending.Count == 0) return 0;
+        var subject = "Reminder: " + campaignName + " - your attestation";
+
+        // The link is just the packet_id (SSO-gated), so there's nothing to re-issue.
         var items = new List<(Guid PacketId, string? To, EmailRequest Req)>();
         foreach (var p in pending)
         {
             var url = AttestUrl(p.PacketId);
-            var (text, html) = BuildBody("reminder", p.Display, c.ApplicationName, c.Name, c.DueAt, url, p.Kind == "nominee");
+            var (text, html) = BuildBody("reminder", p.Display, appName, campaignName, dueAt, url, p.Kind == "nominee");
             items.Add((p.PacketId, p.Email, new EmailRequest { To = p.Email ?? "", Cc = Cc(), Subject = subject, TextBody = text, HtmlBody = html }));
         }
 
-        // Phase 2: send over one connection. Phase 3: log all, stamp reminder_sent_at only on success.
         var results = await _email.SendBatchAsync(items.Select(x => x.Req).ToList());
         var sent = 0;
         for (var i = 0; i < items.Count; i++)
@@ -325,7 +358,99 @@ public class CampaignService : BaseService<CampaignService>, ICampaignService
             }
         }
         return sent;
+    }
+
+    // ── Scheduled automation (AuditingSchedulerService) ──────────────────
+
+    private sealed class DueApp
+    {
+        public int ApplicationId { get; set; }
+        public string ApplicationName { get; set; } = "";
+    }
+
+    private sealed class DueCampaign
+    {
+        public int CampaignId { get; set; }
+        public string Name { get; set; } = "";
+        public DateTime? DueAt { get; set; }
+        public string ApplicationName { get; set; } = "";
+    }
+
+    public Task<int> AutoLaunchDueAsync(string actor) => RunDbAsync(async () =>
+    {
+        // Active, auto_launch apps with at least one binding, no open campaign, and
+        // either never audited or past their cadence interval since the last launch.
+        var due = (await Db.QueryAsync<DueApp>($@"
+            SELECT a.application_id AS ApplicationId, a.application_name AS ApplicationName
+            FROM {Sql.Tables.Applications} a
+            WHERE a.is_active AND a.audit_status = 'active' AND a.auto_launch = TRUE
+              AND a.audit_frequency_months IS NOT NULL
+              AND EXISTS (SELECT 1 FROM {Sql.Tables.AuditApplicationGroups} g
+                          WHERE g.application_id = a.application_id AND g.is_active)
+              AND NOT EXISTS (SELECT 1 FROM {Sql.Tables.AuditCampaigns} c
+                              WHERE c.application_id = a.application_id AND c.status IN ('active', 'draft'))
+              AND (
+                NOT EXISTS (SELECT 1 FROM {Sql.Tables.AuditCampaigns} c WHERE c.application_id = a.application_id)
+                OR (SELECT MAX(c.created_at) FROM {Sql.Tables.AuditCampaigns} c WHERE c.application_id = a.application_id)
+                   + make_interval(months => a.audit_frequency_months::int) <= NOW()
+              )")).ToList();
+
+        var launched = 0;
+        foreach (var app in due)
+        {
+            var name = app.ApplicationName + " access review " + DateTime.UtcNow.ToString("yyyy-MM");
+            try
+            {
+                var result = await LaunchAsync(new CampaignLaunchRequest { ApplicationId = app.ApplicationId, Name = name }, actor);
+                await LogAutoLaunchAsync(app.ApplicationId, "launched", result.CampaignId, null);
+                launched++;
+            }
+            catch (ConflictException ex)
+            {
+                // Expected non-fatal cases (e.g. empty roster, missing nominees) -> log + continue.
+                await LogAutoLaunchAsync(app.ApplicationId, "skipped", null, ex.Message);
+            }
+            catch (Exception ex)
+            {
+                await LogAutoLaunchAsync(app.ApplicationId, "error", null, ex.Message);
+            }
+        }
+        return launched;
     });
+
+    public Task<int> SendDueRemindersAsync(int windowDays) => RunDbAsync(async () =>
+    {
+        // Active campaigns whose due date falls within the window and still have at
+        // least one not-yet-reminded outstanding packet.
+        var campaigns = (await Db.QueryAsync<DueCampaign>($@"
+            SELECT c.campaign_id AS CampaignId, c.name AS Name, c.due_at AS DueAt, a.application_name AS ApplicationName
+            FROM {Sql.Tables.AuditCampaigns} c
+            JOIN {Sql.Tables.Applications} a ON a.application_id = c.application_id
+            WHERE c.status = 'active' AND c.due_at IS NOT NULL
+              AND c.due_at::date BETWEEN CURRENT_DATE AND CURRENT_DATE + @Window
+              AND EXISTS (SELECT 1 FROM {Sql.Tables.AuditPackets} p
+                          WHERE p.campaign_id = c.campaign_id AND p.submitted_at IS NULL AND p.reminder_sent_at IS NULL)",
+            new { Window = windowDays })).ToList();
+
+        var total = 0;
+        foreach (var c in campaigns)
+        {
+            // Dedup on reminder_sent_at so a daily tick never re-nudges the same person.
+            var pending = (await Db.QueryAsync<PendingPacket>($@"
+                SELECT packet_id AS PacketId, recipient_email AS Email, recipient_display_name AS Display, recipient_kind AS Kind
+                FROM {Sql.Tables.AuditPackets}
+                WHERE campaign_id = @Id AND submitted_at IS NULL AND reminder_sent_at IS NULL",
+                new { Id = c.CampaignId })).ToList();
+            total += await SendRemindersAsync(c.CampaignId, c.Name, c.ApplicationName, c.DueAt, pending);
+        }
+        return total;
+    });
+
+    private Task LogAutoLaunchAsync(int appId, string result, int? campaignId, string? error)
+        => Db.ExecuteAsync(@"
+            INSERT INTO auditing.auto_launch_log (application_id, result, campaign_id, error_text)
+            VALUES (@AppId, @Result, @CampaignId, @Error)",
+            new { AppId = appId, Result = result, CampaignId = campaignId, Error = error });
 
     private Task LogEmailAsync(Guid packetId, int campaignId, string? to, string subject, string kind, EmailResult res)
         => Db.ExecuteAsync($@"

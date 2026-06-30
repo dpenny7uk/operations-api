@@ -26,10 +26,12 @@ public class AuditingServiceTests : IntegrationTestBase
             DELETE FROM auditing.campaigns;
             DELETE FROM auditing.application_groups;
             DELETE FROM auditing.application_nominees;
+            DELETE FROM auditing.app_lifecycle_log;
             DELETE FROM shared.applications WHERE source_system = 'auditing';
             UPDATE shared.applications
             SET audit_frequency_months = NULL, auto_launch = FALSE,
-                audit_routing_mode = 'line_manager', audit_due_period_days = 21;");
+                audit_routing_mode = 'line_manager', audit_due_period_days = 21,
+                audit_status = 'active';");
     }
 
     private static AppCreateRequest NewApp(string name, string mode = "line_manager", int? freq = 12, int due = 21)
@@ -105,29 +107,6 @@ public class AuditingServiceTests : IntegrationTestBase
         Assert.Equal("line_manager", patched.AuditRoutingMode); // untouched
     }
 
-    [DockerFact]
-    public async Task Delete_unregisters_app_but_preserves_shared_row()
-    {
-        await ResetAuditing();
-        var svc = CreateService();
-        var app = await svc.CreateApplicationAsync(NewApp("Legacy Reporting Portal"), "tester");
-        await svc.AddBindingAsync(app.ApplicationId, new BindingCreateRequest { GroupDn = "CN=APP-Legacy,DC=contoso,DC=com" }, "tester");
-
-        var removed = await svc.DeleteApplicationAsync(app.ApplicationId, "tester");
-        Assert.True(removed);
-
-        // Drops out of the auditing list...
-        var list = (await svc.ListApplicationsAsync(null)).ToList();
-        Assert.DoesNotContain(list, a => a.ApplicationId == app.ApplicationId);
-
-        // ...but the shared.applications row still exists (just unregistered).
-        await using var conn = new NpgsqlConnection(Db.ConnectionString);
-        await conn.OpenAsync();
-        var stillThere = await conn.ExecuteScalarAsync<bool>(
-            "SELECT EXISTS (SELECT 1 FROM shared.applications WHERE application_id = @id AND is_active)",
-            new { id = app.ApplicationId });
-        Assert.True(stillThere);
-    }
 
     // ── Bindings ─────────────────────────────────────────────────────
 
@@ -207,6 +186,239 @@ public class AuditingServiceTests : IntegrationTestBase
         Assert.Single(detail.Nominees);
         Assert.Equal(1, detail.BindingCount);
         Assert.Equal(1, detail.NomineeCount);
+    }
+
+    [DockerFact]
+    public async Task GetApplication_attaches_live_group_members_and_owners()
+    {
+        await ResetAuditing();
+        const string dn = "CN=APP-Roster-Test,OU=AppGroups,DC=contoso,DC=com";
+
+        // Seed the auditing_ad_sync tables the attach query reads from.
+        await using (var conn = new NpgsqlConnection(Db.ConnectionString))
+        {
+            await conn.OpenAsync();
+            await conn.ExecuteAsync(@"
+                DELETE FROM auditing.group_memberships WHERE group_dn = @Dn;
+                DELETE FROM auditing.group_owners      WHERE group_dn = @Dn;
+                DELETE FROM auditing.ad_users WHERE sam_account = ANY(@Sams);
+                INSERT INTO auditing.ad_users (sam_account, display_name, email, manager_sam, enabled) VALUES
+                    ('alice.chen', 'Alice Chen', 'alice.chen@contoso.com', 'bob.harris', TRUE),
+                    ('bob.harris', 'Bob Harris', 'bob.harris@contoso.com', NULL, TRUE);
+                INSERT INTO auditing.group_memberships (group_dn, sam_account) VALUES (@Dn, 'alice.chen');
+                INSERT INTO auditing.group_owners (group_dn, owner_sam, owner_display_name, owner_email, source)
+                    VALUES (@Dn, 'bob.harris', 'Bob Harris', 'bob.harris@contoso.com', 'managedBy');",
+                new { Dn = dn, Sams = new[] { "alice.chen", "bob.harris" } });
+        }
+
+        var svc = CreateService();
+        var app = await svc.CreateApplicationAsync(NewApp("Roster Test"), "tester");
+        await svc.AddBindingAsync(app.ApplicationId, new BindingCreateRequest { GroupDn = dn, GroupSam = "APP-Roster-Test", GroupType = "Security" }, "tester");
+
+        var detail = await svc.GetApplicationAsync(app.ApplicationId);
+        var binding = Assert.Single(detail!.Bindings);
+
+        var member = Assert.Single(binding.Members);
+        Assert.Equal("alice.chen", member.SamAccount);
+        Assert.Equal("Alice Chen", member.DisplayName);
+        Assert.True(member.Enabled);
+        Assert.Equal("bob.harris", member.ManagerSam);
+
+        var owner = Assert.Single(binding.Owners);
+        Assert.Equal("bob.harris", owner.OwnerSam);
+        Assert.Equal("Bob Harris", owner.OwnerDisplayName);
+        Assert.Equal("managedBy", owner.Source);
+    }
+
+    // ── Lifecycle: archive / restore / edit / delete ─────────────────
+
+    // Inserts a campaign row directly so the open-campaign + history guards have
+    // something to see, without standing up the full launch path.
+    private async Task SeedCampaign(int appId, string status)
+    {
+        await using var conn = new NpgsqlConnection(Db.ConnectionString);
+        await conn.OpenAsync();
+        await conn.ExecuteAsync(@"
+            INSERT INTO auditing.campaigns (application_id, name, status, routing_mode, closure_mode, launch_kind)
+            VALUES (@Id, 'seed campaign', @Status, 'line_manager', 'all_packets', 'manual')",
+            new { Id = appId, Status = status });
+    }
+
+    [DockerFact]
+    public async Task Archive_sets_status_and_GetApplication_reflects_it()
+    {
+        await ResetAuditing();
+        var svc = CreateService();
+        var app = await svc.CreateApplicationAsync(NewApp("Archivable"), "tester");
+
+        var archived = await svc.ArchiveApplicationAsync(app.ApplicationId, "tester");
+        Assert.Equal("archived", archived!.AuditStatus);
+        Assert.Equal("archived", (await svc.GetApplicationAsync(app.ApplicationId))!.AuditStatus);
+
+        // Still in the registered list (archived is a status, not an unregister).
+        Assert.Contains(await svc.ListApplicationsAsync(null), a => a.ApplicationId == app.ApplicationId && a.AuditStatus == "archived");
+    }
+
+    [DockerFact]
+    public async Task Archive_blocked_when_open_campaign()
+    {
+        await ResetAuditing();
+        var svc = CreateService();
+        var app = await svc.CreateApplicationAsync(NewApp("Busy"), "tester");
+        await SeedCampaign(app.ApplicationId, "active");
+
+        await Assert.ThrowsAsync<ConflictException>(() => svc.ArchiveApplicationAsync(app.ApplicationId, "tester"));
+    }
+
+    [DockerFact]
+    public async Task Restore_flips_status_back_to_active()
+    {
+        await ResetAuditing();
+        var svc = CreateService();
+        var app = await svc.CreateApplicationAsync(NewApp("Roundtrip"), "tester");
+        await svc.ArchiveApplicationAsync(app.ApplicationId, "tester");
+
+        var restored = await svc.RestoreApplicationAsync(app.ApplicationId, "tester");
+        Assert.Equal("active", restored!.AuditStatus);
+    }
+
+    [DockerFact]
+    public async Task Patch_name_updates_application_name()
+    {
+        await ResetAuditing();
+        var svc = CreateService();
+        var app = await svc.CreateApplicationAsync(NewApp("Old Name"), "tester");
+
+        var updated = await svc.PatchApplicationAsync(app.ApplicationId, new AppPatchRequest { Name = "New Name" }, "tester");
+        Assert.Equal("New Name", updated!.Name);
+    }
+
+    [DockerFact]
+    public async Task Patch_to_duplicate_name_throws_ConflictException()
+    {
+        await ResetAuditing();
+        var svc = CreateService();
+        await svc.CreateApplicationAsync(NewApp("Taken"), "tester");
+        var app = await svc.CreateApplicationAsync(NewApp("Free"), "tester");
+
+        await Assert.ThrowsAsync<ConflictException>(() =>
+            svc.PatchApplicationAsync(app.ApplicationId, new AppPatchRequest { Name = "Taken" }, "tester"));
+    }
+
+    [DockerFact]
+    public async Task Delete_hard_deletes_when_no_history_and_name_is_reusable()
+    {
+        await ResetAuditing();
+        var svc = CreateService();
+        var app = await svc.CreateApplicationAsync(NewApp("Mistake"), "tester");
+
+        Assert.True(await svc.DeleteApplicationAsync(app.ApplicationId, "tester"));
+
+        // The shared.applications row is gone, so the same name can be re-used.
+        await using (var conn = new NpgsqlConnection(Db.ConnectionString))
+        {
+            await conn.OpenAsync();
+            var count = await conn.ExecuteScalarAsync<int>(
+                "SELECT COUNT(*) FROM shared.applications WHERE application_id = @Id", new { Id = app.ApplicationId });
+            Assert.Equal(0, count);
+        }
+        var recreated = await svc.CreateApplicationAsync(NewApp("Mistake"), "tester");
+        Assert.True(recreated.ApplicationId > 0);
+    }
+
+    [DockerFact]
+    public async Task Delete_soft_unregisters_when_campaign_history_exists()
+    {
+        await ResetAuditing();
+        var svc = CreateService();
+        var app = await svc.CreateApplicationAsync(NewApp("Has History"), "tester");
+        await SeedCampaign(app.ApplicationId, "closed"); // history, but not open
+
+        Assert.True(await svc.DeleteApplicationAsync(app.ApplicationId, "tester"));
+
+        // Row preserved (campaigns FK has no CASCADE) but dropped from the registered list.
+        await using (var conn = new NpgsqlConnection(Db.ConnectionString))
+        {
+            await conn.OpenAsync();
+            var count = await conn.ExecuteScalarAsync<int>(
+                "SELECT COUNT(*) FROM shared.applications WHERE application_id = @Id AND is_active", new { Id = app.ApplicationId });
+            Assert.Equal(1, count);
+        }
+        Assert.DoesNotContain(await svc.ListApplicationsAsync(null), a => a.ApplicationId == app.ApplicationId);
+    }
+
+    [DockerFact]
+    public async Task Delete_blocked_when_open_campaign()
+    {
+        await ResetAuditing();
+        var svc = CreateService();
+        var app = await svc.CreateApplicationAsync(NewApp("Mid Audit"), "tester");
+        await SeedCampaign(app.ApplicationId, "active");
+
+        await Assert.ThrowsAsync<ConflictException>(() => svc.DeleteApplicationAsync(app.ApplicationId, "tester"));
+    }
+
+    [DockerFact]
+    public async Task Mutations_on_archived_app_are_rejected()
+    {
+        await ResetAuditing();
+        var svc = CreateService();
+        var app = await svc.CreateApplicationAsync(NewApp("Frozen"), "tester");
+        var binding = await svc.AddBindingAsync(app.ApplicationId, new BindingCreateRequest { GroupDn = "CN=APP-Frozen,DC=contoso,DC=com" }, "tester");
+        await svc.ArchiveApplicationAsync(app.ApplicationId, "tester");
+
+        await Assert.ThrowsAsync<ConflictException>(() => svc.AddBindingAsync(app.ApplicationId, new BindingCreateRequest { GroupDn = "CN=APP-Other,DC=contoso,DC=com" }, "tester"));
+        await Assert.ThrowsAsync<ConflictException>(() => svc.RemoveBindingAsync(app.ApplicationId, binding!.BindingId, "tester"));
+        await Assert.ThrowsAsync<ConflictException>(() => svc.AddNomineeAsync(app.ApplicationId, new NomineeCreateRequest { NomineeSam = "sara.bennett" }, "tester"));
+        await Assert.ThrowsAsync<ConflictException>(() => svc.RemoveNomineeAsync(app.ApplicationId, 999));
+        await Assert.ThrowsAsync<ConflictException>(() => svc.PatchApplicationAsync(app.ApplicationId, new AppPatchRequest { SupportEmail = "x@contoso.com" }, "tester"));
+    }
+
+    [DockerFact]
+    public async Task Archive_restore_delete_write_lifecycle_log()
+    {
+        await ResetAuditing();
+        var svc = CreateService();
+        var app = await svc.CreateApplicationAsync(NewApp("Logged"), "tester");
+
+        await svc.ArchiveApplicationAsync(app.ApplicationId, "alice");
+        await svc.RestoreApplicationAsync(app.ApplicationId, "bob");
+        await svc.PatchApplicationAsync(app.ApplicationId, new AppPatchRequest { Name = "Logged Renamed" }, "carol");
+        await svc.DeleteApplicationAsync(app.ApplicationId, "dave"); // hard-delete (no history)
+
+        await using var conn = new NpgsqlConnection(Db.ConnectionString);
+        await conn.OpenAsync();
+        var rows = (await conn.QueryAsync<(string Action, string Actor, string? Detail)>(
+            "SELECT action AS Action, actor AS Actor, detail AS Detail FROM auditing.app_lifecycle_log WHERE application_id = @Id ORDER BY log_id",
+            new { Id = app.ApplicationId })).ToList();
+
+        Assert.Equal(new[] { "archived", "restored", "renamed", "deleted" }, rows.Select(r => r.Action).ToArray());
+        Assert.Equal(new[] { "alice", "bob", "carol", "dave" }, rows.Select(r => r.Actor).ToArray());
+        Assert.Contains("Logged", rows[2].Detail); // rename records old -> new
+    }
+
+    [DockerFact]
+    public async Task GetApplication_reports_rosters_synced_at()
+    {
+        await ResetAuditing();
+        const string dn = "CN=APP-Synced,OU=AppGroups,DC=contoso,DC=com";
+        await using (var conn = new NpgsqlConnection(Db.ConnectionString))
+        {
+            await conn.OpenAsync();
+            await conn.ExecuteAsync(@"
+                DELETE FROM auditing.group_memberships WHERE group_dn = @Dn;
+                INSERT INTO auditing.group_memberships (group_dn, sam_account, synced_at)
+                VALUES (@Dn, 'alice.chen', TIMESTAMPTZ '2026-06-20 06:00:00+00');",
+                new { Dn = dn });
+        }
+
+        var svc = CreateService();
+        var app = await svc.CreateApplicationAsync(NewApp("Synced"), "tester");
+        await svc.AddBindingAsync(app.ApplicationId, new BindingCreateRequest { GroupDn = dn }, "tester");
+
+        var detail = await svc.GetApplicationAsync(app.ApplicationId);
+        Assert.NotNull(detail!.RostersSyncedAt);
+        Assert.Equal(new DateTime(2026, 6, 20, 6, 0, 0, DateTimeKind.Utc), detail.RostersSyncedAt!.Value.ToUniversalTime());
     }
 
     // ── Campaigns (read path) ────────────────────────────────────────

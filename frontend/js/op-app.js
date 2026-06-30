@@ -219,6 +219,26 @@
       if (expiring) return { tone: 'warn', text: expiring + ' soon' };
       return null;
     }
+    if (rid === 'licensing') {
+      const L = window.LICENSING_DATA;
+      const c = (L && L.getCounts) ? L.getCounts() : null;
+      if (!c) return null;
+      const crit = (c.expired || 0) + (c.under30 || 0);
+      const warn = (c.under3mo || 0) + (c.under6mo || 0);
+      if (crit) return { tone: 'crit', text: crit + ' due' };
+      if (warn) return { tone: 'warn', text: warn + ' soon' };
+      return null;
+    }
+    if (rid === 'auditing') {
+      const A = window.AUDITING_DATA;
+      if (!A || !Array.isArray(A.APPLICATIONS) || !A.getAuditStatus) return null;
+      const live = A.APPLICATIONS.filter(a => a.audit_status !== 'archived');
+      const overdue = live.filter(a => A.getAuditStatus(a.application_id).status === 'overdue').length;
+      const ownerless = live.filter(a => a.bindings.some(dn => A.getOwnersOfGroup(dn).length === 0)).length;
+      if (overdue) return { tone: 'crit', text: overdue + ' overdue' };
+      if (ownerless) return { tone: 'warn', text: ownerless + ' ownerless' };
+      return null;
+    }
     return null;
   }
 
@@ -581,10 +601,12 @@
         if (!A) {
           return { tag: '— AUDITING SURFACE · DEMO', word: 'demo data not loaded', pieces: [] };
         }
-        const apps = A.APPLICATIONS.length;
-        const ownerless = A.APPLICATIONS.filter(a => a.bindings.some(dn => A.getOwnersOfGroup(dn).length === 0)).length;
+        // Archived apps are a read-only register -- excluded from the live tallies.
+        const liveApps = A.APPLICATIONS.filter(a => a.audit_status !== 'archived');
+        const apps = liveApps.length;
+        const ownerless = liveApps.filter(a => a.bindings.some(dn => A.getOwnersOfGroup(dn).length === 0)).length;
         const active = A.CAMPAIGNS.filter(c => c.status === 'active').length;
-        const overdue = A.APPLICATIONS.filter(a => A.getAuditStatus(a.application_id).status === 'overdue').length;
+        const overdue = liveApps.filter(a => A.getAuditStatus(a.application_id).status === 'overdue').length;
         const word = overdue > 0 ? overdue + ' audit' + (overdue===1?'':'s') + ' overdue'
                    : ownerless > 0 ? 'owner coverage gap'
                    : active > 0 ? 'campaign in flight'
@@ -803,15 +825,86 @@
       (dCrit || dWarn) ? h('div.cs-link', null, 'Open Disk Monitoring') : null,
     ));
 
-    // Patch exclusions — already real via window.EXCLUSIONS
-    const exCount = (window.EXCLUSIONS || []).length;
-    strip.appendChild(h('div.cs-cell.info', {
+    // Patch exclusions — severity-aware (overdue = crit, expiring = warn), mirroring
+    // railFlagFor('patchmgmt'); an overdue exclusion means a server isn't being patched.
+    const ex = Array.isArray(window.EXCLUSIONS) ? window.EXCLUSIONS : [];
+    const exOverdue  = ex.filter(x => x.state === 'overdue').length;
+    const exExpiring = ex.filter(x => x.state === 'expiring').length;
+    const exTone = exOverdue ? 'crit' : exExpiring ? 'warn' : 'info';
+    strip.appendChild(h('div.cs-cell.'+exTone, {
       on: { click: () => { if (window.ROUTER) window.ROUTER.goto('patchmgmt'); } },
     },
       h('div.cs-label', null, 'Patch exclusions'),
-      h('div.cs-value', null, String(exCount)),
-      h('div.cs-sub', null, exCount ? 'held / expired' : 'none active'),
+      h('div.cs-value', null, String(exOverdue || exExpiring || ex.length)),
+      h('div.cs-sub', null,
+        exOverdue ? (exOverdue + ' overdue' + (exExpiring ? ' · ' + exExpiring + ' expiring' : ''))
+        : exExpiring ? (exExpiring + ' expiring soon')
+        : ex.length ? (ex.length + ' active') : 'none active'),
       h('div.cs-link', null, 'Review exclusions')));
+
+    // End-of-life (06) — products past vendor support (servers running unsupported sw).
+    const eolT = (window.EOL_DATA && window.EOL_DATA.EOL_TOTALS) || {};
+    const eolCrit = eolT.eol || 0;
+    const eolWarn = eolT.extended || 0;
+    const eolTone = eolCrit ? 'crit' : eolWarn ? 'warn' : 'ok';
+    strip.appendChild(h('div.cs-cell.'+eolTone, {
+      on: { click: () => { if (window.ROUTER) window.ROUTER.goto('eol'); } },
+    },
+      h('div.cs-label', null, 'End of life'),
+      h('div.cs-value', null, String(eolCrit || eolWarn || (eolT.products || 0)),
+        h('span.cs-unit', null, eolCrit ? 'past EOL' : eolWarn ? 'extended' : 'products')),
+      h('div.cs-sub', null,
+        eolCrit ? ((eolT.affected || 0).toLocaleString() + ' servers affected — migration required')
+        : eolWarn ? (eolWarn + ' on extended support')
+        : 'all supported'),
+      (eolCrit || eolWarn) ? h('div.cs-link', null, 'View end-of-life') : null,
+    ));
+
+    // Licensing (08) — licences expired or nearing renewal (compliance/financial risk).
+    const Lz = window.LICENSING_DATA;
+    const lc = (Lz && Lz.getCounts) ? Lz.getCounts() : null;
+    const lExpired = lc ? lc.expired : 0;
+    const lUnder30 = lc ? lc.under30 : 0;
+    const lSoon = lc ? (lc.under3mo + lc.under6mo) : 0;
+    const lTotal = (Lz && Array.isArray(Lz.LICENCES)) ? Lz.LICENCES.length : 0;
+    const lTone = (lExpired || lUnder30) ? 'crit' : lSoon ? 'warn' : 'ok';
+    strip.appendChild(h('div.cs-cell.'+lTone, {
+      on: { click: () => { if (window.ROUTER) window.ROUTER.goto('licensing'); } },
+    },
+      h('div.cs-label', null, 'Licensing'),
+      h('div.cs-value', null, String(lExpired || lUnder30 || lTotal),
+        h('span.cs-unit', null, lExpired ? 'expired' : lUnder30 ? '≤ 30d' : 'tracked')),
+      h('div.cs-sub', null,
+        lExpired ? (lExpired + ' expired' + (lUnder30 ? ' · ' + lUnder30 + ' ≤30d' : ''))
+        : lUnder30 ? (lUnder30 + ' expiring ≤30d')
+        : lSoon ? (lSoon + ' renewals to review')
+        : 'renewals healthy'),
+      (lExpired || lUnder30 || lSoon) ? h('div.cs-link', null, 'Review licences') : null,
+    ));
+
+    // Auditing (09) — overdue access recertifications + ownerless apps (audit risk).
+    const Az = window.AUDITING_DATA;
+    let auOverdue = 0, auOwnerless = 0, auActive = 0;
+    if (Az && Array.isArray(Az.APPLICATIONS) && Az.getAuditStatus) {
+      const liveApps = Az.APPLICATIONS.filter(a => a.audit_status !== 'archived');
+      auOverdue = liveApps.filter(a => Az.getAuditStatus(a.application_id).status === 'overdue').length;
+      auOwnerless = liveApps.filter(a => a.bindings.some(dn => Az.getOwnersOfGroup(dn).length === 0)).length;
+      auActive = (Az.CAMPAIGNS || []).filter(c => c.status === 'active').length;
+    }
+    const auTone = auOverdue ? 'crit' : auOwnerless ? 'warn' : 'ok';
+    strip.appendChild(h('div.cs-cell.'+auTone, {
+      on: { click: () => { if (window.ROUTER) window.ROUTER.goto('auditing'); } },
+    },
+      h('div.cs-label', null, 'Auditing'),
+      h('div.cs-value', null, String(auOverdue || auOwnerless || auActive),
+        h('span.cs-unit', null, auOverdue ? 'overdue' : auOwnerless ? 'ownerless' : 'active')),
+      h('div.cs-sub', null,
+        auOverdue ? (auOverdue + ' overdue' + (auOwnerless ? ' · ' + auOwnerless + ' ownerless' : ''))
+        : auOwnerless ? (auOwnerless + ' app' + (auOwnerless===1?'':'s') + ' with no owner')
+        : auActive ? (auActive + ' campaign' + (auActive===1?'':'s') + ' in flight')
+        : 'all on schedule'),
+      (auOverdue || auOwnerless) ? h('div.cs-link', null, 'Open auditing') : null,
+    ));
     return strip;
   }
 
@@ -1105,6 +1198,7 @@
       const labels = Array.from(demoSet).map(k => ({
         servers: 'Servers', certs: 'Certificates', eol: 'End-of-life',
         patching: 'Patching', exclusions: 'Exclusions', health: 'Sync health',
+        disks: 'Disks', licensing: 'Licensing', auditing: 'Auditing',
       }[k] || k));
       page.appendChild(h('div.demo-ribbon-row', { role: 'status', 'aria-label': 'Some dashboard cards are showing demo data' },
         h('span.demo-ribbon', null, 'DEMO DATA'),

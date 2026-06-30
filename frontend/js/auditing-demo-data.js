@@ -120,6 +120,7 @@
       auto_launch: true,
       audit_routing_mode: 'line_manager',
       audit_due_period_days: 21,
+      audit_status: 'active',
       nominees: [],
     },
     {
@@ -133,6 +134,7 @@
       auto_launch: false,
       audit_routing_mode: 'nominees',
       audit_due_period_days: 21,
+      audit_status: 'active',
       nominees: [
         { nominee_sam: 'sara.bennett', role_note: 'Tech owner' },
         { nominee_sam: 'tom.walsh',    role_note: 'Business owner' },
@@ -150,6 +152,7 @@
       auto_launch: false,
       audit_routing_mode: 'line_manager',
       audit_due_period_days: 14, // smaller app, shorter window
+      audit_status: 'active',
       nominees: [],
     },
     {
@@ -163,6 +166,7 @@
       auto_launch: false,
       audit_routing_mode: 'line_manager',
       audit_due_period_days: 21,
+      audit_status: 'archived', // retired — demonstrates the Archived tab
       nominees: [],
     },
   ];
@@ -653,9 +657,12 @@
   function getNomineesOfApp(appId) {
     const app = getApp(appId);
     if (!app || !Array.isArray(app.nominees)) return [];
+    // Prefer the live AD record; otherwise fall back to the API-cached display
+    // name/email snapshot (kept through the reshape) so a nominee who has left AD
+    // still shows their name, not a bare sam.
     return app.nominees.map(n => ({
       ...n,
-      ...(getUser(n.nominee_sam) || { sam: n.nominee_sam, display: n.nominee_sam, email: null, enabled: false }),
+      ...(getUser(n.nominee_sam) || { sam: n.nominee_sam, display: n.nominee_display_name || n.nominee_sam, email: n.nominee_email || null, enabled: false }),
     }));
   }
 
@@ -759,8 +766,12 @@
     const SEVEN_DAYS_MS = 7 * 86400000;
     const now = Date.now();
 
-    const overdueApps = APPLICATIONS.filter(a => getAuditStatus(a.application_id).status === 'overdue');
-    const notReadyApps = APPLICATIONS.filter(a => {
+    // Archived apps are a read-only register -- they don't count toward any of
+    // the action/health tallies.
+    const liveApps = APPLICATIONS.filter(a => a.audit_status !== 'archived');
+
+    const overdueApps = liveApps.filter(a => getAuditStatus(a.application_id).status === 'overdue');
+    const notReadyApps = liveApps.filter(a => {
       if (a.audit_routing_mode !== 'nominees') return false;
       return getNomineesOfApp(a.application_id).filter(n => n.enabled).length === 0;
     });
@@ -779,7 +790,7 @@
       }
     });
 
-    const healthy = APPLICATIONS.filter(a => {
+    const healthy = liveApps.filter(a => {
       const s = getAuditStatus(a.application_id);
       if (s.status !== 'ok') return false;
       if (a.audit_routing_mode === 'nominees' && getNomineesOfApp(a.application_id).filter(n => n.enabled).length === 0) return false;
@@ -793,7 +804,7 @@
       activeCampaigns: activeCampaigns.length,
       pendingPackets,
       healthy: healthy.length,
-      total: APPLICATIONS.length,
+      total: liveApps.length,
     };
   }
 

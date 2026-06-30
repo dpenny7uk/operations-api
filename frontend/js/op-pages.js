@@ -4303,42 +4303,46 @@
       return;
     }
 
-    // Ribbon reflects live vs demo. If the auditing fetch failed (API
-    // unreachable) the demo fixture backs the page — show the red DEMO badge.
-    // When live, note that AD membership/owners are still demo until the
-    // AD-sync slice (applications + campaigns themselves are real).
+    // Ribbon reflects live vs demo. Only the API-unreachable case shows a ribbon:
+    // the demo fixture backs the whole page, flagged with the red DEMO badge. When
+    // live, everything (apps, campaigns, AD membership + owners) is real — no ribbon.
     const _audOnDemo = (typeof window !== 'undefined' && window.DEMO_WIDGETS && window.DEMO_WIDGETS.has('auditing'));
     if (_audOnDemo) {
       page.appendChild(h('div.demo-ribbon-row', { role: 'status', 'aria-label': 'Demo data' },
         h('span.demo-ribbon', null, 'DEMO DATA'),
         h('span.demo-ribbon-note', null, 'API unreachable — showing the bundled prototype fixtures, not live data.'),
       ));
-    } else {
-      page.appendChild(h('div.demo-ribbon-row', { role: 'status', 'aria-label': 'Partial live data' },
-        h('span.demo-ribbon-note', null, 'Applications & campaigns are live from the database. AD group membership & owners shown in app detail are demo until the AD-sync slice.'),
-      ));
     }
 
     // 6-cell crit strip — same shape as 05 Certificates / 06 EOL / 08 Licensing
     page.appendChild(renderAuditingCritStrip(mount));
 
-    // Tabs
+    // Tabs. Archived apps split into their own tab so the Applications list +
+    // counts stay focused on what's live.
     const activeCampaigns = D.CAMPAIGNS.filter(c => c.status === 'active').length;
+    const activeAppCount = D.APPLICATIONS.filter(a => a.audit_status !== 'archived').length;
+    const archivedAppCount = D.APPLICATIONS.filter(a => a.audit_status === 'archived').length;
     const tab = (id, label, n) => {
       const on = aState.tab === id;
       return h('button.tab'+(on?'.on':''), {
         on:{click:()=>{ aState.tab=id; aState.selectedAppId=null; aState.selectedCampaignId=null; window.RERENDER_PAGE(mount); }},
       }, label, n != null ? h('span.n', null, String(n)) : null);
     };
-    page.appendChild(h('div.tabs', null,
-      tab('apps', 'Applications', D.APPLICATIONS.length),
+    const tabs = h('div.tabs', null,
+      tab('apps', 'Applications', activeAppCount),
       tab('campaigns', 'Campaigns', D.CAMPAIGNS.length),
       tab('new', 'New campaign'),
-    ));
+    );
+    // Only surface the Archived tab once something is in it.
+    if (archivedAppCount > 0) tabs.appendChild(tab('archived', 'Archived', archivedAppCount));
+    page.appendChild(tabs);
 
     if (aState.tab === 'apps') {
       if (aState.selectedAppId) page.appendChild(renderAuditingAppDetail(mount));
-      else                       page.appendChild(renderAuditingAppsList(mount));
+      else                       page.appendChild(renderAuditingAppsList(mount, false));
+    } else if (aState.tab === 'archived') {
+      if (aState.selectedAppId) page.appendChild(renderAuditingAppDetail(mount));
+      else                       page.appendChild(renderAuditingAppsList(mount, true));
     } else if (aState.tab === 'campaigns') {
       if (aState.selectedCampaignId) page.appendChild(renderAuditingCampaignDetail(mount));
       else                            page.appendChild(renderAuditingCampaignsList(mount, activeCampaigns));
@@ -4593,23 +4597,50 @@
     return strip;
   }
 
-  function renderAuditingAppsList(mount) {
+  function renderAuditingAppsList(mount, archived) {
     const D = _audData();
     const wrap = h('div', { style:{display:'flex',flexDirection:'column',gap:'18px'} });
 
-    // Top action row — "+ Add application" toggle
-    wrap.appendChild(h('div', { style:{display:'flex',justifyContent:'flex-end'} },
-      h('button.btn', {
-        on:{click:()=>{ aState.showAddAppForm = !aState.showAddAppForm; window.RERENDER_PAGE(mount); }},
-      }, aState.showAddAppForm ? 'Cancel' : '+ Add application'),
-    ));
-    if (aState.showAddAppForm) {
-      wrap.appendChild(renderAuditingAddAppForm(mount));
+    // Active vs archived split. The action banners + "Add application" only make
+    // sense on the live list; the archived tab is a read-only register.
+    const apps = D.APPLICATIONS.filter(a => archived ? a.audit_status === 'archived' : a.audit_status !== 'archived');
+
+    if (archived) {
+      wrap.appendChild(h('div.loud-banner', { style:{background:'var(--paper-2)'} },
+        h('div.lead', null, 'Archived applications'),
+        h('div.msg', { html: 'Retired/decommissioned apps. Their attestation history is preserved here and they are excluded from the active counts and auto-launch. Open one to <b>Restore</b> or <b>Delete</b> it.' }),
+      ));
+      if (!apps.length) {
+        wrap.appendChild(h('div', { style:{padding:'24px',textAlign:'center',color:'var(--ink-3)',fontFamily:'var(--mono)',fontSize:'12px'} }, 'No archived applications.'));
+        return wrap;
+      }
+    } else {
+      // Top action row — "+ Add application" toggle
+      wrap.appendChild(h('div', { style:{display:'flex',justifyContent:'flex-end'} },
+        h('button.btn', {
+          on:{click:()=>{ aState.showAddAppForm = !aState.showAddAppForm; window.RERENDER_PAGE(mount); }},
+        }, aState.showAddAppForm ? 'Cancel' : '+ Add application'),
+      ));
+      if (aState.showAddAppForm) {
+        wrap.appendChild(renderAuditingAddAppForm(mount));
+      }
+      // Empty state — no apps registered yet (the live default). Skip the banners
+      // and the header-only table; point the user at "Add application".
+      if (!apps.length && !aState.showAddAppForm) {
+        wrap.appendChild(h('div', { style:{padding:'32px 24px',textAlign:'center',border:'1px dashed var(--rule)',display:'flex',flexDirection:'column',gap:'8px'} },
+          h('div', { style:{fontFamily:'var(--display)',fontSize:'16px',color:'var(--ink)'} }, 'No applications registered for auditing yet'),
+          h('div', { style:{fontFamily:'var(--mono)',fontSize:'11.5px',color:'var(--ink-3)',lineHeight:'1.55'} },
+            'Register an application and the AD groups that gate it, then launch campaigns that ask each group’s owner to keep or revoke every member.'),
+          h('button.btn', { style:{alignSelf:'center',marginTop:'4px'},
+            on:{click:()=>{ aState.showAddAppForm = true; window.RERENDER_PAGE(mount); }} }, '+ Add application'),
+        ));
+        return wrap;
+      }
     }
 
     // Overdue summary — apps past their next-due date and not currently active.
-    const overdueApps = D.APPLICATIONS.filter(a => D.getAuditStatus(a.application_id).status === 'overdue');
-    if (overdueApps.length) {
+    const overdueApps = apps.filter(a => D.getAuditStatus(a.application_id).status === 'overdue');
+    if (!archived && overdueApps.length) {
       const autoCount = overdueApps.filter(a => a.auto_launch).length;
       const manualCount = overdueApps.length - autoCount;
       wrap.appendChild(h('div.loud-banner.crit', null,
@@ -4625,13 +4656,13 @@
     // Launch-readiness check per app: in nominees mode, refuses if zero enabled
     // nominees; in line_manager mode, warns if a high proportion of subjects
     // have no resolvable manager (and the business_owner fallback wouldn't catch them).
-    const notReady = D.APPLICATIONS.filter(a => {
+    const notReady = apps.filter(a => {
       if (a.audit_routing_mode === 'nominees') {
         return D.getNomineesOfApp(a.application_id).filter(n => n.enabled).length === 0;
       }
       return false;
     });
-    if (notReady.length) {
+    if (!archived && notReady.length) {
       wrap.appendChild(h('div.loud-banner.warn', null,
         h('div.lead', null, 'Routing not ready'),
         h('div.msg', { html: '<b>' + notReady.length + ' application' + (notReady.length===1?'':'s') + '</b> in nominees mode have zero enabled nominees configured. Campaigns cannot be launched until at least one nominee is added.' }),
@@ -4654,7 +4685,7 @@
       h('th', null, ''),
     )));
     const tb = h('tbody');
-    for (const app of D.APPLICATIONS) {
+    for (const app of apps) {
       const totalMembers = new Set();
       app.bindings.forEach(dn => {
         D.getMembersOfGroup(dn).forEach(u => totalMembers.add(u.sam));
@@ -4746,44 +4777,70 @@
       return wrap;
     }
 
+    const isArchived = app.audit_status === 'archived';
+    const isEditing = !isArchived && aState.editingAppId === app.application_id;
+    const A = window.OC_ACTIONS;
+
+    // Header action button (shared styling). danger = red destructive accent.
+    const hdrBtn = (label, onClick, danger) => h('button', {
+      style:{padding:'6px 12px',background:'transparent',border:'1px solid '+(danger?'var(--crit)':'var(--rule)'),color:(danger?'var(--crit)':'var(--ink-3)'),cursor:'pointer',fontFamily:'var(--mono)',fontSize:'10.5px',letterSpacing:'.06em',textTransform:'uppercase'},
+      on:{click:onClick},
+    }, label);
+
+    const doDelete = () => {
+      if (!confirm('Delete "' + app.name + '"? If it has no audit history it is removed permanently; otherwise it is unregistered and its history is preserved. This cannot be undone.')) return;
+      if (A && A.deleteAuditApp) A.deleteAuditApp(app.application_id, () => { aState.selectedAppId = null; aState.editingAppId = null; });
+      else { const i = D.APPLICATIONS.findIndex(a => a.application_id === app.application_id); if (i >= 0) D.APPLICATIONS.splice(i, 1); aState.selectedAppId = null; window.RERENDER_PAGE(mount); }
+    };
+
+    const actions = h('div', { style:{marginLeft:'auto',display:'flex',gap:'8px'} });
+    if (isArchived) {
+      actions.appendChild(hdrBtn('Restore', () => {
+        if (!confirm('Restore "' + app.name + '" to active?')) return;
+        if (A && A.restoreAuditApp) A.restoreAuditApp(app.application_id);
+      }));
+      actions.appendChild(hdrBtn('Delete', doDelete, true));
+    } else {
+      actions.appendChild(hdrBtn(isEditing ? 'Close edit' : 'Edit details', () => {
+        aState.editingAppId = isEditing ? null : app.application_id; window.RERENDER_PAGE(mount);
+      }));
+      actions.appendChild(hdrBtn('Archive', () => {
+        if (!confirm('Archive "' + app.name + '"? It moves to the Archived tab, drops out of the active counts, and cannot launch campaigns until restored. Its history is kept.')) return;
+        if (A && A.archiveAuditApp) A.archiveAuditApp(app.application_id, () => { aState.selectedAppId = null; });
+      }));
+      actions.appendChild(hdrBtn('Delete', doDelete, true));
+    }
+
     wrap.appendChild(h('div', { style:{display:'flex',alignItems:'center',gap:'12px'} },
-      h('button.tab', { on:{click:()=>{ aState.selectedAppId=null; window.RERENDER_PAGE(mount); }}}, '← Back to applications'),
+      h('button.tab', { on:{click:()=>{ aState.selectedAppId=null; aState.editingAppId=null; window.RERENDER_PAGE(mount); }}}, '← Back'),
       h('span', { style:{fontFamily:'var(--display)',fontSize:'22px',color:'var(--ink)'} }, app.name),
-      h('button', {
-        style:{marginLeft:'auto',padding:'6px 12px',background:'transparent',border:'1px solid var(--rule)',color:'var(--ink-3)',cursor:'pointer',fontFamily:'var(--mono)',fontSize:'10.5px',letterSpacing:'.06em',textTransform:'uppercase'},
-        on:{click:()=>{
-          if (!confirm('Unregister "' + app.name + '" from auditing? This clears its audit config, bindings and nominees. The application record itself is preserved.')) return;
-          const A = window.OC_ACTIONS;
-          if (A && A.deleteAuditApp) {
-            A.deleteAuditApp(app.application_id, () => { aState.selectedAppId = null; });
-          } else {
-            const i = D.APPLICATIONS.findIndex(a => a.application_id === app.application_id);
-            if (i >= 0) D.APPLICATIONS.splice(i, 1);
-            aState.selectedAppId = null;
-            window.RERENDER_PAGE(mount);
-          }
-        }},
-      }, 'Unregister'),
+      isArchived ? h('span.chip.neutral', { style:{letterSpacing:'.08em'} }, 'Archived') : null,
+      actions,
     ));
 
-    const meta = h('div', { style:{display:'flex',flexWrap:'wrap',gap:'20px',fontFamily:'var(--mono)',fontSize:'11.5px',color:'var(--ink-2)'} },
-      h('span', null, 'Business owner: ', h('b', { style:{color:'var(--ink)'} }, (D.getUser(app.business_owner) || {}).display || '—')),
-      h('span', null, 'Technical owner: ', h('b', { style:{color:'var(--ink)'} }, (D.getUser(app.technical_owner) || {}).display || '—')),
-      h('span', null, 'Support: ', h('b', { style:{color:'var(--ink)'} }, app.support_email || '—')),
-    );
-    wrap.appendChild(meta);
+    if (isEditing) {
+      wrap.appendChild(renderAuditingAppEditForm(mount, app));
+    } else {
+      wrap.appendChild(h('div', { style:{display:'flex',flexWrap:'wrap',gap:'20px',fontFamily:'var(--mono)',fontSize:'11.5px',color:'var(--ink-2)'} },
+        h('span', null, 'Business owner: ', h('b', { style:{color:'var(--ink)'} }, (D.getUser(app.business_owner) || {}).display || app.business_owner || '—')),
+        h('span', null, 'Technical owner: ', h('b', { style:{color:'var(--ink)'} }, (D.getUser(app.technical_owner) || {}).display || app.technical_owner || '—')),
+        h('span', null, 'Support: ', h('b', { style:{color:'var(--ink)'} }, app.support_email || '—')),
+      ));
+    }
 
-    // Attestation routing panel (line manager vs nominees)
-    wrap.appendChild(renderAuditingAppRouting(mount, app));
+    // Live config controls only on active apps; archived apps are a read-only register.
+    if (!isArchived) {
+      // Attestation routing panel (line manager vs nominees)
+      wrap.appendChild(renderAuditingAppRouting(mount, app));
+      // Audit cadence & automation panel
+      wrap.appendChild(renderAuditingAppCadence(mount, app));
+    }
 
-    // Audit cadence & automation panel
-    wrap.appendChild(renderAuditingAppCadence(mount, app));
-
-    // Audit history (past campaigns)
+    // Audit history (past campaigns) — always shown; the whole point of archiving.
     wrap.appendChild(renderAuditingAppHistory(mount, app));
 
-    // Bound groups section header + "Bind a group" control
-    wrap.appendChild(renderAuditingAppBindingControls(mount, app));
+    // Bound groups section header + "Bind a group" control (active apps only)
+    if (!isArchived) wrap.appendChild(renderAuditingAppBindingControls(mount, app));
 
     // Per-group panel: members + owners (informational only — managedBy is
     // no longer used for routing as of 2026-05-29 routing-model change).
@@ -4799,7 +4856,7 @@
         owners.length === 0
           ? h('span.chip.neutral', null, 'No managedBy set')
           : h('span.chip.neutral', null, owners.length + ' owner' + (owners.length === 1 ? '' : 's') + ' (info only)'),
-        h('button', {
+        isArchived ? null : h('button', {
           style:{marginLeft:'auto',padding:'4px 10px',background:'transparent',border:'1px solid var(--rule)',color:'var(--ink-3)',cursor:'pointer',fontFamily:'var(--mono)',fontSize:'10.5px',letterSpacing:'.06em',textTransform:'uppercase'},
           on:{click:()=>{
             const A = window.OC_ACTIONS;
@@ -4857,11 +4914,106 @@
     return wrap;
   }
 
+  // In-place edit of the fields the "Add application" form sets but the detail
+  // page otherwise leaves read-only: name, owners, support email. Saves via
+  // OC_ACTIONS.patchAuditApp (the API already accepts these); a duplicate name
+  // surfaces the backend 409. State is keyed per app id so it survives re-renders.
+  function renderAuditingAppEditForm(mount, app) {
+    const D = _audData();
+    renderAuditingAppEditForm._s = renderAuditingAppEditForm._s || {};
+    const st = renderAuditingAppEditForm._s[app.application_id] || (renderAuditingAppEditForm._s[app.application_id] = {
+      name: app.name || '',
+      business_owner: app.business_owner || '',
+      technical_owner: app.technical_owner || '',
+      support_email: app.support_email || '',
+      _bo: { q:'', sam: app.business_owner || '', display: (D.getUser(app.business_owner) || {}).display || app.business_owner || null },
+      _to: { q:'', sam: app.technical_owner || '', display: (D.getUser(app.technical_owner) || {}).display || app.technical_owner || null },
+    });
+
+    const labelStyle = { fontFamily:'var(--mono)',fontSize:'10px',letterSpacing:'.1em',textTransform:'uppercase',color:'var(--ink-3)' };
+    const inputStyle = { padding:'8px 10px',border:'1px solid var(--rule)',background:'var(--card)',fontFamily:'inherit',fontSize:'13px',color:'var(--ink)' };
+    const fieldStyle = { display:'flex',flexDirection:'column',gap:'4px' };
+
+    const wrap = h('div', { style:{border:'1px solid var(--rule)',background:'var(--card)',padding:'20px 22px',display:'flex',flexDirection:'column',gap:'14px'} });
+    wrap.appendChild(h('div', { style:{fontFamily:'var(--mono)',fontSize:'10px',letterSpacing:'.12em',textTransform:'uppercase',color:'var(--ink-3)'} }, 'Edit application details'));
+
+    const grid = h('div', { style:{display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(220px, 1fr))',gap:'12px'} });
+    grid.appendChild(h('label', { style: fieldStyle },
+      h('span', { style: labelStyle }, 'Application name *'),
+      h('input', { 'data-fk':'aud-edit-name-'+app.application_id, type:'text', style: inputStyle, value: st.name,
+        on:{input:(e)=>{ st.name = e.target.value; }}}),
+    ));
+    grid.appendChild(h('div', { style: fieldStyle },
+      h('span', { style: labelStyle }, 'Business owner'),
+      _renderUserSearch(mount, st._bo, 'aud-bo-edit-'+app.application_id, 'Search business owner', (sam) => { st.business_owner = sam; }),
+    ));
+    grid.appendChild(h('div', { style: fieldStyle },
+      h('span', { style: labelStyle }, 'Technical owner'),
+      _renderUserSearch(mount, st._to, 'aud-to-edit-'+app.application_id, 'Search technical owner', (sam) => { st.technical_owner = sam; }),
+    ));
+    grid.appendChild(h('label', { style: fieldStyle },
+      h('span', { style: labelStyle }, 'Support email'),
+      h('input', { 'data-fk':'aud-edit-email-'+app.application_id, type:'text', style: inputStyle, value: st.support_email,
+        on:{input:(e)=>{ st.support_email = e.target.value; }}}),
+    ));
+    wrap.appendChild(grid);
+
+    const canSave = !!st.name.trim();
+    wrap.appendChild(h('div', { style:{display:'flex',gap:'8px'} },
+      h('button.btn', {
+        style: canSave ? null : { opacity: 0.5, cursor:'not-allowed' },
+        on:{click:()=>{
+          if (!canSave) return;
+          const done = () => { delete renderAuditingAppEditForm._s[app.application_id]; aState.editingAppId = null; window.RERENDER_PAGE(mount); };
+          const payload = {
+            name: st.name.trim(),
+            business_owner: st.business_owner || null,
+            technical_owner: st.technical_owner || null,
+            support_email: st.support_email.trim() || null,
+          };
+          const A = window.OC_ACTIONS;
+          if (A && A.patchAuditApp) {
+            A.patchAuditApp(app.application_id, payload, done, (m) => alert(m));
+          } else {
+            app.name = payload.name; app.business_owner = payload.business_owner || '';
+            app.technical_owner = payload.technical_owner || ''; app.support_email = payload.support_email || '';
+            done();
+          }
+        }},
+      }, 'Save changes'),
+      h('button', {
+        style:{padding:'8px 14px',background:'transparent',border:'1px solid var(--rule)',color:'var(--ink-3)',cursor:'pointer',fontFamily:'var(--mono)',fontSize:'11px',letterSpacing:'.06em',textTransform:'uppercase'},
+        on:{click:()=>{ delete renderAuditingAppEditForm._s[app.application_id]; aState.editingAppId = null; window.RERENDER_PAGE(mount); }},
+      }, 'Cancel'),
+    ));
+    return wrap;
+  }
+
+  // Freshness of the AD membership sync for an app's bound groups. Null while on
+  // the demo fixture (not a real sync). Warns "stale" past the sync's 26h max-age,
+  // and "not synced" when the sync hasn't populated these groups yet.
+  function _rosterFreshnessChip(app) {
+    const onDemo = (typeof window !== 'undefined' && window.DEMO_WIDGETS && window.DEMO_WIDGETS.has('auditing'));
+    if (onDemo) return null;
+    const ts = app.rosters_synced_at;
+    if (!ts) return h('span.chip.warn', { title: 'The AD membership sync has not populated these groups yet — rosters below may be empty.' }, 'rosters not synced');
+    const ms = Date.now() - new Date(ts).getTime();
+    const hrs = ms / 3600000;
+    const rel = hrs < 1 ? Math.max(1, Math.round(ms / 60000)) + 'm ago'
+              : hrs < 48 ? Math.round(hrs) + 'h ago'
+              : Math.round(hrs / 24) + 'd ago';
+    const stale = hrs > 26; // matches auditing_ad_sync max_age_hours
+    return h('span' + (stale ? '.chip.warn' : '.chip.neutral'),
+      { title: 'AD rosters last synced ' + new Date(ts).toLocaleString() + (stale ? ' — the daily sync may have stalled' : '') },
+      'rosters synced ' + rel + (stale ? ' · stale' : ''));
+  }
+
   function renderAuditingAppBindingControls(mount, app) {
     const wrap = h('div', { style:{display:'flex',flexDirection:'column',gap:'10px'} });
     wrap.appendChild(h('div', { style:{display:'flex',alignItems:'center',gap:'12px'} },
       h('span', { style:{fontFamily:'var(--mono)',fontSize:'10px',letterSpacing:'.12em',textTransform:'uppercase',color:'var(--ink-3)'} }, 'Bound AD groups'),
       h('span', { style:{fontFamily:'var(--mono)',fontSize:'11px',color:'var(--ink-3)'} }, app.bindings.length + ' bound'),
+      _rosterFreshnessChip(app),
     ));
 
     // Per-app search state (keyed so multiple apps don't clobber each other)
@@ -5315,8 +5467,8 @@
 
     panel.appendChild(h('div', { style:{fontFamily:'var(--mono)',fontSize:'11px',color:'var(--ink-3)',lineHeight:'1.55',borderTop:'1px solid var(--rule)',paddingTop:'10px'} },
       app.auto_launch
-        ? 'When the next-due date is reached, the audit will be launched automatically using the routing mode configured above. (Phase 1: BackgroundService nightly tick.)'
-        : 'You will need to manually launch the next audit from the Campaigns tab when due. Enable Auto-launch above to have the system kick it off automatically using the configured routing mode.',
+        ? 'When the next-due date is reached, the scheduled job launches the audit automatically using the routing mode above. Requires the auditing scheduler to be enabled by an admin (Auditing:Scheduler:Enabled); otherwise launch manually from the Campaigns tab.'
+        : 'You will need to manually launch the next audit from the Campaigns tab when due. Enable Auto-launch above (and the auditing scheduler) to have the system kick it off automatically using the configured routing mode.',
     ));
 
     return panel;
@@ -5389,9 +5541,80 @@
     return panel;
   }
 
+  // Compliance evidence for one campaign: one row per (recipient, subject) with the
+  // keep/revoke decision (or 'pending'), who attested, and when. This is the artifact
+  // an auditor asks for, so it includes outstanding (unresponded) reviewers too.
+  function _auditingCampaignDecisionRows(c) {
+    const D = _audData();
+    const app = D.getApp(c.application_id);
+    const appName = (app && app.name) || c.application_name || '';
+    const rows = [];
+    for (const p of D.getPacketsOfCampaign(c.campaign_id)) {
+      const decBySam = {};
+      D.getDecisionsByPacket(p.packet_id).forEach(d => { decBySam[d.subject_sam] = d; });
+      for (const s of (p.subjects || [])) {
+        const sam = (typeof s === 'string') ? s : (s.subject_sam || s.sam || '');
+        const u = D.getUser(sam) || {};
+        const d = decBySam[sam];
+        rows.push({
+          campaign: c.name,
+          application: appName,
+          status: c.status,
+          due: c.due_at || '',
+          recipient: p.recipient_display || p.recipient_sam || '',
+          recipient_kind: p.recipient_kind || '',
+          subject: u.display || sam,
+          subject_sam: sam,
+          subject_email: u.email || '',
+          decision: d ? d.decision : 'pending',
+          comment: (d && d.comment) || '',
+          submitted_by: p.submitted_by_display || '',
+          submitted_at: p.submitted_at || '',
+        });
+      }
+    }
+    return rows;
+  }
+
+  const AUDIT_DECISION_COLS = ['campaign','application','status','due','recipient','recipient_kind','subject','subject_sam','subject_email','decision','comment','submitted_by','submitted_at'];
+
+  // Slug a campaign/file name for the download (ASCII, dash-separated).
+  function _auditSlug(s) {
+    return (String(s || '').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase()) || 'campaign';
+  }
+
+  // Overview export of every campaign (one row each) for the campaigns list.
+  function _auditingCampaignSummaryRows() {
+    const D = _audData();
+    return D.CAMPAIGNS.map(c => {
+      const prog = D.getCampaignProgress(c.campaign_id);
+      return {
+        campaign: c.name,
+        application: c.application_name || '',
+        status: c.status,
+        routing: c.routing_mode || '',
+        due: c.due_at || '',
+        submitted: prog.submitted,
+        total: prog.total,
+        launched_by: c.created_by || '',
+        launched_at: c.created_at || '',
+        closed_at: c.closed_at || '',
+      };
+    });
+  }
+
   function renderAuditingCampaignsList(mount) {
     const D = _audData();
     const wrap = h('div', { style:{display:'flex',flexDirection:'column',gap:'18px'} });
+
+    if (D.CAMPAIGNS.length) {
+      wrap.appendChild(h('div', { style:{display:'flex',justifyContent:'flex-end'} },
+        h('button.btn', { on:{click:()=>{
+          exportCsv('attestation-campaigns', _auditingCampaignSummaryRows(),
+            ['campaign','application','status','routing','due','submitted','total','launched_by','launched_at','closed_at']);
+        }} }, 'Export CSV'),
+      ));
+    }
 
     const tblWrap = h('div.table-wrap');
     const tbl = h('table.op');
@@ -5448,9 +5671,18 @@
       c.status === 'active'
         ? h('span.chip.warn', null, h('span.dot'), 'Active')
         : h('span.chip.ok', null, h('span.dot'), 'Closed'),
+      // Export CSV — always available; closed campaigns are the compliance evidence.
+      h('button', {
+        style:{marginLeft:'auto',padding:'6px 12px',background:'transparent',border:'1px solid var(--rule)',color:'var(--ink-3)',cursor:'pointer',fontFamily:'var(--mono)',fontSize:'10.5px',letterSpacing:'.06em',textTransform:'uppercase'},
+        on:{click:()=>{
+          const rows = _auditingCampaignDecisionRows(c);
+          if (!rows.length) { alert('No attestation rows to export yet.'); return; }
+          exportCsv('attestation-' + _auditSlug(c.name), rows, AUDIT_DECISION_COLS);
+        }},
+      }, 'Export CSV'),
       c.status === 'active'
         ? h('button', {
-            style:{marginLeft:'auto',padding:'6px 12px',background:'transparent',border:'1px solid var(--rule)',color:'var(--ink-3)',cursor:'pointer',fontFamily:'var(--mono)',fontSize:'10.5px',letterSpacing:'.06em',textTransform:'uppercase'},
+            style:{padding:'6px 12px',background:'transparent',border:'1px solid var(--rule)',color:'var(--ink-3)',cursor:'pointer',fontFamily:'var(--mono)',fontSize:'10.5px',letterSpacing:'.06em',textTransform:'uppercase'},
             on:{click:()=>{
               const A = window.OC_ACTIONS;
               if (A && A.remindAuditCampaign) { A.remindAuditCampaign(c.campaign_id); }
@@ -5545,7 +5777,22 @@
         h('td.muted', null, p.submitted_by_display || '—'),
         h('td.mono.muted', null, _fmtDateTime(p.submitted_at)),
         h('td.num', null, submitted ? (summary.keep + ' keep / ' + summary.revoke + ' revoke') : '—'),
-        h('td.mono.muted', null, p.reminder_sent_at ? _fmtDate(p.reminder_sent_at) : (c.status === 'active' ? 'Not yet' : '—')),
+        h('td.mono.muted', null, h('div', { style:{display:'flex',alignItems:'center',gap:'8px'} },
+          h('span', null, p.reminder_sent_at ? _fmtDate(p.reminder_sent_at) : (c.status === 'active' ? 'Not yet' : '—')),
+          (c.status === 'active' && !submitted && !isClosedByOther && p.packet_id)
+            ? h('button', {
+                style:{padding:'3px 9px',background:'transparent',border:'1px solid var(--rule)',color:'var(--ink-3)',cursor:'pointer',fontFamily:'var(--mono)',fontSize:'10px',letterSpacing:'.06em',textTransform:'uppercase'},
+                on:{click:(e)=>{
+                  e.preventDefault();
+                  if (!confirm('Resend the attestation invite to ' + p.recipient_display + '?')) return;
+                  const A = window.OC_ACTIONS;
+                  if (A && A.remindAuditPacket) {
+                    A.remindAuditPacket(c.campaign_id, p.packet_id, () => {}, (m) => alert(m));
+                  } else { alert('Resending needs the API.'); }
+                }},
+              }, p.reminder_sent_at ? 'Resend' : 'Send')
+            : null,
+        )),
         h('td', null, p.packet_id
           ? h('a', { href:'/attest.html?p=' + encodeURIComponent(p.packet_id), target:'_blank', rel:'noopener',
               style:{fontFamily:'var(--mono)',fontSize:'11px',color:'var(--ink-2)'} }, 'Open link ↗')
@@ -5611,23 +5858,26 @@
     const D = _audData();
     const wrap = h('div', { style:{display:'flex',flexDirection:'column',gap:'18px',maxWidth:'720px'} });
 
-    if (!D.APPLICATIONS.length) {
+    // Archived apps can't launch campaigns (the backend refuses), so keep them
+    // out of the picker entirely.
+    const apps = D.APPLICATIONS.filter(a => a.audit_status !== 'archived');
+    if (!apps.length) {
       wrap.appendChild(h('div', { style:{padding:'18px',border:'1px dashed var(--rule)',fontFamily:'var(--mono)',fontSize:'12px',color:'var(--ink-3)',textAlign:'center'} },
         'No applications registered for auditing yet. Add one from the Applications tab first.'));
       return wrap;
     }
     const formState = renderAuditingNewCampaign._s || (renderAuditingNewCampaign._s = {
-      application_id: D.APPLICATIONS[0].application_id,
+      application_id: apps[0].application_id,
       name: '',
       due_at: '',
       // Routing semantics come from the app config; no per-launch overrides yet.
     });
-    // Data may have refreshed since the form state was created — keep the
-    // selected application pointing at one that still exists.
-    if (!D.getApp(formState.application_id)) formState.application_id = D.APPLICATIONS[0].application_id;
+    // Data may have refreshed since the form state was created — keep the selected
+    // application pointing at one that still exists and isn't archived.
+    if (!apps.some(a => a.application_id === formState.application_id)) formState.application_id = apps[0].application_id;
 
     wrap.appendChild(h('div', { style:{fontFamily:'var(--mono)',fontSize:'11.5px',color:'var(--ink-2)',lineHeight:'1.55'} },
-      'Pick an application and a due date. Phase 0: this form does NOT launch anything — it just shows what the launch UX will look like once the API is wired up.',
+      'Pick an application and a due date, then launch. This creates the campaign, generates each reviewer’s attestation packet, and (when SMTP is configured) emails the invites. One open campaign per application at a time.',
     ));
 
     const fieldStyle = { display:'flex',flexDirection:'column',gap:'6px' };
@@ -5639,7 +5889,7 @@
       h('span', { style: labelStyle }, 'Application'),
       h('select', { 'data-fk':'audit-new-app', style: inputStyle, value: String(formState.application_id),
         on:{change:(e)=>{ formState.application_id = parseInt(e.target.value, 10); window.RERENDER_PAGE(mount); }},
-      }, D.APPLICATIONS.map(a => h('option', { value: String(a.application_id), selected: a.application_id === formState.application_id }, a.name))),
+      }, apps.map(a => h('option', { value: String(a.application_id), selected: a.application_id === formState.application_id }, a.name))),
     ));
 
     // Campaign name

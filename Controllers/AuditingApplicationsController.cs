@@ -81,26 +81,75 @@ public class AuditingApplicationsController : ControllerBase
     [ProducesResponseType(404)]
     public async Task<IActionResult> UpdateApplication(int id, [FromBody] AppPatchRequest req)
     {
-        var error = ValidateApp(name: null, req.BusinessOwner, req.TechnicalOwner, req.SupportEmail,
+        var error = ValidateApp(req.Name, req.BusinessOwner, req.TechnicalOwner, req.SupportEmail,
             req.AuditRoutingMode, req.AuditFrequencyMonths, req.AuditDuePeriodDays, nameRequired: false);
         if (error != null) return BadRequest(error);
 
         var actor = User.Identity?.Name ?? "unknown";
-        var updated = await _svc.PatchApplicationAsync(id, req, actor);
-        return updated == null ? NotFound() : Ok(updated);
+        try
+        {
+            var updated = await _svc.PatchApplicationAsync(id, req, actor);
+            return updated == null ? NotFound() : Ok(updated);
+        }
+        catch (ConflictException ex)
+        {
+            return Conflict(ex.Message);
+        }
     }
 
-    /// <summary>Unregister an application from auditing (clears config, deactivates
-    /// bindings, removes nominees; the shared application row is preserved). Requires OpsAdmin role.</summary>
+    /// <summary>Archive (retire) an application. Keeps its config + attestation history but
+    /// moves it out of the active list and blocks new campaigns. Requires OpsAdmin role.</summary>
+    [HttpPost("applications/{id}/archive")]
+    [Authorize(Policy = "OpsAdmin")]
+    [ProducesResponseType(200)]
+    [ProducesResponseType(404)]
+    [ProducesResponseType(409)]
+    public async Task<IActionResult> ArchiveApplication(int id)
+    {
+        var actor = User.Identity?.Name ?? "unknown";
+        try
+        {
+            var archived = await _svc.ArchiveApplicationAsync(id, actor);
+            return archived == null ? NotFound() : Ok(archived);
+        }
+        catch (ConflictException ex)
+        {
+            return Conflict(ex.Message);
+        }
+    }
+
+    /// <summary>Restore an archived application back to active. Requires OpsAdmin role.</summary>
+    [HttpPost("applications/{id}/restore")]
+    [Authorize(Policy = "OpsAdmin")]
+    [ProducesResponseType(200)]
+    [ProducesResponseType(404)]
+    public async Task<IActionResult> RestoreApplication(int id)
+    {
+        var actor = User.Identity?.Name ?? "unknown";
+        var restored = await _svc.RestoreApplicationAsync(id, actor);
+        return restored == null ? NotFound() : Ok(restored);
+    }
+
+    /// <summary>Delete an application: hard-deletes the row when it was auditing-created and
+    /// nothing references it, else soft-unregisters (clears config, deactivates bindings,
+    /// removes nominees; shared row preserved). 409 if an open campaign exists. Requires OpsAdmin role.</summary>
     [HttpDelete("applications/{id}")]
     [Authorize(Policy = "OpsAdmin")]
     [ProducesResponseType(200)]
     [ProducesResponseType(404)]
+    [ProducesResponseType(409)]
     public async Task<IActionResult> DeleteApplication(int id)
     {
         var actor = User.Identity?.Name ?? "unknown";
-        var removed = await _svc.DeleteApplicationAsync(id, actor);
-        return removed ? Ok() : NotFound();
+        try
+        {
+            var removed = await _svc.DeleteApplicationAsync(id, actor);
+            return removed ? Ok() : NotFound();
+        }
+        catch (ConflictException ex)
+        {
+            return Conflict(ex.Message);
+        }
     }
 
     // ── Bindings ─────────────────────────────────────────────────────
@@ -141,11 +190,19 @@ public class AuditingApplicationsController : ControllerBase
     [Authorize(Policy = "OpsAdmin")]
     [ProducesResponseType(200)]
     [ProducesResponseType(404)]
+    [ProducesResponseType(409)]
     public async Task<IActionResult> RemoveBinding(int id, int bindingId)
     {
         var actor = User.Identity?.Name ?? "unknown";
-        var removed = await _svc.RemoveBindingAsync(id, bindingId, actor);
-        return removed ? Ok() : NotFound();
+        try
+        {
+            var removed = await _svc.RemoveBindingAsync(id, bindingId, actor);
+            return removed ? Ok() : NotFound();
+        }
+        catch (ConflictException ex)
+        {
+            return Conflict(ex.Message);
+        }
     }
 
     // ── Nominees ─────────────────────────────────────────────────────
@@ -188,10 +245,18 @@ public class AuditingApplicationsController : ControllerBase
     [Authorize(Policy = "OpsAdmin")]
     [ProducesResponseType(200)]
     [ProducesResponseType(404)]
+    [ProducesResponseType(409)]
     public async Task<IActionResult> RemoveNominee(int id, int nomineeId)
     {
-        var removed = await _svc.RemoveNomineeAsync(id, nomineeId);
-        return removed ? Ok() : NotFound();
+        try
+        {
+            var removed = await _svc.RemoveNomineeAsync(id, nomineeId);
+            return removed ? Ok() : NotFound();
+        }
+        catch (ConflictException ex)
+        {
+            return Conflict(ex.Message);
+        }
     }
 
     // Shared application-field validation for create + patch. Returns an error or null.

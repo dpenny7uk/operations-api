@@ -130,6 +130,60 @@ public class AuditingApplicationsControllerTests
         Assert.IsType<OkResult>(await Controller().DeleteApplication(3));
     }
 
+    [Fact]
+    public async Task DeleteApplication_returns_Conflict_when_open_campaign()
+    {
+        _svc.Setup(s => s.DeleteApplicationAsync(3, It.IsAny<string>()))
+            .ThrowsAsync(new ConflictException("open campaign"));
+        Assert.IsType<ConflictObjectResult>(await Controller().DeleteApplication(3));
+    }
+
+    [Fact]
+    public async Task UpdateApplication_returns_Conflict_on_duplicate_name()
+    {
+        _svc.Setup(s => s.PatchApplicationAsync(5, It.IsAny<AppPatchRequest>(), It.IsAny<string>()))
+            .ThrowsAsync(new ConflictException("duplicate name"));
+        Assert.IsType<ConflictObjectResult>(await Controller().UpdateApplication(5, new AppPatchRequest { Name = "Dup" }));
+    }
+
+    // ── Archive / restore ────────────────────────────────────────────
+
+    [Fact]
+    public async Task ArchiveApplication_returns_NotFound_when_missing()
+    {
+        _svc.Setup(s => s.ArchiveApplicationAsync(9, It.IsAny<string>())).ReturnsAsync((AuditApplicationDetail?)null);
+        Assert.IsType<NotFoundResult>(await Controller().ArchiveApplication(9));
+    }
+
+    [Fact]
+    public async Task ArchiveApplication_returns_Ok_with_app()
+    {
+        _svc.Setup(s => s.ArchiveApplicationAsync(5, It.IsAny<string>())).ReturnsAsync(SampleApp(5));
+        Assert.IsType<OkObjectResult>(await Controller().ArchiveApplication(5));
+    }
+
+    [Fact]
+    public async Task ArchiveApplication_returns_Conflict_when_open_campaign()
+    {
+        _svc.Setup(s => s.ArchiveApplicationAsync(5, It.IsAny<string>()))
+            .ThrowsAsync(new ConflictException("open campaign"));
+        Assert.IsType<ConflictObjectResult>(await Controller().ArchiveApplication(5));
+    }
+
+    [Fact]
+    public async Task RestoreApplication_returns_NotFound_when_missing()
+    {
+        _svc.Setup(s => s.RestoreApplicationAsync(9, It.IsAny<string>())).ReturnsAsync((AuditApplicationDetail?)null);
+        Assert.IsType<NotFoundResult>(await Controller().RestoreApplication(9));
+    }
+
+    [Fact]
+    public async Task RestoreApplication_returns_Ok_with_app()
+    {
+        _svc.Setup(s => s.RestoreApplicationAsync(5, It.IsAny<string>())).ReturnsAsync(SampleApp(5));
+        Assert.IsType<OkObjectResult>(await Controller().RestoreApplication(5));
+    }
+
     // ── Bindings ─────────────────────────────────────────────────────
 
     [Fact]

@@ -29,6 +29,7 @@ public class AuditApplication
     [JsonPropertyName("auto_launch")] public bool AutoLaunch { get; set; }
     [JsonPropertyName("audit_routing_mode")] public string AuditRoutingMode { get; set; } = "line_manager";
     [JsonPropertyName("audit_due_period_days")] public int AuditDuePeriodDays { get; set; }
+    [JsonPropertyName("audit_status")] public string AuditStatus { get; set; } = "active";
     [JsonPropertyName("binding_count")] public int BindingCount { get; set; }
     [JsonPropertyName("nominee_count")] public int NomineeCount { get; set; }
 }
@@ -38,9 +39,14 @@ public class AuditApplicationDetail : AuditApplication
 {
     [JsonPropertyName("bindings")] public List<AuditBinding> Bindings { get; set; } = new();
     [JsonPropertyName("nominees")] public List<AuditNominee> Nominees { get; set; } = new();
+    /// <summary>Freshest AD-sync timestamp across this app's bound groups' memberships
+    /// (null = no roster synced yet). Lets the UI flag a stale/failed sync.</summary>
+    [JsonPropertyName("rosters_synced_at")] public DateTime? RostersSyncedAt { get; set; }
 }
 
-/// <summary>An AD group binding that gates an application.</summary>
+/// <summary>An AD group binding that gates an application. Members + owners are
+/// the live roster from the auditing_ad_sync tables (empty on the just-created
+/// binding row returned by AddBinding; populated on the app-detail load).</summary>
 public class AuditBinding
 {
     [JsonPropertyName("binding_id")] public int BindingId { get; set; }
@@ -49,6 +55,29 @@ public class AuditBinding
     [JsonPropertyName("group_sam")] public string? GroupSam { get; set; }
     [JsonPropertyName("group_type")] public string? GroupType { get; set; }
     [JsonPropertyName("is_active")] public bool IsActive { get; set; }
+    [JsonPropertyName("members")] public List<AuditGroupMember> Members { get; set; } = new();
+    [JsonPropertyName("owners")] public List<AuditGroupOwner> Owners { get; set; } = new();
+}
+
+/// <summary>A current member of a bound AD group (from the auditing_ad_sync
+/// membership sync). manager_sam drives line-manager routing.</summary>
+public class AuditGroupMember
+{
+    [JsonPropertyName("sam_account")] public string SamAccount { get; set; } = "";
+    [JsonPropertyName("display_name")] public string? DisplayName { get; set; }
+    [JsonPropertyName("email")] public string? Email { get; set; }
+    [JsonPropertyName("enabled")] public bool Enabled { get; set; } = true;
+    [JsonPropertyName("manager_sam")] public string? ManagerSam { get; set; }
+}
+
+/// <summary>An owner of a bound AD group (managedBy / m365 owner). Informational
+/// only -- the business confirmed managedBy is unreliable, so it never routes.</summary>
+public class AuditGroupOwner
+{
+    [JsonPropertyName("owner_sam")] public string OwnerSam { get; set; } = "";
+    [JsonPropertyName("owner_display_name")] public string? OwnerDisplayName { get; set; }
+    [JsonPropertyName("owner_email")] public string? OwnerEmail { get; set; }
+    [JsonPropertyName("source")] public string? Source { get; set; }
 }
 
 /// <summary>A picked attestation recipient (nominees-mode apps).</summary>
@@ -161,6 +190,7 @@ public class AppCreateRequest
 /// <summary>Partial update of an application's audit config. Null = unchanged.</summary>
 public class AppPatchRequest
 {
+    [JsonPropertyName("name")] public string? Name { get; set; }
     [JsonPropertyName("business_owner")] public string? BusinessOwner { get; set; }
     [JsonPropertyName("technical_owner")] public string? TechnicalOwner { get; set; }
     [JsonPropertyName("support_email")] public string? SupportEmail { get; set; }

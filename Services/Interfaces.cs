@@ -113,9 +113,15 @@ public interface IAuditingService
     Task<AuditApplicationDetail?> GetApplicationAsync(int id);
     Task<AuditApplicationDetail> CreateApplicationAsync(AppCreateRequest req, string actor);
     Task<AuditApplicationDetail?> PatchApplicationAsync(int id, AppPatchRequest req, string actor);
-    // "Unregister from auditing": clears the app's audit config + deactivates its
-    // bindings + removes nominees. The shared.applications row is preserved (it may
-    // back servers/other features). Returns false if the app doesn't exist.
+    // Archive/restore the retire lifecycle: archived apps keep their config + history
+    // but move to the Archived tab and can't launch campaigns. Archive throws
+    // ConflictException if an open campaign exists; both return null if the app is missing.
+    Task<AuditApplicationDetail?> ArchiveApplicationAsync(int id, string actor);
+    Task<AuditApplicationDetail?> RestoreApplicationAsync(int id, string actor);
+    // Delete: hard-deletes the shared.applications row when it was auditing-created and
+    // nothing references it (campaigns/licences/servers); otherwise soft-unregisters
+    // (clears audit config + deactivates bindings + removes nominees), preserving the
+    // row + history. Throws ConflictException if an open campaign exists; false if missing.
     Task<bool> DeleteApplicationAsync(int id, string actor);
 
     // Bindings: returns null if the application doesn't exist; throws ConflictException
@@ -152,4 +158,15 @@ public interface ICampaignService
     // Re-sends the attestation link to every not-yet-submitted packet of an active
     // campaign, stamps reminder_sent_at, and logs each send. Returns the count sent.
     Task<int> RemindAsync(int campaignId, string actor);
+    // Re-sends the attestation link to a single recipient (packet) of an active
+    // campaign. Returns 1 if sent; throws ConflictException if already submitted/not found.
+    Task<int> RemindPacketAsync(int campaignId, Guid packetId, string actor);
+
+    // ── Scheduled automation (AuditingSchedulerService) ──
+    // Launches a campaign for every active auto_launch app that is due per its cadence
+    // and has no open campaign; best-effort per app, logged to auto_launch_log. Count launched.
+    Task<int> AutoLaunchDueAsync(string actor);
+    // Sends one reminder per never-reminded outstanding packet in active campaigns due
+    // within windowDays (deduped on reminder_sent_at). Returns the count sent.
+    Task<int> SendDueRemindersAsync(int windowDays);
 }
