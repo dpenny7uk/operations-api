@@ -31,7 +31,11 @@ public class AuditingService : BaseService<AuditingService>, IAuditingService
         a.application_id AS ApplicationId,
         a.application_name AS Name,
         a.business_owner AS BusinessOwner,
+        COALESCE(a.business_owner_display,
+                 (SELECT u.display_name FROM auditing.ad_users u WHERE u.sam_account = a.business_owner)) AS BusinessOwnerDisplay,
         a.technical_owner AS TechnicalOwner,
+        COALESCE(a.technical_owner_display,
+                 (SELECT u.display_name FROM auditing.ad_users u WHERE u.sam_account = a.technical_owner)) AS TechnicalOwnerDisplay,
         a.support_email AS SupportEmail,
         a.audit_frequency_months AS AuditFrequencyMonths,
         a.auto_launch AS AutoLaunch,
@@ -85,11 +89,13 @@ public class AuditingService : BaseService<AuditingService>, IAuditingService
     {
         var id = await TranslateConflict(() => Db.ExecuteScalarAsync<int>($@"
             INSERT INTO {Sql.Tables.Applications}
-                (application_name, business_owner, technical_owner, support_email,
+                (application_name, business_owner, business_owner_display,
+                 technical_owner, technical_owner_display, support_email,
                  audit_frequency_months, auto_launch, audit_routing_mode, audit_due_period_days,
                  source_system, is_active)
             VALUES
-                (@Name, @BusinessOwner, @TechnicalOwner, @SupportEmail,
+                (@Name, @BusinessOwner, @BusinessOwnerDisplay,
+                 @TechnicalOwner, @TechnicalOwnerDisplay, @SupportEmail,
                  @AuditFrequencyMonths, COALESCE(@AutoLaunch, FALSE),
                  COALESCE(NULLIF(@AuditRoutingMode, ''), 'line_manager'),
                  COALESCE(@AuditDuePeriodDays, 21),
@@ -97,7 +103,8 @@ public class AuditingService : BaseService<AuditingService>, IAuditingService
             RETURNING application_id",
             new
             {
-                req.Name, req.BusinessOwner, req.TechnicalOwner, req.SupportEmail,
+                req.Name, req.BusinessOwner, req.BusinessOwnerDisplay,
+                req.TechnicalOwner, req.TechnicalOwnerDisplay, req.SupportEmail,
                 req.AuditFrequencyMonths, req.AutoLaunch, req.AuditRoutingMode, req.AuditDuePeriodDays
             }));
 
@@ -118,7 +125,9 @@ public class AuditingService : BaseService<AuditingService>, IAuditingService
 
         if (req.Name != null) { sets.Add("application_name = @Name"); p.Add("Name", req.Name); }
         if (req.BusinessOwner != null) { sets.Add("business_owner = @BusinessOwner"); p.Add("BusinessOwner", req.BusinessOwner); }
+        if (req.BusinessOwnerDisplay != null) { sets.Add("business_owner_display = @BusinessOwnerDisplay"); p.Add("BusinessOwnerDisplay", req.BusinessOwnerDisplay); }
         if (req.TechnicalOwner != null) { sets.Add("technical_owner = @TechnicalOwner"); p.Add("TechnicalOwner", req.TechnicalOwner); }
+        if (req.TechnicalOwnerDisplay != null) { sets.Add("technical_owner_display = @TechnicalOwnerDisplay"); p.Add("TechnicalOwnerDisplay", req.TechnicalOwnerDisplay); }
         if (req.SupportEmail != null) { sets.Add("support_email = @SupportEmail"); p.Add("SupportEmail", req.SupportEmail); }
         if (req.AuditFrequencyMonths != null) { sets.Add("audit_frequency_months = @AuditFrequencyMonths"); p.Add("AuditFrequencyMonths", req.AuditFrequencyMonths.Value); }
         if (req.AutoLaunch != null) { sets.Add("auto_launch = @AutoLaunch"); p.Add("AutoLaunch", req.AutoLaunch.Value); }

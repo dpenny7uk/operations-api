@@ -68,6 +68,34 @@ public class AuditingServiceTests : IntegrationTestBase
     }
 
     [DockerFact]
+    public async Task Create_persists_and_returns_owner_display_names()
+    {
+        await ResetAuditing();
+        var svc = CreateService();
+
+        // Owners who are NOT synced AD members (no ad_users row) -- the cached display
+        // is the only way to show a name instead of the bare sam.
+        var created = await svc.CreateApplicationAsync(new AppCreateRequest
+        {
+            Name = "Display App",
+            BusinessOwner = "bishopj", BusinessOwnerDisplay = "Jay Bishop",
+            TechnicalOwner = "pennyd", TechnicalOwnerDisplay = "Penny Davis",
+            AuditRoutingMode = "line_manager", AuditFrequencyMonths = 12, AuditDuePeriodDays = 21,
+        }, "tester");
+
+        Assert.Equal("Jay Bishop", created.BusinessOwnerDisplay);
+
+        var detail = await svc.GetApplicationAsync(created.ApplicationId);
+        Assert.Equal("Jay Bishop", detail!.BusinessOwnerDisplay);
+        Assert.Equal("Penny Davis", detail.TechnicalOwnerDisplay);
+
+        // A rename via patch can also update the cached display.
+        var patched = await svc.PatchApplicationAsync(created.ApplicationId,
+            new AppPatchRequest { BusinessOwner = "bishopj", BusinessOwnerDisplay = "Jay R. Bishop" }, "tester");
+        Assert.Equal("Jay R. Bishop", patched!.BusinessOwnerDisplay);
+    }
+
+    [DockerFact]
     public async Task Create_duplicate_name_throws_ConflictException()
     {
         await ResetAuditing();

@@ -95,6 +95,19 @@ public class AuditingApplicationsControllerTests
     }
 
     [Fact]
+    public async Task UpdateApplication_accepts_due_period_up_to_365()
+    {
+        _svc.Setup(s => s.PatchApplicationAsync(5, It.IsAny<AppPatchRequest>(), It.IsAny<string>())).ReturnsAsync(SampleApp(5));
+        Assert.IsType<OkObjectResult>(await Controller().UpdateApplication(5, new AppPatchRequest { AuditDuePeriodDays = 365 }));
+    }
+
+    [Fact]
+    public async Task UpdateApplication_rejects_due_period_over_365()
+    {
+        Assert.IsType<BadRequestObjectResult>(await Controller().UpdateApplication(5, new AppPatchRequest { AuditDuePeriodDays = 366 }));
+    }
+
+    [Fact]
     public async Task UpdateApplication_returns_NotFound_when_service_returns_null()
     {
         _svc.Setup(s => s.PatchApplicationAsync(5, It.IsAny<AppPatchRequest>(), It.IsAny<string>()))

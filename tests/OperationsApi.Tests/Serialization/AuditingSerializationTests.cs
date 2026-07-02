@@ -24,7 +24,9 @@ public class AuditingSerializationTests
             ApplicationId = 1,
             Name = "Atlassian Jira",
             BusinessOwner = "sara.bennett",
+            BusinessOwnerDisplay = "Sara Bennett",
             TechnicalOwner = "tom.walsh",
+            TechnicalOwnerDisplay = "Tom Walsh",
             SupportEmail = "jira-support@contoso.com",
             AuditFrequencyMonths = 12,
             AutoLaunch = false,
@@ -52,7 +54,9 @@ public class AuditingSerializationTests
         Assert.Contains("\"application_id\":1", json);
         Assert.Contains("\"name\":\"Atlassian Jira\"", json);
         Assert.Contains("\"business_owner\":", json);
+        Assert.Contains("\"business_owner_display\":\"Sara Bennett\"", json);
         Assert.Contains("\"technical_owner\":", json);
+        Assert.Contains("\"technical_owner_display\":\"Tom Walsh\"", json);
         Assert.Contains("\"audit_frequency_months\":12", json);
         Assert.Contains("\"auto_launch\":false", json);
         Assert.Contains("\"audit_routing_mode\":\"nominees\"", json);
@@ -85,6 +89,8 @@ public class AuditingSerializationTests
         Assert.DoesNotContain("ownerSam", json);
         Assert.DoesNotContain("managerSam", json);
         Assert.DoesNotContain("auditStatus", json);
+        Assert.DoesNotContain("businessOwnerDisplay", json);
+        Assert.DoesNotContain("technicalOwnerDisplay", json);
     }
 
     [Fact]

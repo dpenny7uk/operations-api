@@ -58,7 +58,9 @@ public class AuditingApplicationsController : ControllerBase
     public async Task<IActionResult> CreateApplication([FromBody] AppCreateRequest req)
     {
         var error = ValidateApp(req.Name, req.BusinessOwner, req.TechnicalOwner, req.SupportEmail,
-            req.AuditRoutingMode, req.AuditFrequencyMonths, req.AuditDuePeriodDays, nameRequired: true);
+            req.AuditRoutingMode, req.AuditFrequencyMonths, req.AuditDuePeriodDays, nameRequired: true)
+            ?? ValidateDisplay(req.BusinessOwnerDisplay, "business_owner_display")
+            ?? ValidateDisplay(req.TechnicalOwnerDisplay, "technical_owner_display");
         if (error != null) return BadRequest(error);
 
         var actor = User.Identity?.Name ?? "unknown";
@@ -82,7 +84,9 @@ public class AuditingApplicationsController : ControllerBase
     public async Task<IActionResult> UpdateApplication(int id, [FromBody] AppPatchRequest req)
     {
         var error = ValidateApp(req.Name, req.BusinessOwner, req.TechnicalOwner, req.SupportEmail,
-            req.AuditRoutingMode, req.AuditFrequencyMonths, req.AuditDuePeriodDays, nameRequired: false);
+            req.AuditRoutingMode, req.AuditFrequencyMonths, req.AuditDuePeriodDays, nameRequired: false)
+            ?? ValidateDisplay(req.BusinessOwnerDisplay, "business_owner_display")
+            ?? ValidateDisplay(req.TechnicalOwnerDisplay, "technical_owner_display");
         if (error != null) return BadRequest(error);
 
         var actor = User.Identity?.Name ?? "unknown";
@@ -259,6 +263,11 @@ public class AuditingApplicationsController : ControllerBase
         }
     }
 
+    // Cached AD display name (e.g. "Jay Bishop") — bounded + control-char guarded.
+    private static string? ValidateDisplay(string? v, string field)
+        => (v != null && (v.Length > 255 || InputGuard.ContainsControlChars(v)))
+            ? field + " is invalid (max 255 characters)." : null;
+
     // Shared application-field validation for create + patch. Returns an error or null.
     private static string? ValidateApp(
         string? name, string? businessOwner, string? technicalOwner, string? supportEmail,
@@ -278,8 +287,8 @@ public class AuditingApplicationsController : ControllerBase
             return "audit_routing_mode must be 'line_manager' or 'nominees'.";
         if (frequencyMonths is < 1 or > 120)
             return "audit_frequency_months must be between 1 and 120.";
-        if (duePeriodDays is < 1 or > 120)
-            return "audit_due_period_days must be between 1 and 120.";
+        if (duePeriodDays is < 1 or > 365)
+            return "audit_due_period_days must be between 1 and 365.";
         return null;
     }
 }

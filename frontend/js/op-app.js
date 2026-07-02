@@ -746,7 +746,10 @@
   // ================================================================
   function CritStrip(sc) {
     const stale = sc.apiState !== 'ok';
-    const strip = h('div.crit-strip.crit-strip-6');
+    // crit-strip-grid: this Health strip carries many cells (9) — use the grid
+    // variant so a not-quite-full last row keeps cells at a normal width instead of
+    // stretching the final cell across the whole row on wide screens.
+    const strip = h('div.crit-strip.crit-strip-grid');
 
     // System status
     const c1tone = sc.summary.crit ? 'crit' : sc.summary.warn ? 'warn' : 'ok';

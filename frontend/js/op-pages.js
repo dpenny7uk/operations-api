@@ -3646,7 +3646,7 @@
     const total = D.LICENCES.length;
     const actionRequired = counts.expired + counts.under30 + counts.under3mo + counts.under6mo;
 
-    const strip = h('div.crit-strip.crit-strip-6');
+    const strip = h('div.crit-strip.crit-strip-fill');
 
     // Action-required status cell
     const statusTone = counts.expired > 0 || counts.under30 > 0 ? 'crit'
@@ -4451,7 +4451,7 @@
     ));
     grid2.appendChild(h('label', { style: fieldStyle },
       h('span', { style: labelStyle }, 'Due period (days)'),
-      h('input', { type:'number', min:'1', max:'120', style: inputStyle, value: String(formState.audit_due_period_days),
+      h('input', { type:'number', min:'1', max:'365', style: inputStyle, value: String(formState.audit_due_period_days),
         on:{input:(e)=>{ formState.audit_due_period_days = parseInt(e.target.value, 10) || 21; }}}),
     ));
     grid2.appendChild(h('label', { style:{display:'flex',alignItems:'center',gap:'8px',cursor:'pointer',padding:'8px 10px',border:'1px solid var(--rule)',background:'var(--card)',marginTop:'14px'} },
@@ -4485,7 +4485,9 @@
           const payload = {
             name: formState.name.trim(),
             business_owner: formState.business_owner || null,
+            business_owner_display: formState.business_owner_display || null,
             technical_owner: formState.technical_owner || null,
+            technical_owner_display: formState.technical_owner_display || null,
             audit_routing_mode: formState.audit_routing_mode,
             audit_frequency_months: formState.audit_frequency_months,
             audit_due_period_days: formState.audit_due_period_days,
@@ -4525,7 +4527,7 @@
   function renderAuditingCritStrip(mount) {
     const D = _audData();
     const c = D.getAuditingCritCounts();
-    const strip = h('div.crit-strip.crit-strip-6');
+    const strip = h('div.crit-strip.crit-strip-fill');
 
     // Action required (status cell)
     const arTone = c.actionRequired === 0 ? 'ok' : c.overdue > 0 ? 'crit' : 'warn';
@@ -4822,8 +4824,8 @@
       wrap.appendChild(renderAuditingAppEditForm(mount, app));
     } else {
       wrap.appendChild(h('div', { style:{display:'flex',flexWrap:'wrap',gap:'20px',fontFamily:'var(--mono)',fontSize:'11.5px',color:'var(--ink-2)'} },
-        h('span', null, 'Business owner: ', h('b', { style:{color:'var(--ink)'} }, (D.getUser(app.business_owner) || {}).display || app.business_owner || '—')),
-        h('span', null, 'Technical owner: ', h('b', { style:{color:'var(--ink)'} }, (D.getUser(app.technical_owner) || {}).display || app.technical_owner || '—')),
+        h('span', null, 'Business owner: ', h('b', { style:{color:'var(--ink)'} }, app.business_owner_display || (D.getUser(app.business_owner) || {}).display || app.business_owner || '—')),
+        h('span', null, 'Technical owner: ', h('b', { style:{color:'var(--ink)'} }, app.technical_owner_display || (D.getUser(app.technical_owner) || {}).display || app.technical_owner || '—')),
         h('span', null, 'Support: ', h('b', { style:{color:'var(--ink)'} }, app.support_email || '—')),
       ));
     }
@@ -4926,8 +4928,8 @@
       business_owner: app.business_owner || '',
       technical_owner: app.technical_owner || '',
       support_email: app.support_email || '',
-      _bo: { q:'', sam: app.business_owner || '', display: (D.getUser(app.business_owner) || {}).display || app.business_owner || null },
-      _to: { q:'', sam: app.technical_owner || '', display: (D.getUser(app.technical_owner) || {}).display || app.technical_owner || null },
+      _bo: { q:'', sam: app.business_owner || '', display: app.business_owner_display || (D.getUser(app.business_owner) || {}).display || app.business_owner || null },
+      _to: { q:'', sam: app.technical_owner || '', display: app.technical_owner_display || (D.getUser(app.technical_owner) || {}).display || app.technical_owner || null },
     });
 
     const labelStyle = { fontFamily:'var(--mono)',fontSize:'10px',letterSpacing:'.1em',textTransform:'uppercase',color:'var(--ink-3)' };
@@ -4968,7 +4970,9 @@
           const payload = {
             name: st.name.trim(),
             business_owner: st.business_owner || null,
+            business_owner_display: (st.business_owner ? st._bo.display : null) || null,
             technical_owner: st.technical_owner || null,
+            technical_owner_display: (st.technical_owner ? st._to.display : null) || null,
             support_email: st.support_email.trim() || null,
           };
           const A = window.OC_ACTIONS;
@@ -5169,7 +5173,7 @@
         state.display ? h('span', { style:{color:'var(--ink-3)'} }, '(' + state.sam + ')') : null,
         h('button', {
           style:{marginLeft:'auto',padding:'2px 8px',background:'transparent',border:'1px solid var(--rule)',color:'var(--ink-3)',cursor:'pointer',fontFamily:'var(--mono)',fontSize:'10px',letterSpacing:'.06em',textTransform:'uppercase'},
-          on:{click:()=>{ state.sam=''; state.display=null; state.q=''; onPick('', null); window.RERENDER_PAGE(mount); }},
+          on:{click:()=>{ state.sam=''; state.display=null; state.email=null; state.q=''; onPick('', null); window.RERENDER_PAGE(mount); }},
         }, 'Clear'),
       ));
     }
@@ -5198,7 +5202,7 @@
           const row = h('div', {
             style:{display:'flex',gap:'10px',alignItems:'center',padding:'8px 12px',cursor:'pointer',borderBottom:'1px solid var(--rule)',fontFamily:'var(--mono)',fontSize:'11.5px'},
             on:{
-              click:()=>{ state.sam = u.sam; state.display = u.display || u.sam; state.q = ''; onPick(u.sam, state.display); window.RERENDER_PAGE(mount); },
+              click:()=>{ state.sam = u.sam; state.display = u.display || u.sam; state.email = u.email || null; state.q = ''; onPick(u.sam, state.display); window.RERENDER_PAGE(mount); },
               mouseenter:(e)=>{ e.currentTarget.style.background = 'var(--paper-2)'; },
               mouseleave:(e)=>{ e.currentTarget.style.background = 'transparent'; },
             },
@@ -5316,43 +5320,41 @@
       }
       panel.appendChild(list);
 
-      // Add nominee form
+      // Add nominee — live AD search (same picker as the business/technical owner fields).
       const addState = renderAuditingAppRouting._addState || (renderAuditingAppRouting._addState = {});
       const k = 'app-' + app.application_id;
-      if (!addState[k]) addState[k] = { sam: '', role: '' };
+      if (!addState[k]) addState[k] = { _search: { q:'', sam:'', display:null, email:null }, role: '' };
       const s = addState[k];
 
-      panel.appendChild(h('div', { style:{display:'flex',gap:'8px',alignItems:'center',marginTop:'4px'} },
-        h('select', {
-          style:{padding:'7px 9px',border:'1px solid var(--rule)',background:'var(--card)',fontFamily:'inherit',fontSize:'12.5px',flex:'1'},
-          on:{change:(e)=>{ s.sam = e.target.value; }},
-        },
-          h('option', { value:'' }, '— Pick a person —'),
-          ...D.USERS.filter(u => !app.nominees.some(n => n.nominee_sam === u.sam)).map(u =>
-            h('option', { value: u.sam, selected: s.sam === u.sam }, u.display + ' (' + u.sam + ')')),
+      const addNominee = () => {
+        const sam = s._search.sam;
+        if (!sam) return;
+        if (app.nominees.some(n => n.nominee_sam === sam)) { alert((s._search.display || sam) + ' is already a nominee.'); return; }
+        const display = s._search.display, email = s._search.email, role = s.role;
+        const A = window.OC_ACTIONS;
+        s._search = { q:'', sam:'', display:null, email:null }; s.role = '';
+        if (A && A.addAuditNominee) {
+          A.addAuditNominee(app.application_id, { nominee_sam: sam, nominee_display_name: display || null, nominee_email: email || null, role_note: role || null }, null, (m) => alert(m));
+        } else {
+          app.nominees.push({ nominee_sam: sam, role_note: role });
+          window.RERENDER_PAGE(mount);
+        }
+      };
+
+      panel.appendChild(h('div', { style:{display:'flex',flexDirection:'column',gap:'8px',marginTop:'4px'} },
+        _renderUserSearch(mount, s._search, 'aud-nom-pick-'+app.application_id, 'Search nominee by name or username', () => {}),
+        h('div', { style:{display:'flex',gap:'8px',alignItems:'center'} },
+          h('input', {
+            'data-fk':'aud-nom-role-'+app.application_id,
+            type:'text', placeholder:'Role note (e.g. Tech owner)', value: s.role,
+            style:{padding:'7px 9px',border:'1px solid var(--rule)',background:'var(--card)',fontFamily:'inherit',fontSize:'12.5px',flex:'1'},
+            on:{input:(e)=>{ s.role = e.target.value; }},
+          }),
+          h('button.btn', {
+            style: s._search.sam ? null : { opacity: 0.5, cursor:'not-allowed' },
+            on:{click: addNominee},
+          }, 'Add nominee'),
         ),
-        h('input', {
-          'data-fk':'aud-nom-role-'+app.application_id,
-          type:'text', placeholder:'Role note (e.g. Tech owner)', value: s.role,
-          style:{padding:'7px 9px',border:'1px solid var(--rule)',background:'var(--card)',fontFamily:'inherit',fontSize:'12.5px',flex:'1'},
-          on:{input:(e)=>{ s.role = e.target.value; }},
-        }),
-        h('button.btn', {
-          style: s.sam ? null : { opacity: 0.5, cursor:'not-allowed' },
-          on:{click:()=>{
-            if (!s.sam) return;
-            const A = window.OC_ACTIONS;
-            const u = (_audData().getUser(s.sam)) || {};
-            const sam = s.sam, role = s.role;
-            s.sam = ''; s.role = '';
-            if (A && A.addAuditNominee) {
-              A.addAuditNominee(app.application_id, { nominee_sam: sam, nominee_display_name: u.display || null, nominee_email: u.email || null, role_note: role || null });
-            } else {
-              app.nominees.push({ nominee_sam: sam, role_note: role });
-              window.RERENDER_PAGE(mount);
-            }
-          }},
-        }, 'Add nominee'),
       ));
 
       panel.appendChild(h('div', { style:{fontFamily:'var(--mono)',fontSize:'11px',color:'var(--ink-3)',lineHeight:'1.55',borderTop:'1px solid var(--rule)',paddingTop:'10px'} },
@@ -5430,7 +5432,7 @@
       h('span', { style:{fontFamily:'var(--mono)',fontSize:'10px',letterSpacing:'.1em',textTransform:'uppercase',color:'var(--ink-3)'} }, 'Due period (days)'),
       h('input', {
         'data-fk':'audit-due-' + app.application_id,
-        type:'number', min:'1', max:'120',
+        type:'number', min:'1', max:'365',
         style:{padding:'8px 10px',border:'1px solid var(--rule)',background:'var(--card)',fontFamily:'inherit',fontSize:'13px'},
         value: String(app.audit_due_period_days || 21),
         on:{change:(e)=>{

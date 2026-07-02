@@ -1454,8 +1454,12 @@ select.bu-scope option {
    ───────────────────────────────────────────────────────────────── */
 /* Flex (not grid) so cells grow to fill each row — a wrapped/last cell expands to
    fill its row instead of orphaning at a fixed 220px with empty space beside it.
-   The 1px flex gaps over the strip's --rule background act as the hairline
-   dividers, so they stay clean at any cell count (3-6) and any width. */
+   The 1px flex gaps over the strip's --rule background act as the hairline dividers,
+   so they stay clean at small cell counts (3-6) and any width. cs-cell uses
+   min-width:0 so cells shrink to the 220px basis (not their min-content). NOTE: the
+   stretch-fill behaviour breaks down for large cell counts (the lone last cell goes
+   full-width) — strips with many cells (the Health overview) opt into the
+   .crit-strip-grid variant below instead. */
 .crit-strip {
   display: flex;
   flex-wrap: wrap;
@@ -1467,6 +1471,9 @@ select.bu-scope option {
 }
 .crit-strip .cs-cell {
   flex: 1 1 220px;             /* grow to fill the row; wraps below ~220px */
+  min-width: 0;                /* shrink to the 220px basis (not min-content) so a
+                                  full set of cells packs into one row on wide screens
+                                  instead of orphaning the last cell into its own row */
   background: var(--card);     /* opaque so the gaps read as dividers */
   padding: 20px 22px 18px;
   display: flex;
@@ -1554,6 +1561,29 @@ select.bu-scope option {
 /* Responsiveness is handled by flex-wrap above — cells reflow and grow to fill
    each row at every width, so the old grid-column breakpoints are no longer
    needed. (.crit-strip-6 is now a no-op class; harmless if still emitted.) */
+
+/* Grid variants for crit strips — a true grid keeps every cell at the same column
+   width instead of stretching one cell across a whole row (the flex default's
+   failure mode on wide screens). Dividers are inset hairlines (the gap-over---rule
+   trick would paint blank tracks grey); background is --card so any blank track blends.
+     crit-strip-grid (auto-FILL): keeps blank trailing columns rather than stretching.
+       Use for strips with many cells that would orphan a lone last cell (Health, 9
+       cells — its 9 already fill one row at ~1800px+, and it never stretches below that).
+     crit-strip-fill (auto-FIT): collapses blank tracks so the cells stretch to fill
+       the row. Use for smaller strips (the 6-cell surface strips) that can't fill the
+       width at a fixed cell size and would otherwise leave a big blank third on the right. */
+.crit-strip.crit-strip-grid,
+.crit-strip.crit-strip-fill {
+  display: grid;
+  gap: 0;
+  background: var(--card);
+}
+.crit-strip.crit-strip-grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+.crit-strip.crit-strip-fill { grid-template-columns: repeat(auto-fit,  minmax(200px, 1fr)); }
+.crit-strip.crit-strip-grid .cs-cell,
+.crit-strip.crit-strip-fill .cs-cell {
+  box-shadow: inset -1px 0 0 var(--rule), inset 0 -1px 0 var(--rule);
+}
 
 /* ── TABS (Patching Schedules, Patch Management) ─────── */
 .tabs {

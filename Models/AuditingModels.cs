@@ -23,7 +23,9 @@ public class AuditApplication
     [JsonPropertyName("application_id")] public int ApplicationId { get; set; }
     [JsonPropertyName("name")] public string Name { get; set; } = "";
     [JsonPropertyName("business_owner")] public string? BusinessOwner { get; set; }
+    [JsonPropertyName("business_owner_display")] public string? BusinessOwnerDisplay { get; set; }
     [JsonPropertyName("technical_owner")] public string? TechnicalOwner { get; set; }
+    [JsonPropertyName("technical_owner_display")] public string? TechnicalOwnerDisplay { get; set; }
     [JsonPropertyName("support_email")] public string? SupportEmail { get; set; }
     [JsonPropertyName("audit_frequency_months")] public int? AuditFrequencyMonths { get; set; }
     [JsonPropertyName("auto_launch")] public bool AutoLaunch { get; set; }
@@ -179,7 +181,9 @@ public class AppCreateRequest
 {
     [JsonPropertyName("name")] public string Name { get; set; } = "";
     [JsonPropertyName("business_owner")] public string? BusinessOwner { get; set; }
+    [JsonPropertyName("business_owner_display")] public string? BusinessOwnerDisplay { get; set; }
     [JsonPropertyName("technical_owner")] public string? TechnicalOwner { get; set; }
+    [JsonPropertyName("technical_owner_display")] public string? TechnicalOwnerDisplay { get; set; }
     [JsonPropertyName("support_email")] public string? SupportEmail { get; set; }
     [JsonPropertyName("audit_frequency_months")] public int? AuditFrequencyMonths { get; set; }
     [JsonPropertyName("auto_launch")] public bool? AutoLaunch { get; set; }
@@ -192,7 +196,9 @@ public class AppPatchRequest
 {
     [JsonPropertyName("name")] public string? Name { get; set; }
     [JsonPropertyName("business_owner")] public string? BusinessOwner { get; set; }
+    [JsonPropertyName("business_owner_display")] public string? BusinessOwnerDisplay { get; set; }
     [JsonPropertyName("technical_owner")] public string? TechnicalOwner { get; set; }
+    [JsonPropertyName("technical_owner_display")] public string? TechnicalOwnerDisplay { get; set; }
     [JsonPropertyName("support_email")] public string? SupportEmail { get; set; }
     [JsonPropertyName("audit_frequency_months")] public int? AuditFrequencyMonths { get; set; }
     [JsonPropertyName("auto_launch")] public bool? AutoLaunch { get; set; }
