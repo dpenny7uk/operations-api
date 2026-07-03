@@ -234,9 +234,11 @@
       if (!A || !Array.isArray(A.APPLICATIONS) || !A.getAuditStatus) return null;
       const live = A.APPLICATIONS.filter(a => a.audit_status !== 'archived');
       const overdue = live.filter(a => A.getAuditStatus(a.application_id).status === 'overdue').length;
-      const ownerless = live.filter(a => a.bindings.some(dn => A.getOwnersOfGroup(dn).length === 0)).length;
+      // Launch-readiness: nominees-mode apps with no enabled nominee can't run a campaign.
+      const notReady = live.filter(a => a.audit_routing_mode === 'nominees'
+        && A.getNomineesOfApp(a.application_id).filter(n => n.enabled).length === 0).length;
       if (overdue) return { tone: 'crit', text: overdue + ' overdue' };
-      if (ownerless) return { tone: 'warn', text: ownerless + ' ownerless' };
+      if (notReady) return { tone: 'warn', text: notReady + ' not ready' };
       return null;
     }
     return null;
@@ -604,11 +606,13 @@
         // Archived apps are a read-only register -- excluded from the live tallies.
         const liveApps = A.APPLICATIONS.filter(a => a.audit_status !== 'archived');
         const apps = liveApps.length;
-        const ownerless = liveApps.filter(a => a.bindings.some(dn => A.getOwnersOfGroup(dn).length === 0)).length;
+        // Not launch-ready: nominees-mode apps with no enabled nominee.
+        const notReady = liveApps.filter(a => a.audit_routing_mode === 'nominees'
+          && A.getNomineesOfApp(a.application_id).filter(n => n.enabled).length === 0).length;
         const active = A.CAMPAIGNS.filter(c => c.status === 'active').length;
         const overdue = liveApps.filter(a => A.getAuditStatus(a.application_id).status === 'overdue').length;
         const word = overdue > 0 ? overdue + ' audit' + (overdue===1?'':'s') + ' overdue'
-                   : ownerless > 0 ? 'owner coverage gap'
+                   : notReady > 0 ? notReady + ' not launch-ready'
                    : active > 0 ? 'campaign in flight'
                    : 'Operational';
         return {
@@ -617,7 +621,7 @@
           pieces: [
             h('span.piece', null, h('b', null, String(apps)), ' applications'),
             h('span.piece'+(overdue?'.crit':''), null, h('b', null, String(overdue)), ' overdue'),
-            h('span.piece'+(ownerless?'.warn':''), null, h('b', null, String(ownerless)), ' ownerless'),
+            h('span.piece'+(notReady?'.warn':''), null, h('b', null, String(notReady)), ' not ready'),
             h('span.piece'+(active?'.warn':''), null, h('b', null, String(active)), ' active campaign' + (active === 1 ? '' : 's')),
           ],
         };
@@ -885,28 +889,29 @@
       (lExpired || lUnder30 || lSoon) ? h('div.cs-link', null, 'Review licences') : null,
     ));
 
-    // Auditing (09) — overdue access recertifications + ownerless apps (audit risk).
+    // Auditing (09) — overdue access recertifications + apps not launch-ready (audit risk).
     const Az = window.AUDITING_DATA;
-    let auOverdue = 0, auOwnerless = 0, auActive = 0;
+    let auOverdue = 0, auNotReady = 0, auActive = 0;
     if (Az && Array.isArray(Az.APPLICATIONS) && Az.getAuditStatus) {
       const liveApps = Az.APPLICATIONS.filter(a => a.audit_status !== 'archived');
       auOverdue = liveApps.filter(a => Az.getAuditStatus(a.application_id).status === 'overdue').length;
-      auOwnerless = liveApps.filter(a => a.bindings.some(dn => Az.getOwnersOfGroup(dn).length === 0)).length;
+      auNotReady = liveApps.filter(a => a.audit_routing_mode === 'nominees'
+        && Az.getNomineesOfApp(a.application_id).filter(n => n.enabled).length === 0).length;
       auActive = (Az.CAMPAIGNS || []).filter(c => c.status === 'active').length;
     }
-    const auTone = auOverdue ? 'crit' : auOwnerless ? 'warn' : 'ok';
+    const auTone = auOverdue ? 'crit' : auNotReady ? 'warn' : 'ok';
     strip.appendChild(h('div.cs-cell.'+auTone, {
       on: { click: () => { if (window.ROUTER) window.ROUTER.goto('auditing'); } },
     },
       h('div.cs-label', null, 'Auditing'),
-      h('div.cs-value', null, String(auOverdue || auOwnerless || auActive),
-        h('span.cs-unit', null, auOverdue ? 'overdue' : auOwnerless ? 'ownerless' : 'active')),
+      h('div.cs-value', null, String(auOverdue || auNotReady || auActive),
+        h('span.cs-unit', null, auOverdue ? 'overdue' : auNotReady ? 'not ready' : 'active')),
       h('div.cs-sub', null,
-        auOverdue ? (auOverdue + ' overdue' + (auOwnerless ? ' · ' + auOwnerless + ' ownerless' : ''))
-        : auOwnerless ? (auOwnerless + ' app' + (auOwnerless===1?'':'s') + ' with no owner')
+        auOverdue ? (auOverdue + ' overdue' + (auNotReady ? ' · ' + auNotReady + ' not ready' : ''))
+        : auNotReady ? (auNotReady + ' app' + (auNotReady===1?'':'s') + ' not launch-ready')
         : auActive ? (auActive + ' campaign' + (auActive===1?'':'s') + ' in flight')
         : 'all on schedule'),
-      (auOverdue || auOwnerless) ? h('div.cs-link', null, 'Open auditing') : null,
+      (auOverdue || auNotReady) ? h('div.cs-link', null, 'Open auditing') : null,
     ));
     return strip;
   }

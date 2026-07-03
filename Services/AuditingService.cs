@@ -144,7 +144,7 @@ public class AuditingService : BaseService<AuditingService>, IAuditingService
 
         if (rows == 0) return null;
         if (req.Name != null && oldName != null && !string.Equals(oldName, req.Name, StringComparison.Ordinal))
-            await LogLifecycleAsync(id, req.Name, "renamed", actor, $"'{oldName}' -> '{req.Name}'");
+            await TryLogLifecycleAsync(id, req.Name, "renamed", actor, $"'{oldName}' -> '{req.Name}'");
         return await LoadApplicationAsync(id);
     });
 
@@ -161,7 +161,7 @@ public class AuditingService : BaseService<AuditingService>, IAuditingService
 
         if (rows == 0) return null;
         var detail = await LoadApplicationAsync(id);
-        await LogLifecycleAsync(id, detail?.Name, "archived", actor, null);
+        await TryLogLifecycleAsync(id, detail?.Name, "archived", actor, null);
         return detail;
     });
 
@@ -175,7 +175,7 @@ public class AuditingService : BaseService<AuditingService>, IAuditingService
 
         if (rows == 0) return null;
         var detail = await LoadApplicationAsync(id);
-        await LogLifecycleAsync(id, detail?.Name, "restored", actor, null);
+        await TryLogLifecycleAsync(id, detail?.Name, "restored", actor, null);
         return detail;
     });
 
@@ -190,14 +190,11 @@ public class AuditingService : BaseService<AuditingService>, IAuditingService
         if (await HasOpenCampaignAsync(id))
             throw new ConflictException("This application has an open campaign. Close it before deleting.");
 
-        if (Db.State != ConnectionState.Open) Db.Open();
-        using var tx = Db.BeginTransaction();
-
-        // Snapshot the name for the lifecycle log (survives a hard delete -- the log
-        // table has no FK back to shared.applications).
+        // Snapshot the name for the lifecycle log (survives a hard delete).
         var appName = await Db.ExecuteScalarAsync<string?>($@"
             SELECT application_name FROM {Sql.Tables.Applications} WHERE application_id = @Id AND is_active",
-            new { Id = id }, tx);
+            new { Id = id });
+        if (appName == null) return false; // not found / already inactive
 
         // Hard-delete is only safe when nothing outside auditing references the row
         // (auditing.campaigns / licensing.licences / shared.servers have no ON DELETE
@@ -213,19 +210,54 @@ public class AuditingService : BaseService<AuditingService>, IAuditingService
                   AND NOT EXISTS (SELECT 1 FROM {Sql.Tables.AuditCampaigns} c WHERE c.application_id = a.application_id)
                   AND NOT EXISTS (SELECT 1 FROM {Sql.Tables.Licences} l WHERE l.application_id = a.application_id)
                   AND NOT EXISTS (SELECT 1 FROM {Sql.Tables.Servers} s WHERE s.primary_application_id = a.application_id))",
-            new { Id = id }, tx);
+            new { Id = id });
 
+        bool ok;
+        string action, detail;
         if (canHardDelete)
         {
-            await LogLifecycleAsync(id, appName, "deleted", actor, "hard delete (no history)", tx);
-            // CASCADE clears application_groups / application_nominees / auto_launch_log.
-            var deleted = await Db.ExecuteAsync($@"
-                DELETE FROM {Sql.Tables.Applications} WHERE application_id = @Id",
-                new { Id = id }, tx);
-            tx.Commit();
-            return deleted > 0;
+            try
+            {
+                ok = await HardDeleteAppAsync(id);
+                action = "deleted"; detail = "hard delete (no history)";
+            }
+            catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.ForeignKeyViolation)
+            {
+                // Some referrer we didn't anticipate still points at the row. Preserve it
+                // via a soft unregister instead of surfacing a 500.
+                Logger.LogWarning(ex, "Hard delete of app {AppId} blocked by a reference; soft-unregistering instead.", id);
+                ok = await SoftUnregisterAppAsync(id, actor);
+                action = "unregistered"; detail = "soft delete (hard delete blocked by a reference)";
+            }
+        }
+        else
+        {
+            ok = await SoftUnregisterAppAsync(id, actor);
+            action = "unregistered"; detail = "soft delete (history preserved)";
         }
 
+        // Best-effort audit trail -- a logging failure must never turn a successful delete
+        // into a 500 (e.g. if the lifecycle-log table lags a deploy).
+        if (ok) await TryLogLifecycleAsync(id, appName, action, actor, detail);
+        return ok;
+    });
+
+    private async Task<bool> HardDeleteAppAsync(int id)
+    {
+        if (Db.State != ConnectionState.Open) Db.Open();
+        using var tx = Db.BeginTransaction();
+        // CASCADE clears application_groups / application_nominees / auto_launch_log.
+        var deleted = await Db.ExecuteAsync($@"
+            DELETE FROM {Sql.Tables.Applications} WHERE application_id = @Id",
+            new { Id = id }, tx);
+        tx.Commit();
+        return deleted > 0;
+    }
+
+    private async Task<bool> SoftUnregisterAppAsync(int id, string actor)
+    {
+        if (Db.State != ConnectionState.Open) Db.Open();
+        using var tx = Db.BeginTransaction();
         // Reset audit config to defaults so the app drops out of the registered list.
         var rows = await Db.ExecuteAsync($@"
             UPDATE {Sql.Tables.Applications}
@@ -236,12 +268,7 @@ public class AuditingService : BaseService<AuditingService>, IAuditingService
                 audit_status = 'active'
             WHERE application_id = @Id AND is_active",
             new { Id = id }, tx);
-
-        if (rows == 0)
-        {
-            tx.Rollback();
-            return false;
-        }
+        if (rows == 0) { tx.Rollback(); return false; }
 
         await Db.ExecuteAsync($@"
             UPDATE {Sql.Tables.AuditApplicationGroups}
@@ -253,11 +280,15 @@ public class AuditingService : BaseService<AuditingService>, IAuditingService
             DELETE FROM {Sql.Tables.AuditApplicationNominees} WHERE application_id = @Id",
             new { Id = id }, tx);
 
-        await LogLifecycleAsync(id, appName, "unregistered", actor, "soft delete (history preserved)", tx);
-
         tx.Commit();
         return true;
-    });
+    }
+
+    private async Task TryLogLifecycleAsync(int appId, string? appName, string action, string actor, string? detail)
+    {
+        try { await LogLifecycleAsync(appId, appName, action, actor, detail); }
+        catch (Exception ex) { Logger.LogWarning(ex, "Auditing lifecycle log write failed for app {AppId} ({Action}).", appId, action); }
+    }
 
     // ── Bindings ─────────────────────────────────────────────────────
 

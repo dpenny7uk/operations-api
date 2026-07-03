@@ -4751,7 +4751,7 @@
         style:{cursor:'pointer'},
       },
         h('td.host', null, app.name),
-        h('td', null, bo ? bo.display : app.business_owner || '—'),
+        h('td', null, app.business_owner_display || (bo ? bo.display : null) || app.business_owner || '—'),
         h('td', null, chips),
         h('td.num', null, String(totalMembers.size)),
         h('td', null, routingCell),
@@ -4925,34 +4925,16 @@
   // page otherwise leaves read-only: name, owners, support email. Saves via
   // OC_ACTIONS.patchAuditApp (the API already accepts these); a duplicate name
   // surfaces the backend 409. State is keyed per app id so it survives re-renders.
-  // Commit the edit form (shared by the header Save button). Reads the per-app form
-  // state stashed on renderAuditingAppEditForm._s.
+  // The header Save/Cancel buttons delegate to the edit form's OWN closures (stashed on
+  // aState._auditEdit when the form renders), so they act directly on the form's current
+  // state object -- no fragile cross-function _s lookup that can miss a re-created state.
   function _saveAuditAppEdit(mount, app) {
-    const st = renderAuditingAppEditForm._s && renderAuditingAppEditForm._s[app.application_id];
-    if (!st || !st.name.trim()) { alert('Application name is required.'); return; }
-    const done = () => { delete renderAuditingAppEditForm._s[app.application_id]; aState.editingAppId = null; window.RERENDER_PAGE(mount); };
-    const payload = {
-      name: st.name.trim(),
-      business_owner: st.business_owner || null,
-      business_owner_display: (st.business_owner ? st._bo.display : null) || null,
-      technical_owner: st.technical_owner || null,
-      technical_owner_display: (st.technical_owner ? st._to.display : null) || null,
-      support_email: st.support_email.trim() || null,
-    };
-    const A = window.OC_ACTIONS;
-    if (A && A.patchAuditApp) {
-      A.patchAuditApp(app.application_id, payload, done, (m) => alert(m));
-    } else {
-      app.name = payload.name; app.business_owner = payload.business_owner || '';
-      app.technical_owner = payload.technical_owner || ''; app.support_email = payload.support_email || '';
-      done();
-    }
+    if (aState._auditEdit && aState._auditEdit.appId === app.application_id) aState._auditEdit.save();
   }
 
-  // Discard the edit form without saving.
   function _cancelAuditAppEdit(mount, app) {
-    if (renderAuditingAppEditForm._s) delete renderAuditingAppEditForm._s[app.application_id];
-    aState.editingAppId = null; window.RERENDER_PAGE(mount);
+    if (aState._auditEdit && aState._auditEdit.appId === app.application_id) aState._auditEdit.cancel();
+    else { aState.editingAppId = null; window.RERENDER_PAGE(mount); }
   }
 
   function renderAuditingAppEditForm(mount, app) {
@@ -4995,7 +4977,34 @@
     ));
     wrap.appendChild(grid);
 
-    // Save / Cancel live in the detail header (see renderAuditingAppDetail).
+    // Save / Cancel live in the detail header (see renderAuditingAppDetail). Expose them
+    // here as closures over THIS render's `st` so the header buttons commit exactly what
+    // the user sees (patchAuditApp already accepts these fields; a duplicate name 409s).
+    aState._auditEdit = {
+      appId: app.application_id,
+      save: () => {
+        if (!st.name.trim()) { alert('Application name is required.'); return; }
+        const done = () => { delete renderAuditingAppEditForm._s[app.application_id]; aState.editingAppId = null; window.RERENDER_PAGE(mount); };
+        const payload = {
+          name: st.name.trim(),
+          business_owner: st.business_owner || null,
+          business_owner_display: (st.business_owner ? st._bo.display : null) || null,
+          technical_owner: st.technical_owner || null,
+          technical_owner_display: (st.technical_owner ? st._to.display : null) || null,
+          support_email: st.support_email.trim() || null,
+        };
+        const A = window.OC_ACTIONS;
+        if (A && A.patchAuditApp) {
+          A.patchAuditApp(app.application_id, payload, done, (m) => alert(m));
+        } else {
+          app.name = payload.name; app.business_owner = payload.business_owner || '';
+          app.technical_owner = payload.technical_owner || ''; app.support_email = payload.support_email || '';
+          done();
+        }
+      },
+      cancel: () => { delete renderAuditingAppEditForm._s[app.application_id]; aState.editingAppId = null; window.RERENDER_PAGE(mount); },
+    };
+
     wrap.appendChild(h('div', { style:{fontFamily:'var(--mono)',fontSize:'10.5px',color:'var(--ink-3)'} },
       'Use Save / Cancel above.'));
     return wrap;
@@ -5008,7 +5017,7 @@
     const onDemo = (typeof window !== 'undefined' && window.DEMO_WIDGETS && window.DEMO_WIDGETS.has('auditing'));
     if (onDemo) return null;
     const ts = app.rosters_synced_at;
-    if (!ts) return h('span.chip.warn', { title: 'The AD membership sync has not populated these groups yet — rosters below may be empty.' }, 'rosters not synced');
+    if (!ts) return h('span.chip.warn', { title: 'The AD membership sync has not populated these groups yet — the user list below may be empty until it runs.' }, 'users not synced');
     const ms = Date.now() - new Date(ts).getTime();
     const hrs = ms / 3600000;
     const rel = hrs < 1 ? Math.max(1, Math.round(ms / 60000)) + 'm ago'
@@ -5016,8 +5025,8 @@
               : Math.round(hrs / 24) + 'd ago';
     const stale = hrs > 26; // matches auditing_ad_sync max_age_hours
     return h('span' + (stale ? '.chip.warn' : '.chip.neutral'),
-      { title: 'AD rosters last synced ' + new Date(ts).toLocaleString() + (stale ? ' — the daily sync may have stalled' : '') },
-      'rosters synced ' + rel + (stale ? ' · stale' : ''));
+      { title: 'AD user list last synced ' + new Date(ts).toLocaleString() + (stale ? ' — the daily sync may have stalled' : '') },
+      'users synced ' + rel + (stale ? ' · stale' : ''));
   }
 
   function renderAuditingAppBindingControls(mount, app) {
@@ -5366,7 +5375,7 @@
       ));
 
       panel.appendChild(h('div', { style:{fontFamily:'var(--mono)',fontSize:'11px',color:'var(--ink-3)',lineHeight:'1.55',borderTop:'1px solid var(--rule)',paddingTop:'10px'} },
-        'On launch, each nominee gets their OWN email with the full roster. ',
+        'On launch, each nominee gets their OWN email with the full user list. ',
         'First nominee to submit closes the campaign; the rest see a read-only banner.',
       ));
     }
@@ -5961,7 +5970,7 @@
         canLaunch = enabled.length > 0;
         preview.appendChild(h('div', { style:{fontFamily:'var(--mono)',fontSize:'11.5px',color:'var(--ink-2)'} },
           h('b', { style:{color:'var(--ink)'} }, String(enabled.length)), ' nominee request' + (enabled.length === 1 ? '' : 's'),
-          ' · each with full roster of ', h('b', { style:{color:'var(--ink)'} }, String(roster.length)), ' subjects',
+          ' · each with the full user list of ', h('b', { style:{color:'var(--ink)'} }, String(roster.length)), ' users',
         ));
         if (!enabled.length) {
           preview.appendChild(h('div', { style:{fontFamily:'var(--mono)',fontSize:'11.5px',color:'var(--crit)'} },

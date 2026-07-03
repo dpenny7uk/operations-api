@@ -378,7 +378,10 @@ public class AuditingServiceTests : IntegrationTestBase
     {
         await ResetAuditing();
         var svc = CreateService();
-        var app = await svc.CreateApplicationAsync(NewApp("Mistake"), "tester");
+        var app = await svc.CreateApplicationAsync(NewApp("Mistake", "nominees"), "tester");
+        // A binding + nominee must not block the hard delete (both cascade).
+        await svc.AddBindingAsync(app.ApplicationId, new BindingCreateRequest { GroupDn = "CN=APP-Mistake,DC=contoso,DC=com" }, "tester");
+        await svc.AddNomineeAsync(app.ApplicationId, new NomineeCreateRequest { NomineeSam = "jay.bishop" }, "tester");
 
         Assert.True(await svc.DeleteApplicationAsync(app.ApplicationId, "tester"));
 
