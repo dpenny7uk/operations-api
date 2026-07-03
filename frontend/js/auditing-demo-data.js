@@ -657,13 +657,23 @@
   function getNomineesOfApp(appId) {
     const app = getApp(appId);
     if (!app || !Array.isArray(app.nominees)) return [];
-    // Prefer the live AD record; otherwise fall back to the API-cached display
-    // name/email snapshot (kept through the reshape) so a nominee who has left AD
-    // still shows their name, not a bare sam.
-    return app.nominees.map(n => ({
-      ...n,
-      ...(getUser(n.nominee_sam) || { sam: n.nominee_sam, display: n.nominee_display_name || n.nominee_sam, email: n.nominee_email || null, enabled: false }),
-    }));
+    // Display/email prefer the live AD record, else the API-cached snapshot.
+    // enabled prefers the API-resolved value (from auditing.ad_users); if that's
+    // absent (demo), use the fixture user; if still unknown, default TRUE -- the AD
+    // picker only returns enabled accounts, so "no record" is NOT "disabled in AD".
+    return app.nominees.map(n => {
+      const u = getUser(n.nominee_sam);
+      const enabled = (typeof n.enabled === 'boolean') ? n.enabled
+                    : u ? u.enabled
+                    : true;
+      return {
+        ...n,
+        sam: n.nominee_sam,
+        display: (u && u.display) || n.nominee_display_name || n.nominee_sam,
+        email: (u && u.email) || n.nominee_email || null,
+        enabled,
+      };
+    });
   }
 
   // Whether a campaign should be treated as closed for a given packet view.

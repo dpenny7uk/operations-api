@@ -475,7 +475,7 @@ function _shapeAuditApp(a) {
     audit_due_period_days: a.audit_due_period_days || 21,
     audit_status: a.audit_status || 'active',
     rosters_synced_at: a.rosters_synced_at || null,
-    nominees: (a.nominees || []).map(n => ({ nominee_sam: n.nominee_sam, nominee_display_name: n.nominee_display_name || null, nominee_email: n.nominee_email || null, role_note: n.role_note || '' })),
+    nominees: (a.nominees || []).map(n => ({ nominee_sam: n.nominee_sam, nominee_display_name: n.nominee_display_name || null, nominee_email: n.nominee_email || null, role_note: n.role_note || '', enabled: (n.enabled !== undefined ? n.enabled : true) })),
     _bindingIds: Object.fromEntries((a.bindings || []).map(b => [b.group_dn, b.binding_id])),
     _nomineeIds: Object.fromEntries((a.nominees || []).map(n => [n.nominee_sam, n.nominee_id])),
   };

@@ -4802,9 +4802,14 @@
         if (A && A.restoreAuditApp) A.restoreAuditApp(app.application_id);
       }));
       actions.appendChild(hdrBtn('Delete', doDelete, true));
+    } else if (isEditing) {
+      // While editing, the header carries the primary Save/Cancel; Archive/Delete are
+      // hidden (do those from the non-edit view).
+      actions.appendChild(hdrBtn('Save', () => _saveAuditAppEdit(mount, app)));
+      actions.appendChild(hdrBtn('Cancel', () => _cancelAuditAppEdit(mount, app)));
     } else {
-      actions.appendChild(hdrBtn(isEditing ? 'Close edit' : 'Edit details', () => {
-        aState.editingAppId = isEditing ? null : app.application_id; window.RERENDER_PAGE(mount);
+      actions.appendChild(hdrBtn('Edit details', () => {
+        aState.editingAppId = app.application_id; window.RERENDER_PAGE(mount);
       }));
       actions.appendChild(hdrBtn('Archive', () => {
         if (!confirm('Archive "' + app.name + '"? It moves to the Archived tab, drops out of the active counts, and cannot launch campaigns until restored. Its history is kept.')) return;
@@ -4920,6 +4925,36 @@
   // page otherwise leaves read-only: name, owners, support email. Saves via
   // OC_ACTIONS.patchAuditApp (the API already accepts these); a duplicate name
   // surfaces the backend 409. State is keyed per app id so it survives re-renders.
+  // Commit the edit form (shared by the header Save button). Reads the per-app form
+  // state stashed on renderAuditingAppEditForm._s.
+  function _saveAuditAppEdit(mount, app) {
+    const st = renderAuditingAppEditForm._s && renderAuditingAppEditForm._s[app.application_id];
+    if (!st || !st.name.trim()) { alert('Application name is required.'); return; }
+    const done = () => { delete renderAuditingAppEditForm._s[app.application_id]; aState.editingAppId = null; window.RERENDER_PAGE(mount); };
+    const payload = {
+      name: st.name.trim(),
+      business_owner: st.business_owner || null,
+      business_owner_display: (st.business_owner ? st._bo.display : null) || null,
+      technical_owner: st.technical_owner || null,
+      technical_owner_display: (st.technical_owner ? st._to.display : null) || null,
+      support_email: st.support_email.trim() || null,
+    };
+    const A = window.OC_ACTIONS;
+    if (A && A.patchAuditApp) {
+      A.patchAuditApp(app.application_id, payload, done, (m) => alert(m));
+    } else {
+      app.name = payload.name; app.business_owner = payload.business_owner || '';
+      app.technical_owner = payload.technical_owner || ''; app.support_email = payload.support_email || '';
+      done();
+    }
+  }
+
+  // Discard the edit form without saving.
+  function _cancelAuditAppEdit(mount, app) {
+    if (renderAuditingAppEditForm._s) delete renderAuditingAppEditForm._s[app.application_id];
+    aState.editingAppId = null; window.RERENDER_PAGE(mount);
+  }
+
   function renderAuditingAppEditForm(mount, app) {
     const D = _audData();
     renderAuditingAppEditForm._s = renderAuditingAppEditForm._s || {};
@@ -4960,36 +4995,9 @@
     ));
     wrap.appendChild(grid);
 
-    const canSave = !!st.name.trim();
-    wrap.appendChild(h('div', { style:{display:'flex',gap:'8px'} },
-      h('button.btn', {
-        style: canSave ? null : { opacity: 0.5, cursor:'not-allowed' },
-        on:{click:()=>{
-          if (!canSave) return;
-          const done = () => { delete renderAuditingAppEditForm._s[app.application_id]; aState.editingAppId = null; window.RERENDER_PAGE(mount); };
-          const payload = {
-            name: st.name.trim(),
-            business_owner: st.business_owner || null,
-            business_owner_display: (st.business_owner ? st._bo.display : null) || null,
-            technical_owner: st.technical_owner || null,
-            technical_owner_display: (st.technical_owner ? st._to.display : null) || null,
-            support_email: st.support_email.trim() || null,
-          };
-          const A = window.OC_ACTIONS;
-          if (A && A.patchAuditApp) {
-            A.patchAuditApp(app.application_id, payload, done, (m) => alert(m));
-          } else {
-            app.name = payload.name; app.business_owner = payload.business_owner || '';
-            app.technical_owner = payload.technical_owner || ''; app.support_email = payload.support_email || '';
-            done();
-          }
-        }},
-      }, 'Save changes'),
-      h('button', {
-        style:{padding:'8px 14px',background:'transparent',border:'1px solid var(--rule)',color:'var(--ink-3)',cursor:'pointer',fontFamily:'var(--mono)',fontSize:'11px',letterSpacing:'.06em',textTransform:'uppercase'},
-        on:{click:()=>{ delete renderAuditingAppEditForm._s[app.application_id]; aState.editingAppId = null; window.RERENDER_PAGE(mount); }},
-      }, 'Cancel'),
-    ));
+    // Save / Cancel live in the detail header (see renderAuditingAppDetail).
+    wrap.appendChild(h('div', { style:{fontFamily:'var(--mono)',fontSize:'10.5px',color:'var(--ink-3)'} },
+      'Use Save / Cancel above.'));
     return wrap;
   }
 

@@ -199,6 +199,46 @@ public class AuditingServiceTests : IntegrationTestBase
     }
 
     [DockerFact]
+    public async Task GetApplication_nominee_enabled_defaults_true_when_not_synced()
+    {
+        await ResetAuditing();
+        await using (var conn = new NpgsqlConnection(Db.ConnectionString))
+        {
+            await conn.OpenAsync();
+            await conn.ExecuteAsync("DELETE FROM auditing.ad_users WHERE sam_account = 'jay.bishop';");
+        }
+        var svc = CreateService();
+        var app = await svc.CreateApplicationAsync(NewApp("Nominee App", "nominees"), "tester");
+        await svc.AddNomineeAsync(app.ApplicationId, new NomineeCreateRequest { NomineeSam = "jay.bishop", NomineeDisplayName = "Jay Bishop" }, "tester");
+
+        var detail = await svc.GetApplicationAsync(app.ApplicationId);
+        var nom = Assert.Single(detail!.Nominees);
+        // No ad_users row for an unsynced nominee -> must default enabled, NOT "disabled".
+        Assert.True(nom.Enabled);
+    }
+
+    [DockerFact]
+    public async Task GetApplication_nominee_enabled_reflects_ad_users_when_synced()
+    {
+        await ResetAuditing();
+        await using (var conn = new NpgsqlConnection(Db.ConnectionString))
+        {
+            await conn.OpenAsync();
+            await conn.ExecuteAsync(@"
+                DELETE FROM auditing.ad_users WHERE sam_account = 'leaver.sam';
+                INSERT INTO auditing.ad_users (sam_account, display_name, enabled) VALUES ('leaver.sam', 'Leaver Sam', FALSE);");
+        }
+        var svc = CreateService();
+        var app = await svc.CreateApplicationAsync(NewApp("Nominee App 2", "nominees"), "tester");
+        await svc.AddNomineeAsync(app.ApplicationId, new NomineeCreateRequest { NomineeSam = "leaver.sam" }, "tester");
+
+        var detail = await svc.GetApplicationAsync(app.ApplicationId);
+        var nom = Assert.Single(detail!.Nominees);
+        // Synced AND disabled in AD -> genuinely disabled.
+        Assert.False(nom.Enabled);
+    }
+
+    [DockerFact]
     public async Task GetApplication_embeds_bindings_and_nominees()
     {
         await ResetAuditing();

@@ -45,7 +45,7 @@ public class AuditingSerializationTests
                     Owners = { new AuditGroupOwner { OwnerSam = "bob.harris", OwnerDisplayName = "Bob Harris", OwnerEmail = "bob.harris@contoso.com", Source = "managedBy" } },
                 },
             },
-            Nominees = { new AuditNominee { NomineeId = 9, ApplicationId = 1, NomineeSam = "sara.bennett", NomineeDisplayName = "Sara Bennett", NomineeEmail = "sara.bennett@contoso.com", RoleNote = "Tech owner" } },
+            Nominees = { new AuditNominee { NomineeId = 9, ApplicationId = 1, NomineeSam = "sara.bennett", NomineeDisplayName = "Sara Bennett", NomineeEmail = "sara.bennett@contoso.com", RoleNote = "Tech owner", Enabled = false } },
             RostersSyncedAt = new DateTime(2026, 6, 20, 6, 0, 0, DateTimeKind.Utc),
         };
 
@@ -71,6 +71,7 @@ public class AuditingSerializationTests
         Assert.Contains("\"nominee_sam\":\"sara.bennett\"", json);
         Assert.Contains("\"nominee_display_name\":\"Sara Bennett\"", json);
         Assert.Contains("\"role_note\":", json);
+        Assert.Contains("\"enabled\":false", json); // nominee enabled flag (member above is enabled=true)
         Assert.Contains("\"rosters_synced_at\":", json);
         // Live AD roster embedded in each binding (read by the per-group panel).
         Assert.Contains("\"members\":", json);

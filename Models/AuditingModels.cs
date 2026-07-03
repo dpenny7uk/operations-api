@@ -91,6 +91,10 @@ public class AuditNominee
     [JsonPropertyName("nominee_display_name")] public string? NomineeDisplayName { get; set; }
     [JsonPropertyName("nominee_email")] public string? NomineeEmail { get; set; }
     [JsonPropertyName("role_note")] public string? RoleNote { get; set; }
+    /// <summary>AD account enabled. Resolved from auditing.ad_users when the nominee is a
+    /// synced user; defaults TRUE otherwise (the AD picker only returns enabled accounts,
+    /// so an unsynced nominee was enabled when added -- don't flag them disabled).</summary>
+    [JsonPropertyName("enabled")] public bool Enabled { get; set; } = true;
 }
 
 // ---- Campaigns ----
