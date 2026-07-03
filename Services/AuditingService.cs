@@ -695,11 +695,22 @@ public class AuditingService : BaseService<AuditingService>, IAuditingService
 
         await AttachGroupRostersAsync(detail.Bindings);
 
+        // enabled comes from the AD sync when the nominee is a synced user; a nominee who
+        // isn't a synced group member has no ad_users row, so default TRUE (the AD picker
+        // only returns enabled accounts, so an unsynced nominee was enabled when added --
+        // "no record" must NOT read as "disabled in AD").
         detail.Nominees = (await Db.QueryAsync<AuditNominee>($@"
-            SELECT {NomineeColumns}
-            FROM {Sql.Tables.AuditApplicationNominees}
-            WHERE application_id = @Id
-            ORDER BY nominee_display_name, nominee_sam",
+            SELECT n.nominee_id AS NomineeId,
+                   n.application_id AS ApplicationId,
+                   n.nominee_sam AS NomineeSam,
+                   n.nominee_display_name AS NomineeDisplayName,
+                   n.nominee_email AS NomineeEmail,
+                   n.role_note AS RoleNote,
+                   COALESCE(u.enabled, TRUE) AS Enabled
+            FROM {Sql.Tables.AuditApplicationNominees} n
+            LEFT JOIN auditing.ad_users u ON u.sam_account = n.nominee_sam
+            WHERE n.application_id = @Id
+            ORDER BY n.nominee_display_name, n.nominee_sam",
             new { Id = id })).ToList();
 
         // Freshest membership sync across the app's bound groups (null = never synced).
