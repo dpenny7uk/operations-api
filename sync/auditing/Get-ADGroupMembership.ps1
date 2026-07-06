@@ -123,12 +123,15 @@ foreach ($dn in $groupDns) {
     }
 }
 
-# Write CSVs (UTF-8, no type info). Force an array so an empty/single result
-# still produces a file with a header row.
-@($members) | Select-Object group_dn, sam_account |
+# Write CSVs (UTF-8, no type info). Pipe the collections directly - do NOT wrap
+# them in @(): in Windows PowerShell 5.1, @() around a List[object] (or a
+# hashtable ValueCollection) makes the next pipeline stage throw
+# "System.ArgumentException: Argument types do not match". A bare pipe handles the
+# empty, single and many cases correctly.
+$members | Select-Object group_dn, sam_account |
     Export-Csv -LiteralPath $membersPath -NoTypeInformation -Encoding UTF8
 
-@($users.Values) | Select-Object sam_account, display_name, email, enabled, manager_sam, manager_dn, manager_email |
+$users.Values | Select-Object sam_account, display_name, email, enabled, manager_sam, manager_dn, manager_email |
     Export-Csv -LiteralPath $usersPath -NoTypeInformation -Encoding UTF8
 
 Write-Host ("Wrote {0} membership row(s) and {1} user(s)." -f $members.Count, $users.Count)
