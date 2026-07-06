@@ -5072,7 +5072,7 @@
     if (canLive && qRaw.length >= 2 && searchState._liveQ !== qRaw) {
       searchState._liveQ = qRaw;
       searchState._loading = true;
-      window.OC_API.searchAdGroups(qRaw).then(res => {
+      window.OC_API.searchAdGroups(qRaw, 50).then(res => {
         if (searchState._liveQ !== qRaw) return; // a newer query superseded this one
         searchState._loading = false;
         searchState._liveFor = qRaw;
@@ -5084,11 +5084,11 @@
 
     // Live results for the current query, else the demo-fixture fallback.
     const liveRows = (canLive && searchState._liveFor === qRaw && Array.isArray(searchState._live))
-      ? searchState._live.filter(g => !alreadyBoundDNs.includes(g.dn)).slice(0, 8)
+      ? searchState._live.filter(g => !alreadyBoundDNs.includes(g.dn)).slice(0, 50)
           .map(g => ({ dn: g.dn, sam: g.sam || _shortGroup(g.dn), type: g.group_type || 'Security' }))
       : null;
     const demoRows = q
-      ? D.GROUPS.filter(g => !alreadyBoundDNs.includes(g.dn) && g.sam.toLowerCase().includes(q)).slice(0, 8)
+      ? D.GROUPS.filter(g => !alreadyBoundDNs.includes(g.dn) && g.sam.toLowerCase().includes(q)).slice(0, 50)
       : [];
     const rows = liveRows != null ? liveRows : demoRows;
 
@@ -5115,30 +5115,67 @@
       h('span', { style:{fontFamily:'var(--mono)',fontSize:'10.5px',color:'var(--ink-3)'} }, statusLabel),
     ));
 
+    // Multi-select set, keyed by DN. Lives on searchState so it survives the
+    // debounce re-renders and even a change of query - letting the user gather
+    // groups across several searches, then bind them all in one action.
+    searchState._sel = searchState._sel || {};
+    const selCount = Object.keys(searchState._sel).length;
+
     if (qRaw) {
-      const results = h('div', { style:{border:'1px solid var(--rule)',background:'var(--card)',maxHeight:'180px',overflowY:'auto'} });
+      const results = h('div', { style:{border:'1px solid var(--rule)',background:'var(--card)',maxHeight:'220px',overflowY:'auto'} });
       if (!rows.length) {
         results.appendChild(h('div', { style:{padding:'10px 12px',fontFamily:'var(--mono)',fontSize:'11.5px',color:'var(--ink-3)',fontStyle:'italic'} },
           searchState._loading ? 'Searching Active Directory...' : 'No matching groups. Type the full group DN to bind it directly.'));
       } else {
         rows.forEach(g => {
+          const sel = !!searchState._sel[g.dn];
           const row = h('div', {
-            style:{display:'flex',gap:'10px',alignItems:'center',padding:'8px 12px',cursor:'pointer',borderBottom:'1px solid var(--rule)',fontFamily:'var(--mono)',fontSize:'11.5px'},
+            style:{display:'flex',gap:'10px',alignItems:'center',padding:'8px 12px',cursor:'pointer',borderBottom:'1px solid var(--rule)',fontFamily:'var(--mono)',fontSize:'11.5px',background: sel ? 'var(--paper-2)' : 'transparent'},
             on:{
-              click:()=>{ onBind(g.dn); window.RERENDER_PAGE(mount); },
-              mouseenter:(e)=>{ e.currentTarget.style.background = 'var(--paper-2)'; },
-              mouseleave:(e)=>{ e.currentTarget.style.background = 'transparent'; },
+              // Row body toggles selection; the "+ Bind" affordance binds only this
+              // one immediately (unchanged single-click behaviour for quick binds).
+              click:()=>{
+                if (searchState._sel[g.dn]) delete searchState._sel[g.dn];
+                else searchState._sel[g.dn] = true;
+                window.RERENDER_PAGE(mount);
+              },
+              mouseenter:(e)=>{ if (!searchState._sel[g.dn]) e.currentTarget.style.background = 'var(--paper-2)'; },
+              mouseleave:(e)=>{ if (!searchState._sel[g.dn]) e.currentTarget.style.background = 'transparent'; },
             },
           },
+            h('input', { type:'checkbox', checked: sel || undefined, 'aria-label':'Select ' + g.sam, style:{ pointerEvents:'none', margin:'0', flex:'0 0 auto' } }),
             h('b', { style:{color:'var(--ink)'} }, g.sam),
             h('span.chip.neutral', null, g.type),
             h('span', { style:{color:'var(--ink-4)',fontSize:'10.5px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',flex:'1'} }, g.dn),
-            h('span', { style:{color:'var(--signal)',fontFamily:'var(--mono)',fontSize:'10.5px',letterSpacing:'.06em',textTransform:'uppercase'} }, '+ Bind'),
+            h('span', {
+              style:{color:'var(--signal)',fontFamily:'var(--mono)',fontSize:'10.5px',letterSpacing:'.06em',textTransform:'uppercase'},
+              on:{click:(e)=>{ e.stopPropagation(); delete searchState._sel[g.dn]; onBind(g.dn); window.RERENDER_PAGE(mount); }},
+            }, '+ Bind'),
           );
           results.appendChild(row);
         });
       }
       wrap.appendChild(results);
+    }
+
+    // Commit control for the multi-select set. Shown whenever anything is
+    // selected, even after the query is cleared, so the selection is never
+    // stranded. Binds each selected DN via the same onBind primitive.
+    if (selCount) {
+      wrap.appendChild(h('div', { style:{display:'flex',gap:'12px',alignItems:'center',paddingTop:'2px'} },
+        h('button.btn', {
+          style:{padding:'6px 12px',fontSize:'11.5px'},
+          on:{click:()=>{
+            Object.keys(searchState._sel).forEach(dn => onBind(dn));
+            searchState._sel = {};
+            window.RERENDER_PAGE(mount);
+          }},
+        }, 'Bind ' + selCount + ' selected'),
+        h('span', {
+          style:{fontFamily:'var(--mono)',fontSize:'10.5px',color:'var(--signal)',cursor:'pointer'},
+          on:{click:()=>{ searchState._sel = {}; window.RERENDER_PAGE(mount); }},
+        }, 'Clear selection'),
+      ));
     }
 
     return wrap;
