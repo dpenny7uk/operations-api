@@ -94,22 +94,31 @@ foreach ($dn in $groupDns) {
     }
 
     foreach ($u in $groupMembers) {
-        $sam = $u.SamAccountName
-        if ([string]::IsNullOrWhiteSpace($sam)) { continue }
+        # Guard each member so one bad record cannot abort the whole run.
+        # AD properties can surface as ADPropertyValueCollection rather than
+        # scalars; coerce explicitly so casts below cannot throw ArgumentException.
+        try {
+            $sam = [string]$u.SamAccountName
+            if ([string]::IsNullOrWhiteSpace($sam)) { continue }
 
-        $members.Add([pscustomobject]@{ group_dn = $dn; sam_account = $sam })
+            $members.Add([pscustomobject]@{ group_dn = $dn; sam_account = $sam })
 
-        if (-not $users.ContainsKey($sam)) {
-            $mgr = Resolve-Manager -ManagerDn $u.Manager
-            $users[$sam] = [pscustomobject]@{
-                sam_account   = $sam
-                display_name  = $u.DisplayName
-                email         = $u.EmailAddress
-                enabled       = [bool]$u.Enabled
-                manager_sam   = if ($mgr) { $mgr.manager_sam } else { $null }
-                manager_dn    = $u.Manager
-                manager_email = if ($mgr) { $mgr.manager_email } else { $null }
+            if (-not $users.ContainsKey($sam)) {
+                $managerDn = [string]$u.Manager
+                $mgr = Resolve-Manager -ManagerDn $managerDn
+                $users[$sam] = [pscustomobject]@{
+                    sam_account   = $sam
+                    display_name  = [string]$u.DisplayName
+                    email         = [string]$u.EmailAddress
+                    enabled       = [bool]($u.Enabled -eq $true)
+                    manager_sam   = if ($mgr) { $mgr.manager_sam } else { $null }
+                    manager_dn    = $managerDn
+                    manager_email = if ($mgr) { $mgr.manager_email } else { $null }
+                }
             }
+        } catch {
+            Write-Warning ("Skipping member '{0}' in group '{1}': {2}" -f $u.SamAccountName, $dn, $_.Exception.Message)
+            continue
         }
     }
 }
