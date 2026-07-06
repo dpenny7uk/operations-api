@@ -15,6 +15,9 @@ from alert_patch_cycle import build_adaptive_cards as build_patch_cards, _format
 from alert_disk_breaches import (
     build_adaptive_card as build_disk_card,
     _dedupe_resolved,
+    BREACH_QUERY,
+    RESOLUTION_QUERY,
+    NONPROD_FQDN_SUFFIX,
 )
 from alert_licence_expiry import (
     threshold_for as licence_threshold_for,
@@ -481,6 +484,27 @@ class TestDiskBreachCard:
         assert cells[2] == 'insight'                       # Service
         assert cells[3] == 'now 89.1%'                     # no "—" before now
         assert '—' not in cells[3]
+
+
+class TestDiskBreachNonProdExclusion:
+    # The recurring CRITICAL cards must never include non-production hosts, even
+    # when SolarWinds mis-tags a .hiscox.nonprod node into a production-class
+    # environment. Both the breach and resolution queries must filter it so a
+    # nonprod host neither pages nor emits a resolved card. This is a guard against
+    # the filter being dropped; the queries themselves run under Docker-gated
+    # integration tests.
+    def test_suffix_targets_nonprod_domain(self):
+        assert NONPROD_FQDN_SUFFIX == '%.nonprod'
+
+    def test_breach_query_excludes_nonprod_on_fqdn_and_name(self):
+        assert 'COALESCE(d.fqdn' in BREACH_QUERY
+        assert 'COALESCE(d.server_name' in BREACH_QUERY
+        assert BREACH_QUERY.count('NOT ILIKE %s') == 2
+
+    def test_resolution_query_excludes_nonprod_on_fqdn_and_name(self):
+        assert 'COALESCE(d.fqdn' in RESOLUTION_QUERY
+        assert 'COALESCE(d.server_name' in RESOLUTION_QUERY
+        assert RESOLUTION_QUERY.count('NOT ILIKE %s') == 2
 
 
 # ── Licence expiry alert ──────────────────────────────────────────────────────

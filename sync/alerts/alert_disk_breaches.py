@@ -55,6 +55,13 @@ ALERT_BU = 'Contoso Group Support'
 # (_ENV_CANONICAL_MAP).
 ALERT_ENVIRONMENTS = ['Production', 'Live Support', 'Shared Services']
 
+# Non-production exclusion: some .hiscox.nonprod hosts carry a production-class
+# SolarWinds Environment tag (e.g. "Shared Services") and would otherwise page.
+# The DNS domain is the authoritative prod/non-prod signal, so we exclude on the
+# fqdn suffix (falling back to server_name when fqdn is null - see
+# sync_solarwinds_disks._derive_fqdn). Matched with ILIKE against this pattern.
+NONPROD_FQDN_SUFFIX = '%.nonprod'
+
 # Breaches: critical (status=3) production-class disks not already in an
 # unresolved alert row within the cooldown window.
 BREACH_QUERY = """
@@ -74,6 +81,8 @@ BREACH_QUERY = """
     WHERE d.alert_status = 3
       AND d.business_unit = %s
       AND d.environment = ANY(%s)
+      AND COALESCE(d.fqdn, '') NOT ILIKE %s
+      AND COALESCE(d.server_name, '') NOT ILIKE %s
       AND NOT EXISTS (
           SELECT 1 FROM monitoring.alerts a
           WHERE a.server_name = d.server_name
@@ -107,6 +116,8 @@ RESOLUTION_QUERY = """
       AND NOT a.resolved
       AND d.alert_status < 3
       AND d.business_unit = %s
+      AND COALESCE(d.fqdn, '') NOT ILIKE %s
+      AND COALESCE(d.server_name, '') NOT ILIKE %s
     ORDER BY a.server_name, a.disk_label
 """
 
@@ -290,14 +301,20 @@ def main():
     _validate_teams_url(webhook_url)
 
     logger.info("Cooldown: %dh (set DISK_ALERT_COOLDOWN_HOURS to change)", COOLDOWN_HOURS)
-    logger.info("Scope: business_unit = %r, environments = %r", ALERT_BU, ALERT_ENVIRONMENTS)
+    logger.info("Scope: business_unit = %r, environments = %r, excluding fqdn/name like %r",
+                ALERT_BU, ALERT_ENVIRONMENTS, NONPROD_FQDN_SUFFIX)
 
     conn = get_database_connection(app_name='disk_breach_alert')
     try:
         with conn.cursor() as cur:
-            cur.execute(BREACH_QUERY, (ALERT_BU, ALERT_ENVIRONMENTS, COOLDOWN_HOURS))
+            cur.execute(BREACH_QUERY, (
+                ALERT_BU, ALERT_ENVIRONMENTS,
+                NONPROD_FQDN_SUFFIX, NONPROD_FQDN_SUFFIX, COOLDOWN_HOURS
+            ))
             breaches = [dict(r) for r in cur.fetchall()]
-            cur.execute(RESOLUTION_QUERY, (ALERT_BU,))
+            cur.execute(RESOLUTION_QUERY, (
+                ALERT_BU, NONPROD_FQDN_SUFFIX, NONPROD_FQDN_SUFFIX
+            ))
             resolutions = [dict(r) for r in cur.fetchall()]
 
         if not breaches and not resolutions:

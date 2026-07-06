@@ -27,6 +27,8 @@ public class AuditingServiceTests : IntegrationTestBase
             DELETE FROM auditing.application_groups;
             DELETE FROM auditing.application_nominees;
             DELETE FROM auditing.app_lifecycle_log;
+            DELETE FROM licensing.licences
+             WHERE application_id IN (SELECT application_id FROM shared.applications WHERE source_system = 'auditing');
             DELETE FROM shared.applications WHERE source_system = 'auditing';
             UPDATE shared.applications
             SET audit_frequency_months = NULL, auto_launch = FALSE,
@@ -414,6 +416,41 @@ public class AuditingServiceTests : IntegrationTestBase
             var count = await conn.ExecuteScalarAsync<int>(
                 "SELECT COUNT(*) FROM shared.applications WHERE application_id = @Id AND is_active", new { Id = app.ApplicationId });
             Assert.Equal(1, count);
+        }
+        Assert.DoesNotContain(await svc.ListApplicationsAsync(null), a => a.ApplicationId == app.ApplicationId);
+    }
+
+    [DockerFact]
+    public async Task Delete_soft_unregisters_when_a_licence_references_the_app()
+    {
+        // Reproduces the real-world case: an auditing app that also has a licensing
+        // licence pointed at it (licensing.licences has no ON DELETE CASCADE), plus a
+        // binding + nominee. Delete must soft-unregister (preserve the row), not 500.
+        await ResetAuditing();
+        var svc = CreateService();
+        var app = await svc.CreateApplicationAsync(NewApp("Licensed App", "nominees"), "tester");
+        await svc.AddBindingAsync(app.ApplicationId, new BindingCreateRequest { GroupDn = "CN=APP-Licensed,DC=contoso,DC=com" }, "tester");
+        await svc.AddNomineeAsync(app.ApplicationId, new NomineeCreateRequest { NomineeSam = "jay.bishop" }, "tester");
+        await using (var conn = new NpgsqlConnection(Db.ConnectionString))
+        {
+            await conn.OpenAsync();
+            await conn.ExecuteAsync(@"
+                INSERT INTO licensing.licences (application_id, vendor, product, expires_at)
+                VALUES (@Id, 'ResQ', 'ResQ Software', DATE '2026-12-31')",
+                new { Id = app.ApplicationId });
+        }
+
+        Assert.True(await svc.DeleteApplicationAsync(app.ApplicationId, "tester"));
+
+        await using (var conn = new NpgsqlConnection(Db.ConnectionString))
+        {
+            await conn.OpenAsync();
+            var count = await conn.ExecuteScalarAsync<int>(
+                "SELECT COUNT(*) FROM shared.applications WHERE application_id = @Id AND is_active", new { Id = app.ApplicationId });
+            Assert.Equal(1, count); // preserved (the licence still needs the row)
+            // Clean up the licence so this app can be removed by the shared reset (and
+            // doesn't block other test classes that share the DB).
+            await conn.ExecuteAsync("DELETE FROM licensing.licences WHERE application_id = @Id", new { Id = app.ApplicationId });
         }
         Assert.DoesNotContain(await svc.ListApplicationsAsync(null), a => a.ApplicationId == app.ApplicationId);
     }

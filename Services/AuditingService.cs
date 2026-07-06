@@ -221,13 +221,13 @@ public class AuditingService : BaseService<AuditingService>, IAuditingService
                 ok = await HardDeleteAppAsync(id);
                 action = "deleted"; detail = "hard delete (no history)";
             }
-            catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.ForeignKeyViolation)
+            catch (PostgresException ex)
             {
-                // Some referrer we didn't anticipate still points at the row. Preserve it
-                // via a soft unregister instead of surfacing a 500.
-                Logger.LogWarning(ex, "Hard delete of app {AppId} blocked by a reference; soft-unregistering instead.", id);
+                // Any DB-level problem with the hard delete (an unanticipated referrer,
+                // etc.) -> preserve the row via a soft unregister instead of surfacing a 500.
+                Logger.LogWarning(ex, "Hard delete of app {AppId} failed ({SqlState}); soft-unregistering instead.", id, ex.SqlState);
                 ok = await SoftUnregisterAppAsync(id, actor);
-                action = "unregistered"; detail = "soft delete (hard delete blocked by a reference)";
+                action = "unregistered"; detail = "soft delete (hard delete failed)";
             }
         }
         else

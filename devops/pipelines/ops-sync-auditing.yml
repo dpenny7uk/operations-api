@@ -42,11 +42,20 @@ steps:
       OPS_DB_SSLMODE: $(OPS_DB_SSLMODE)
 
   # Step 2: Expand AD membership. Skipped when there are no bindings yet.
+  # The try/catch surfaces the failing line INSIDE the .ps1 - a bare invocation
+  # only reports this wrapper's line, hiding where the script actually threw.
   - powershell: |
       $repoRoot = "$(Build.SourcesDirectory)\operations-api"
-      & "$repoRoot\sync\auditing\Get-ADGroupMembership.ps1" `
-          -GroupListPath "$(Build.StagingDirectory)\audit-groups.txt" `
-          -OutputPath "$(Build.StagingDirectory)"
+      try {
+          & "$repoRoot\sync\auditing\Get-ADGroupMembership.ps1" `
+              -GroupListPath "$(Build.StagingDirectory)\audit-groups.txt" `
+              -OutputPath "$(Build.StagingDirectory)"
+      } catch {
+          Write-Host "##[error]Get-ADGroupMembership.ps1 failed: $($_.Exception.GetType().FullName)"
+          Write-Host "##[error]$($_.InvocationInfo.PositionMessage)"
+          Write-Host "##[error]ScriptStackTrace:`n$($_.ScriptStackTrace)"
+          throw
+      }
     displayName: 'Expand AD group membership'
     timeoutInMinutes: 30
     errorActionPreference: stop

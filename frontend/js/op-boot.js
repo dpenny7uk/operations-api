@@ -646,7 +646,44 @@ async function fetchAuditing() {
     Promise.all(campList.map(c => api('/auditing/campaigns/' + c.campaign_id))),
   ]);
   applyAuditing(appDetails, campDetails);
+  resolveAuditOwnerDisplays(); // best-effort, async; re-renders when names land
   return true;
+}
+
+// Business/technical owners are stored by sAMAccountName. The backend returns a
+// display name only when it was cached at pick time or the owner is a synced group
+// member -- neither holds for an owner who's just an attestation contact. Resolve
+// those remaining sams to display names via the live AD search so the UI shows
+// "Jay Bishop", not "bishopj". Best-effort: fills the fields in place + re-renders.
+async function resolveAuditOwnerDisplays() {
+  const D = window.AUDITING_DATA;
+  if (!D || !Array.isArray(D.APPLICATIONS)) return;
+  const need = new Set();
+  D.APPLICATIONS.forEach(a => {
+    if (a.business_owner && !a.business_owner_display) need.add(a.business_owner);
+    if (a.technical_owner && !a.technical_owner_display) need.add(a.technical_owner);
+  });
+  if (!need.size) return;
+
+  const resolved = {};
+  await Promise.all(Array.from(need).map(async (sam) => {
+    try {
+      const res = await api('/auditing/ad-users/search?q=' + encodeURIComponent(sam) + '&limit=5');
+      if (Array.isArray(res)) {
+        const m = res.find(u => (u.sam || '').toLowerCase() === sam.toLowerCase());
+        // Only use a real display name (the AD search falls back to sam when displayName is blank).
+        if (m && m.display && m.display.toLowerCase() !== sam.toLowerCase()) resolved[sam] = m.display;
+      }
+    } catch (_) { /* AD unreachable -> leave the sam */ }
+  }));
+  if (!Object.keys(resolved).length) return;
+
+  let changed = false;
+  D.APPLICATIONS.forEach(a => {
+    if (a.business_owner && !a.business_owner_display && resolved[a.business_owner]) { a.business_owner_display = resolved[a.business_owner]; changed = true; }
+    if (a.technical_owner && !a.technical_owner_display && resolved[a.technical_owner]) { a.technical_owner_display = resolved[a.technical_owner]; changed = true; }
+  });
+  if (changed && window.RERENDER_SHELL) window.RERENDER_SHELL();
 }
 
 // ── Paginated /api/servers (backend caps limit at 1000) ──────────────
@@ -1489,7 +1526,7 @@ async function refetchAuditing() {
 async function refetchAuditingApp(appId) {
   let detail = null;
   try { detail = await api('/auditing/applications/' + appId); } catch (_) {}
-  if (detail) { clearDemo('auditing'); applyAuditingApp(detail); }
+  if (detail) { clearDemo('auditing'); applyAuditingApp(detail); resolveAuditOwnerDisplays(); }
   _rerenderAuditing();
 }
 
