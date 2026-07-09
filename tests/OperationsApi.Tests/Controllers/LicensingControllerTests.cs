@@ -14,7 +14,7 @@ public class LicensingControllerTests
     private readonly Mock<ILicensingService> _svc = new();
 
     // DefaultHttpContext gives a non-null User so the write actions' actor lookup
-    // (User.Identity?.Name) resolves to null -> "unknown" instead of throwing.
+    // (User.CurrentSam()) resolves to "" instead of throwing.
     private LicensingController Controller() => new(_svc.Object)
     {
         ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
@@ -94,7 +94,8 @@ public class LicensingControllerTests
             .ThrowsAsync(new ConflictException("duplicate"));
 
         var req = new LicenceCreateRequest { Vendor = "V", Product = "P", ExpiresAt = Future(10) };
-        Assert.IsType<ConflictObjectResult>(await Controller().Create(req));
+        // Controllers no longer catch ConflictException; the global handler maps it to 409.
+        await Assert.ThrowsAsync<ConflictException>(() => Controller().Create(req));
     }
 
     [Fact]

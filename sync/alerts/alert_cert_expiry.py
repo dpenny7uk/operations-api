@@ -8,32 +8,16 @@ Designed to run as a post-sync step after sync_certificates.py.
 """
 
 import os
-import re
 import logging
 from datetime import datetime
 
 from common import (
+    validate_teams_url,
     setup_logging, create_argument_parser, configure_verbosity,
     validate_env_vars, http_request, get_database_connection
 )
 
 logger = setup_logging('cert_expiry_alert')
-
-_TEAMS_WEBHOOK_RE = re.compile(
-    r'^https://[a-zA-Z0-9.-]+\.(webhook\.office\.com|powerplatform\.com)[:/]'
-)
-
-
-def _validate_teams_url(url: str) -> None:
-    if not url.startswith('https://'):
-        raise ValueError(
-            f"TEAMS_WEBHOOK_URL must use HTTPS — got: {url!r}"
-        )
-    if not _TEAMS_WEBHOOK_RE.match(url):
-        raise ValueError(
-            f"TEAMS_WEBHOOK_URL must be a webhook.office.com or powerplatform.com URL — "
-            f"got: {url!r}. Set TEAMS_WEBHOOK_URL to the webhook URL from your Teams channel."
-        )
 
 
 # Scope: Group Support owned servers, plus endpoint certs from our config CSV
@@ -236,7 +220,7 @@ def main():
 
     validate_env_vars(['TEAMS_WEBHOOK_URL'])
     webhook_url = os.environ['TEAMS_WEBHOOK_URL']
-    _validate_teams_url(webhook_url)
+    validate_teams_url(webhook_url)
 
     logger.info("Scope: business_unit = %r (plus endpoint certs without a server_id)", ALERT_BU)
 

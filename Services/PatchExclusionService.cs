@@ -141,7 +141,7 @@ public class PatchExclusionService : BaseService<PatchExclusionService>, IPatchE
                 pe.held_until AS HeldUntil,
                 pe.excluded_by AS ExcludedBy,
                 pe.excluded_at AS ExcludedAt,
-                (pe.held_until <= CURRENT_DATE) AS HoldExpired,
+                (pe.held_until < CURRENT_DATE) AS HoldExpired,
                 CASE
                     WHEN pe.held_until < CURRENT_DATE THEN 'overdue'
                     WHEN pe.held_until < CURRENT_DATE + INTERVAL '7 days' THEN 'expiring'
@@ -324,10 +324,12 @@ public class PatchExclusionService : BaseService<PatchExclusionService>, IPatchE
     public Task<bool> ExtendExclusionAsync(int exclusionId, DateOnly newHeldUntil, string extendedBy) =>
         RunDbAsync(async () =>
     {
+        // Preserve the original excluded_by/excluded_at; record the editor in
+        // updated_by (an extend is an edit of an existing exclusion, not a new one).
         const string sql = @"
             UPDATE patching.patch_exclusions
             SET held_until = @NewHeldUntil,
-                excluded_by = @ExtendedBy,
+                updated_by = @ExtendedBy,
                 updated_at = CURRENT_TIMESTAMP
             WHERE exclusion_id = @ExclusionId
               AND is_active";
@@ -352,7 +354,9 @@ public class PatchExclusionService : BaseService<PatchExclusionService>, IPatchE
         p.Add("ActingUser", actingUser);
         if (newHeldUntil != null) { sets.Add("held_until = @HeldUntil"); p.Add("HeldUntil", newHeldUntil.Value); }
         if (notes != null)        { sets.Add("notes = @Notes");           p.Add("Notes", notes); }
-        sets.Add("excluded_by = @ActingUser");
+        // An edit stamps updated_by; excluded_by/excluded_at stay pinned to the
+        // original exclusion so we never lose who first excluded the server.
+        sets.Add("updated_by = @ActingUser");
         sets.Add("updated_at = CURRENT_TIMESTAMP");
 
         var sql = $@"

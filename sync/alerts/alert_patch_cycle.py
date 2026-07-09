@@ -11,21 +11,17 @@ Monday-through-Sunday patching window.
 
 import json
 import os
-import re
 import logging
 import time
 from collections import defaultdict
 
 from common import (
+    validate_teams_url,
     setup_logging, create_argument_parser, configure_verbosity,
     validate_env_vars, http_request, get_database_connection
 )
 
 logger = setup_logging('patch_cycle_alert')
-
-_TEAMS_WEBHOOK_RE = re.compile(
-    r'^https://[a-zA-Z0-9.-]+\.(webhook\.office\.com|powerplatform\.com)[:/]'
-)
 
 CARD_SIZE_LIMIT = 25_000  # Teams Adaptive Card limit ~28KB, leave margin
 
@@ -47,13 +43,6 @@ def _parse_environment(server_name: str) -> str:
 def _env_color(environment: str) -> str:
     """Return Adaptive Card color — red for Production, default otherwise."""
     return 'attention' if environment == 'Production' else 'default'
-
-
-def _validate_teams_url(url: str) -> None:
-    if not url.startswith('https://'):
-        raise ValueError(
-            f"TEAMS_WEBHOOK_URL must use HTTPS — got: {url!r}"
-        )
 
 
 UPCOMING_QUERY = """
@@ -387,7 +376,7 @@ def main():
 
     validate_env_vars(['TEAMS_PATCHING_WEBHOOK_URL'])
     webhook_url = os.environ['TEAMS_PATCHING_WEBHOOK_URL']
-    _validate_teams_url(webhook_url)
+    validate_teams_url(webhook_url)
 
     conn = get_database_connection(app_name='patch_cycle_alert')
     try:

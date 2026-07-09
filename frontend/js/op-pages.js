@@ -498,12 +498,12 @@
       if (!refetched) window.RERENDER_PAGE(mount);
     };
     const envOpts = [['__all','All environments']].concat(live.env.map(e => [e.name, e.name + ' ('+e.count+')']));
-    const search = h('input', {'data-fk':'servers-search',
+    const search = h('input', {'data-fk':'servers-search', 'aria-label':'Search servers',
       type:'text', placeholder:'Search name, FQDN, application, patch group…',
       value: srvState.q,
       on:{input:(e)=>{ srvState.q = e.target.value; srvState.page = 1; window.RERENDER_PAGE(mount); }},
     });
-    const envSel = h('select', { on:{change: async (e)=>{ srvState.env = e.target.value; srvState.page = 1; await refetchServers(); }}},
+    const envSel = h('select', { 'aria-label':'Filter by environment', on:{change: async (e)=>{ srvState.env = e.target.value; srvState.page = 1; await refetchServers(); }}},
       envOpts.map(([v,l]) => h('option'+(srvState.env===v?'.on':''), {value:v, selected: srvState.env===v}, l)));
     const clearBtn = h('button.btn', { on:{click: async ()=>{
       const wasEnv = srvState.env;

@@ -129,12 +129,14 @@ def parse_group_sections(soup: BeautifulSoup, fallback_date: datetime) -> dict[s
 
 def process_servers(ctx, cycle_id: int, servers: list[dict]):
     """Resolve server names and upsert into patch_schedule."""
+    seen_names: list[str] = []
     with ctx.conn.cursor() as cur:
         for server in servers:
             server_name = server.get('server_name')
             if not server_name:
                 continue
 
+            seen_names.append(server_name)
             ctx.stats.processed += 1
 
             # Resolve server_id
@@ -179,6 +181,24 @@ def process_servers(ctx, cycle_id: int, servers: list[dict]):
 
             except Exception as e:
                 ctx.stats.add_error(f"Failed {server_name}: {e}")
+
+        # Prune onprem rows that dropped out of this re-scraped cycle. patch_cycles is
+        # keyed by cycle_date, so re-scraping a still-live page reuses the same cycle_id;
+        # without this, a server removed from the schedule would linger as 'scheduled'
+        # forever and keep the servers_onprem count inflated. Mirrors the delete-then-
+        # insert semantics the Ivanti path (process_patching_schedule.py) already uses.
+        # Restricted to server_type = 'onprem' so azure rows (Ivanti path) are untouched.
+        if seen_names:
+            cur.execute("""
+                DELETE FROM patching.patch_schedule
+                WHERE cycle_id = %s
+                  AND server_type = 'onprem'
+                  AND server_name <> ALL(%s)
+            """, (cycle_id, seen_names))
+            pruned = cur.rowcount
+            if pruned:
+                ctx.stats.deactivated += pruned
+                logger.info("  Pruned %d onprem server(s) no longer in cycle %s", pruned, cycle_id)
 
 
 def main():

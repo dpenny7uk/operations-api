@@ -478,7 +478,7 @@ public class AuditingServiceTests : IntegrationTestBase
         await Assert.ThrowsAsync<ConflictException>(() => svc.AddBindingAsync(app.ApplicationId, new BindingCreateRequest { GroupDn = "CN=APP-Other,DC=contoso,DC=com" }, "tester"));
         await Assert.ThrowsAsync<ConflictException>(() => svc.RemoveBindingAsync(app.ApplicationId, binding!.BindingId, "tester"));
         await Assert.ThrowsAsync<ConflictException>(() => svc.AddNomineeAsync(app.ApplicationId, new NomineeCreateRequest { NomineeSam = "sara.bennett" }, "tester"));
-        await Assert.ThrowsAsync<ConflictException>(() => svc.RemoveNomineeAsync(app.ApplicationId, 999));
+        await Assert.ThrowsAsync<ConflictException>(() => svc.RemoveNomineeAsync(app.ApplicationId, 999, "tester"));
         await Assert.ThrowsAsync<ConflictException>(() => svc.PatchApplicationAsync(app.ApplicationId, new AppPatchRequest { SupportEmail = "x@contoso.com" }, "tester"));
     }
 
@@ -503,6 +503,26 @@ public class AuditingServiceTests : IntegrationTestBase
         Assert.Equal(new[] { "archived", "restored", "renamed", "deleted" }, rows.Select(r => r.Action).ToArray());
         Assert.Equal(new[] { "alice", "bob", "carol", "dave" }, rows.Select(r => r.Actor).ToArray());
         Assert.Contains("Logged", rows[2].Detail); // rename records old -> new
+    }
+
+    // Regression: restoring an app that was never archived is a no-op (returns null),
+    // not a spurious success that writes a bogus 'restored' lifecycle entry.
+    [DockerFact]
+    public async Task Restore_never_archived_app_returns_null_and_logs_nothing()
+    {
+        await ResetAuditing();
+        var svc = CreateService();
+        var app = await svc.CreateApplicationAsync(NewApp("NeverArchived"), "tester");
+
+        var restored = await svc.RestoreApplicationAsync(app.ApplicationId, "bob");
+        Assert.Null(restored);
+
+        await using var conn = new NpgsqlConnection(Db.ConnectionString);
+        await conn.OpenAsync();
+        var restoredLogs = await conn.ExecuteScalarAsync<int>(
+            "SELECT COUNT(*) FROM auditing.app_lifecycle_log WHERE application_id = @Id AND action = 'restored'",
+            new { Id = app.ApplicationId });
+        Assert.Equal(0, restoredLogs);
     }
 
     [DockerFact]

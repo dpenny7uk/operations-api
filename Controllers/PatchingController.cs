@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using OperationsApi.Infrastructure;
 using OperationsApi.Services;
 
 namespace OperationsApi.Controllers;
@@ -120,7 +121,7 @@ public class PatchingController : ControllerBase
         var status = req.Status?.ToLower();
         if (status is not ("completed" or "cancelled"))
             return BadRequest("Status must be one of: completed, cancelled.");
-        var updated = await _svc.UpdateCycleStatusAsync(cycleId, status);
+        var updated = await _svc.UpdateCycleStatusAsync(cycleId, status, User.CurrentSam());
         return updated ? Ok() : NotFound();
     }
 

@@ -167,10 +167,13 @@ public class AuditingService : BaseService<AuditingService>, IAuditingService
 
     public Task<AuditApplicationDetail?> RestoreApplicationAsync(int id, string actor) => RunDbAsync(async () =>
     {
+        // Only an actually-archived app can be restored. Without the audit_status
+        // guard, restoring a never-archived app matched the row, returned success,
+        // and wrote a spurious 'restored' lifecycle entry.
         var rows = await Db.ExecuteAsync($@"
             UPDATE {Sql.Tables.Applications}
             SET audit_status = 'active'
-            WHERE application_id = @Id AND is_active",
+            WHERE application_id = @Id AND is_active AND audit_status = 'archived'",
             new { Id = id });
 
         if (rows == 0) return null;
@@ -338,13 +341,33 @@ public class AuditingService : BaseService<AuditingService>, IAuditingService
             new { Id = nomineeId });
     });
 
-    public Task<bool> RemoveNomineeAsync(int appId, int nomineeId) => RunDbAsync(async () =>
+    public Task<bool> RemoveNomineeAsync(int appId, int nomineeId, string actor) => RunDbAsync(async () =>
     {
         await GuardNotArchivedAsync(appId);
-        return await Db.ExecuteAsync($@"
+
+        // Capture who is being removed before the delete so the removal can be
+        // attributed in the lifecycle log. Nominees are pre-launch config and a
+        // launched campaign snapshots its own recipients, so a hard delete is fine
+        // here -- but it must not be unattributed (mirrors RemoveBindingAsync).
+        var nomineeSam = await Db.ExecuteScalarAsync<string?>($@"
+            SELECT nominee_sam FROM {Sql.Tables.AuditApplicationNominees}
+            WHERE nominee_id = @NomineeId AND application_id = @AppId",
+            new { NomineeId = nomineeId, AppId = appId });
+
+        var removed = await Db.ExecuteAsync($@"
             DELETE FROM {Sql.Tables.AuditApplicationNominees}
             WHERE nominee_id = @NomineeId AND application_id = @AppId",
             new { NomineeId = nomineeId, AppId = appId }) > 0;
+
+        if (removed)
+        {
+            var appName = await Db.ExecuteScalarAsync<string?>($@"
+                SELECT application_name FROM {Sql.Tables.Applications} WHERE application_id = @AppId",
+                new { AppId = appId });
+            await TryLogLifecycleAsync(appId, appName, "nominee_removed", actor,
+                nomineeSam is null ? $"nominee #{nomineeId}" : $"nominee '{nomineeSam}' (#{nomineeId})");
+        }
+        return removed;
     });
 
     // ── Campaigns (read-only) ────────────────────────────────────────
@@ -827,34 +850,16 @@ public class AuditingService : BaseService<AuditingService>, IAuditingService
         public string? Source { get; set; }
     }
 
+    // Per-constraint 409 messages; the shared catch lives in BaseService.TranslateUniqueViolation.
     // Unique application_name (shared.applications) -> 409 on create.
-    private static async Task<T> TranslateConflict<T>(Func<Task<T>> op)
-    {
-        try { return await op(); }
-        catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.UniqueViolation)
-        {
-            throw new ConflictException("An application with this name already exists.");
-        }
-    }
+    private static Task<T> TranslateConflict<T>(Func<Task<T>> op)
+        => TranslateUniqueViolation(op, "An application with this name already exists.");
 
-    // Partial-unique idx_app_group_active -> 409 when an active binding for the
-    // same group already exists on the application.
-    private static async Task<T> TranslateConflictBinding<T>(Func<Task<T>> op)
-    {
-        try { return await op(); }
-        catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.UniqueViolation)
-        {
-            throw new ConflictException("That group is already bound to this application.");
-        }
-    }
+    // Partial-unique idx_app_group_active -> 409 when an active binding for the same group exists.
+    private static Task<T> TranslateConflictBinding<T>(Func<Task<T>> op)
+        => TranslateUniqueViolation(op, "That group is already bound to this application.");
 
     // Unique (application_id, nominee_sam) -> 409 on duplicate nominee.
-    private static async Task<T> TranslateConflictNominee<T>(Func<Task<T>> op)
-    {
-        try { return await op(); }
-        catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.UniqueViolation)
-        {
-            throw new ConflictException("That person is already a nominee for this application.");
-        }
-    }
+    private static Task<T> TranslateConflictNominee<T>(Func<Task<T>> op)
+        => TranslateUniqueViolation(op, "That person is already a nominee for this application.");
 }

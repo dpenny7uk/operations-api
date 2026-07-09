@@ -208,7 +208,38 @@ def sync_eol_software(ctx, records: list):
         execute_values(cur, "INSERT INTO tmp_eol_software VALUES %s", values)
         ctx.stats.processed = len(values)
 
-        # Upsert per-server rows (no lifecycle dates — those come from sync_eol_dates)
+        # Guard against a partial Databricks export deactivating most of the table.
+        # Mirrors sync_server_list.py: an absolute floor (covers first-run, when the
+        # churn ratio cannot apply) plus a >50%-drop churn guard against the current
+        # active per-server baseline. common.http_request logs 'TRUNCATED' but still
+        # returns the partial rows, so a truncated Jobs-API result would otherwise
+        # slip past the empty-check above and mass-deactivate.
+        min_rows = max(int(os.environ.get('EOL_MIN_SERVER_ROWS', '25')), 1)
+        if len(values) < min_rows:
+            raise RuntimeError(
+                f"EOL sync matched only {len(values)} per-server rows (minimum: {min_rows}). "
+                "This looks like a partial or failed Databricks export. "
+                "Set EOL_MIN_SERVER_ROWS to override if intentional."
+            )
+
+        cur.execute(
+            "SELECT COUNT(*) AS cnt FROM eol.end_of_life_software "
+            "WHERE source_system = 'databricks' AND machine_name IS NOT NULL AND is_active = TRUE"
+        )
+        existing_count = cur.fetchone()['cnt']
+        churn_pct = (len(values) / existing_count * 100) if existing_count > 0 else 0
+        logger.info(
+            "EOL churn guard: incoming=%d active_baseline=%d ratio=%.0f%%",
+            len(values), existing_count, churn_pct
+        )
+        if existing_count > 0 and len(values) < existing_count * 0.5:
+            raise RuntimeError(
+                f"EOL sync matched {len(values)} per-server rows but {existing_count} are currently active "
+                f"({len(values) / existing_count:.0%} of baseline, threshold is 50%). "
+                "Aborting to prevent mass deactivation - investigate the Databricks source."
+            )
+
+        # Upsert per-server rows (no lifecycle dates -- those come from sync_eol_dates)
         cur.execute("""
             INSERT INTO eol.end_of_life_software (
                 eol_product,

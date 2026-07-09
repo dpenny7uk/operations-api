@@ -99,7 +99,7 @@ public static class OpsCertValidator {
 "@
 }
 
-# ── Read server list ─────────────────────────────────────────────────────────
+# -- Read server list ---------------------------------------------------------
 
 $servers = @(Get-Content -Path $ServerListPath |
     ForEach-Object { $_.Trim() } |
@@ -109,7 +109,7 @@ if ($servers.Count -eq 0) {
     Write-Warning "No servers found in $ServerListPath"
 }
 
-# ── Read endpoints list (optional) ───────────────────────────────────────────
+# -- Read endpoints list (optional) -------------------------------------------
 
 $endpoints = @()
 if ($EndpointsPath) {
@@ -129,7 +129,7 @@ if ($totalTargets -eq 0) {
 
 Write-Host "Scanning $($servers.Count) servers + $($endpoints.Count) endpoints (ThrottleLimit=$ThrottleLimit, Ports=$($Ports -join ','))"
 
-# ── Shared function definition (injected into runspace scriptblocks) ──────────
+# -- Shared function definition (injected into runspace scriptblocks) ----------
 
 $sharedFunctions = @'
 function Get-CertStatus {
@@ -142,8 +142,8 @@ function Get-CertStatus {
 }
 '@
 
-# ── Scriptblock for server scans (cert store + port probing) ─────────────────
-#    Must be self-contained — runspaces don't share the parent scope.
+# -- Scriptblock for server scans (cert store + port probing) -----------------
+#    Must be self-contained - runspaces don't share the parent scope.
 #    Get-CertStatus is injected via $sharedFunctions + scriptblock concatenation.
 
 $serverScanBlock = [ScriptBlock]::Create(@'
@@ -181,7 +181,7 @@ $serverScanBlock = [ScriptBlock]::Create(@'
     $results = @()
     $lastError = ''  # Captured to distinguish TLS failure (ERROR) from no HTTPS (UNREACHABLE)
 
-    # ── HTTPS Endpoints via TLS connection ───────────────────────────────
+    # -- HTTPS Endpoints via TLS connection -------------------------------
     foreach ($port in $Ports) {
         $tcpClient = $null
         $sslStream = $null
@@ -275,7 +275,7 @@ $serverScanBlock = [ScriptBlock]::Create(@'
     return $results
 '@)
 
-# ── Scriptblock for standalone endpoint scans (URL-based) ────────────────────
+# -- Scriptblock for standalone endpoint scans (URL-based) --------------------
 
 $endpointScanBlock = [ScriptBlock]::Create(@'
     param(
@@ -371,7 +371,7 @@ $endpointScanBlock = [ScriptBlock]::Create(@'
     }
 '@)
 
-# ── Run all scans in parallel using RunspacePool ─────────────────────────────
+# -- Run all scans in parallel using RunspacePool -----------------------------
 
 $sessionState = [System.Management.Automation.Runspaces.InitialSessionState]::CreateDefault()
 $runspacePool = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspacePool(1, $ThrottleLimit, $sessionState, $Host)
@@ -453,7 +453,7 @@ finally {
     $runspacePool.Dispose()
 }
 
-# ── Export CSV ────────────────────────────────────────────────────────────────
+# -- Export CSV ----------------------------------------------------------------
 
 $allResults = @($allResults)
 
@@ -467,7 +467,7 @@ $csvPath = Join-Path -Path $OutputPath -ChildPath $csvFileName
 
 $allResults | Export-Csv -Path $csvPath -NoTypeInformation -Encoding UTF8
 
-# ── Summary ───────────────────────────────────────────────────────────────────
+# -- Summary -------------------------------------------------------------------
 
 $totalCerts   = @($allResults | Where-Object { $_.Status -notin @('UNREACHABLE','ERROR') }).Count
 $unreachable  = @($allResults | Where-Object { $_.Status -eq 'UNREACHABLE' } |

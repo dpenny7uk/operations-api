@@ -47,7 +47,7 @@ public interface IPatchingService
     Task<IEnumerable<GlobalServerSearchResult>> SearchServersGlobalAsync(string query, int limit);
     Task<KnownIssueDetail?> GetKnownIssueByIdAsync(int id);
     Task<IEnumerable<PatchWindow>> GetPatchWindowsAsync();
-    Task<bool> UpdateCycleStatusAsync(int cycleId, string status);
+    Task<bool> UpdateCycleStatusAsync(int cycleId, string status, string actor);
 }
 
 public interface ICertificateService
@@ -132,7 +132,7 @@ public interface IAuditingService
     // Nominees: returns null if the application doesn't exist; throws ConflictException
     // on a duplicate (application_id, nominee_sam).
     Task<AuditNominee?> AddNomineeAsync(int appId, NomineeCreateRequest req, string actor);
-    Task<bool> RemoveNomineeAsync(int appId, int nomineeId);
+    Task<bool> RemoveNomineeAsync(int appId, int nomineeId, string actor);
 
     // ---- Campaigns (read) ----
     Task<IEnumerable<AuditCampaign>> ListCampaignsAsync();

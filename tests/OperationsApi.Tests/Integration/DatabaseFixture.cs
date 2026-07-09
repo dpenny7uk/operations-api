@@ -107,7 +107,9 @@ public class DatabaseFixture : IAsyncLifetime
             "database/022-auditing-one-open-campaign.sql",
             "database/023-auditing-archive.sql",
             "database/024-auditing-lifecycle-log.sql",
-            "database/025-auditing-owner-display.sql"
+            "database/025-auditing-owner-display.sql",
+            "database/026-patch-cycle-updated-by.sql",
+            "database/027-patch-exclusion-updated-by.sql"
         };
 
         // Walk up from bin/Debug/net10.0 to find the project root

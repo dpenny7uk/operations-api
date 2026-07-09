@@ -83,6 +83,25 @@ def _http_verify():
     return verify
 
 
+# Teams Incoming Webhook / Power Automate URL guard, shared by sync/alerts/*.
+# Rejects a misconfigured TEAMS_WEBHOOK_URL early with a clear, actionable message.
+_TEAMS_WEBHOOK_RE = re.compile(
+    r'^https://[a-zA-Z0-9.-]+\.(webhook\.office\.com|powerplatform\.com)[:/]'
+)
+
+
+def validate_teams_url(url: str) -> None:
+    if not url.startswith('https://'):
+        raise ValueError(
+            f"TEAMS_WEBHOOK_URL must use HTTPS — got: {url!r}"
+        )
+    if not _TEAMS_WEBHOOK_RE.match(url):
+        raise ValueError(
+            f"TEAMS_WEBHOOK_URL must be a webhook.office.com or powerplatform.com URL — "
+            f"got: {url!r}. Set TEAMS_WEBHOOK_URL to the webhook URL from your Teams channel."
+        )
+
+
 def http_request(
     method: str,
     url: str,

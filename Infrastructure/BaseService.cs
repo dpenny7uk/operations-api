@@ -1,6 +1,7 @@
 using System.Data;
 using Dapper;
 using Microsoft.Extensions.Logging;
+using Npgsql;
 
 namespace OperationsApi.Infrastructure;
 
@@ -63,6 +64,20 @@ public abstract class BaseService<TService> where TService : class
         {
             Logger.LogError(ex, "Database error in {Service}.{Method}", typeof(TService).Name, caller);
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Run an operation, translating a PostgreSQL unique-constraint violation into a
+    /// ConflictException (409) with the supplied message. Any other exception propagates
+    /// unchanged. Centralises the catch that services otherwise hand-rolled per constraint.
+    /// </summary>
+    protected static async Task<T> TranslateUniqueViolation<T>(Func<Task<T>> op, string conflictMessage)
+    {
+        try { return await op(); }
+        catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.UniqueViolation)
+        {
+            throw new ConflictException(conflictMessage);
         }
     }
 

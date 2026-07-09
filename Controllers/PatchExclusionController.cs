@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using OperationsApi.Infrastructure;
 using OperationsApi.Services;
 
 namespace OperationsApi.Controllers;
@@ -89,15 +90,12 @@ public class PatchExclusionController : ControllerBase
             return BadRequest("Reason must be 2000 characters or fewer.");
         if (InputGuard.ContainsControlChars(req.Reason))
             return BadRequest("Reason contains invalid characters.");
-        if (req.HeldUntil < DateOnly.FromDateTime(DateTime.Today))
-            return BadRequest("Held until date must be today or later.");
-        if (req.HeldUntil > DateOnly.FromDateTime(DateTime.Today.AddYears(2)))
-            return BadRequest("Held until date must be within 2 years.");
+        if (ValidateHeldUntil(req.HeldUntil) is { } heldErr) return BadRequest(heldErr);
         if (req.Ticket?.Length > 100) return BadRequest("Ticket must be 100 characters or fewer.");
         if (req.ReasonSlug?.Length > 50) return BadRequest("Reason slug must be 50 characters or fewer.");
         if (req.Notes?.Length > 4000) return BadRequest("Notes must be 4000 characters or fewer.");
 
-        var user = User.Identity?.Name ?? "unknown";
+        var user = User.CurrentSam();
         var count = await _svc.ExcludeServersAsync(req.ServerIds, req.Reason.Trim(), req.HeldUntil, user,
             req.Ticket?.Trim(), req.ReasonSlug?.Trim(), req.Notes?.Trim());
         return Ok(new { excluded = count });
@@ -120,14 +118,11 @@ public class PatchExclusionController : ControllerBase
             return BadRequest("Reason is required.");
         if (req.Reason.Length > 2000)
             return BadRequest("Reason must be 2000 characters or fewer.");
-        if (req.HeldUntil < DateOnly.FromDateTime(DateTime.Today))
-            return BadRequest("Held until date must be today or later.");
-        if (req.HeldUntil > DateOnly.FromDateTime(DateTime.Today.AddYears(2)))
-            return BadRequest("Held until date must be within 2 years.");
+        if (ValidateHeldUntil(req.HeldUntil) is { } heldErr) return BadRequest(heldErr);
         if (req.Ticket?.Length > 100) return BadRequest("Ticket must be 100 characters or fewer.");
         if (req.Notes?.Length > 4000) return BadRequest("Notes must be 4000 characters or fewer.");
 
-        var user = User.Identity?.Name ?? "unknown";
+        var user = User.CurrentSam();
         var count = await _svc.BulkExcludeAsync(req.Kind, req.Target.Trim(), req.Reason.Trim(), req.HeldUntil, user,
             req.Ticket?.Trim(), req.ReasonSlug?.Trim(), req.Notes?.Trim());
         return Ok(new { affected = count });
@@ -141,12 +136,9 @@ public class PatchExclusionController : ControllerBase
     [ProducesResponseType(404)]
     public async Task<IActionResult> Extend(int id, [FromBody] ExtendRequest req)
     {
-        if (req.HeldUntil < DateOnly.FromDateTime(DateTime.Today))
-            return BadRequest("Held until date must be today or later.");
-        if (req.HeldUntil > DateOnly.FromDateTime(DateTime.Today.AddYears(2)))
-            return BadRequest("Held until date must be within 2 years.");
+        if (ValidateHeldUntil(req.HeldUntil) is { } heldErr) return BadRequest(heldErr);
 
-        var user = User.Identity?.Name ?? "unknown";
+        var user = User.CurrentSam();
         var updated = await _svc.ExtendExclusionAsync(id, req.HeldUntil, user);
         return updated ? Ok() : NotFound();
     }
@@ -159,18 +151,13 @@ public class PatchExclusionController : ControllerBase
     [ProducesResponseType(404)]
     public async Task<IActionResult> Update(int id, [FromBody] UpdateExclusionRequest req)
     {
-        if (req.HeldUntil != null)
-        {
-            if (req.HeldUntil < DateOnly.FromDateTime(DateTime.Today))
-                return BadRequest("Held until date must be today or later.");
-            if (req.HeldUntil > DateOnly.FromDateTime(DateTime.Today.AddYears(2)))
-                return BadRequest("Held until date must be within 2 years.");
-        }
+        if (req.HeldUntil is { } heldUntil && ValidateHeldUntil(heldUntil) is { } heldErr)
+            return BadRequest(heldErr);
         if (req.Notes?.Length > 4000) return BadRequest("Notes must be 4000 characters or fewer.");
         if (req.HeldUntil == null && req.Notes == null)
             return BadRequest("At least one of heldUntil or notes must be provided.");
 
-        var user = User.Identity?.Name ?? "unknown";
+        var user = User.CurrentSam();
         var updated = await _svc.UpdateExclusionAsync(id, req.HeldUntil, req.Notes?.Trim(), user);
         return updated ? Ok() : NotFound();
     }
@@ -182,7 +169,7 @@ public class PatchExclusionController : ControllerBase
     [ProducesResponseType(404)]
     public async Task<IActionResult> Release(int id)
     {
-        var user = User.Identity?.Name ?? "unknown";
+        var user = User.CurrentSam();
         var removed = await _svc.RemoveExclusionAsync(id, user);
         return removed ? Ok() : NotFound();
     }
@@ -195,9 +182,18 @@ public class PatchExclusionController : ControllerBase
     [ProducesResponseType(404)]
     public async Task<IActionResult> Remove(int id)
     {
-        var user = User.Identity?.Name ?? "unknown";
+        var user = User.CurrentSam();
         var removed = await _svc.RemoveExclusionAsync(id, user);
         return removed ? Ok() : NotFound();
+    }
+
+    // Exclusion hold dates must fall within today..+2 years. Returns an error message or null.
+    private static string? ValidateHeldUntil(DateOnly heldUntil)
+    {
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        if (heldUntil < today) return "Held until date must be today or later.";
+        if (heldUntil > today.AddYears(2)) return "Held until date must be within 2 years.";
+        return null;
     }
 
     public record ExcludeRequest(List<int> ServerIds, string Reason, DateOnly HeldUntil,

@@ -7,9 +7,9 @@ using OperationsApi.Services;
 namespace OperationsApi.Controllers;
 
 /// <summary>
-/// Vendor-licence renewal tracking (Surface 08, Risk group). Reads are open to any
-/// authenticated user; writes require OpsAdmin. Licences are entered/maintained here
-/// (manual source of record) -- not synced from the CMDB.
+/// Vendor-licence renewal tracking (Surface 08, Risk group). Reads expose commercial
+/// licence data, so they require OpsAuditor; writes require OpsAdmin. Licences are
+/// entered/maintained here (manual source of record) -- not synced from the CMDB.
 /// </summary>
 [Authorize]
 [ApiController]
@@ -30,6 +30,7 @@ public class LicensingController : ControllerBase
     /// <param name="q">Optional free-text search over application / vendor / product.</param>
     /// <param name="limit">Page size (1-1000, default 200).</param>
     [HttpGet("licences")]
+    [Authorize(Policy = "OpsAuditor")]
     [ProducesResponseType(200)]
     [ProducesResponseType(400)]
     public async Task<IActionResult> List(
@@ -54,6 +55,7 @@ public class LicensingController : ControllerBase
 
     /// <summary>Get one licence with its embedded renewal history.</summary>
     [HttpGet("licences/{id}")]
+    [Authorize(Policy = "OpsAuditor")]
     [ProducesResponseType(200)]
     [ProducesResponseType(404)]
     public async Task<IActionResult> GetById(int id)
@@ -75,16 +77,9 @@ public class LicensingController : ControllerBase
             req.StatusFlag, req.Notes, req.ExpiresAt, expiryRequired: true);
         if (error != null) return BadRequest(error);
 
-        var actor = User.Identity?.Name ?? "unknown";
-        try
-        {
-            var created = await _svc.CreateAsync(req, actor);
-            return Created($"/api/licensing/licences/{created.LicenceId}", created);
-        }
-        catch (ConflictException ex)
-        {
-            return Conflict(ex.Message);
-        }
+        var actor = User.CurrentSam();
+        var created = await _svc.CreateAsync(req, actor);
+        return Created($"/api/licensing/licences/{created.LicenceId}", created);
     }
 
     /// <summary>Patch a licence (any subset of fields, incl. inline status-flag edit). Requires OpsAdmin role.</summary>
@@ -104,16 +99,9 @@ public class LicensingController : ControllerBase
             req.ExpiresAt, expiryRequired: false);
         if (error != null) return BadRequest(error);
 
-        var actor = User.Identity?.Name ?? "unknown";
-        try
-        {
-            var updated = await _svc.PatchAsync(id, req, actor);
-            return updated == null ? NotFound() : Ok(updated);
-        }
-        catch (ConflictException ex)
-        {
-            return Conflict(ex.Message);
-        }
+        var actor = User.CurrentSam();
+        var updated = await _svc.PatchAsync(id, req, actor);
+        return updated == null ? NotFound() : Ok(updated);
     }
 
     /// <summary>Renew a licence: close the current cycle, advance the expiry, reset alerts. Requires OpsAdmin role.</summary>
@@ -132,7 +120,7 @@ public class LicensingController : ControllerBase
         if (req.Notes?.Length > 4000 || InputGuard.ContainsControlCharsExceptWhitespace(req.Notes))
             return BadRequest("notes is invalid (max 4000 characters).");
 
-        var actor = User.Identity?.Name ?? "unknown";
+        var actor = User.CurrentSam();
         var renewed = await _svc.RenewAsync(id, req.NewExpires, req.Notes?.Trim(), actor);
         return renewed == null ? NotFound() : Ok(renewed);
     }
@@ -144,7 +132,7 @@ public class LicensingController : ControllerBase
     [ProducesResponseType(404)]
     public async Task<IActionResult> Delete(int id)
     {
-        var actor = User.Identity?.Name ?? "unknown";
+        var actor = User.CurrentSam();
         var removed = await _svc.DeleteAsync(id, actor);
         return removed ? Ok() : NotFound();
     }
@@ -161,21 +149,15 @@ public class LicensingController : ControllerBase
             if (string.IsNullOrWhiteSpace(product)) return "product is required.";
             if (expiresAt == null) return "expires_at is required.";
         }
-        if (vendor != null && (vendor.Length > 120 || InputGuard.ContainsControlChars(vendor)))
-            return "vendor is invalid (max 120 characters).";
-        if (product != null && (product.Length > 120 || InputGuard.ContainsControlChars(product)))
-            return "product is invalid (max 120 characters).";
-        if (applicationName != null && (applicationName.Length > 255 || InputGuard.ContainsControlChars(applicationName)))
-            return "application_name is invalid (max 255 characters).";
-        if (licenceType != null && (licenceType.Length > 50 || InputGuard.ContainsControlChars(licenceType)))
-            return "licence_type is invalid (max 50 characters).";
-        if (auditFrequency != null && (auditFrequency.Length > 30 || InputGuard.ContainsControlChars(auditFrequency)))
-            return "audit_frequency is invalid (max 30 characters).";
-        if (auditOwnerSam != null && (auditOwnerSam.Length > 255 || InputGuard.ContainsControlChars(auditOwnerSam)))
-            return "audit_owner_sam is invalid (max 255 characters).";
-        // Notes is a multi-line free-text field, so newlines/tabs are valid.
-        if (notes != null && (notes.Length > 4000 || InputGuard.ContainsControlCharsExceptWhitespace(notes)))
-            return "notes is invalid (max 4000 characters).";
+        var textError = InputGuard.InvalidText(vendor, 120, "vendor")
+            ?? InputGuard.InvalidText(product, 120, "product")
+            ?? InputGuard.InvalidText(applicationName, 255, "application_name")
+            ?? InputGuard.InvalidText(licenceType, 50, "licence_type")
+            ?? InputGuard.InvalidText(auditFrequency, 30, "audit_frequency")
+            ?? InputGuard.InvalidText(auditOwnerSam, 255, "audit_owner_sam")
+            // Notes is a multi-line free-text field, so newlines/tabs are valid.
+            ?? InputGuard.InvalidText(notes, 4000, "notes", allowNewlines: true);
+        if (textError != null) return textError;
         if (quantityHeld is < 0 or > 100_000_000)
             return "quantity_held must be between 0 and 100,000,000.";
         if (noticePeriodDays is < 0 or > 3650)

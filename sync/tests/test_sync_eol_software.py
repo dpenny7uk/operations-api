@@ -2,12 +2,21 @@
 
 import sys
 import os
+import pytest
 from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from common import SyncStats
 from eol.sync_eol_software import map_software_to_product, sync_eol_software
+
+
+@pytest.fixture(autouse=True)
+def _relax_eol_churn_guard(monkeypatch):
+    # The mapping/dedup/upsert tests below feed tiny synthetic datasets; relax the
+    # partial-export floor so it does not abort them. The guard's own behaviour is
+    # covered by TestEolChurnGuard.
+    monkeypatch.setenv('EOL_MIN_SERVER_ROWS', '1')
 
 
 # ── map_software_to_product ─────────────────────────────────────────────────
@@ -85,6 +94,7 @@ def _make_ctx(dry_run=False):
     ctx.stats = SyncStats()
     cursor = MagicMock()
     cursor.fetchall.return_value = [{'is_insert': True}]
+    cursor.fetchone.return_value = {'cnt': 0}  # churn-guard baseline (no existing rows)
     cursor.rowcount = 0
     ctx.conn.cursor.return_value.__enter__ = MagicMock(return_value=cursor)
     ctx.conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
@@ -175,3 +185,27 @@ class TestSyncEolSoftware:
         records = [_make_record()]
         sync_eol_software(ctx, records)
         assert ctx.stats.deactivated == 5
+
+
+@patch('eol.sync_eol_software.execute_values')
+class TestEolChurnGuard:
+    """Partial-export guard: a truncated Databricks result must not mass-deactivate
+    the per-server EOL table (mirrors sync_server_list's min + 50%-churn guards)."""
+
+    def test_partial_export_aborts_before_deactivation(self, mock_ev):
+        # 100 rows already active; a truncated export returns only 1 mapped row
+        # (1% of baseline, below the 50% threshold) -> the sync must abort.
+        ctx, cursor = _make_ctx()
+        cursor.fetchone.return_value = {'cnt': 100}
+        with pytest.raises(RuntimeError, match='(?i)mass deactivation|baseline'):
+            sync_eol_software(ctx, [_make_record()])
+        ctx.conn.commit.assert_not_called()
+
+    def test_min_row_floor_aborts(self, mock_ev, monkeypatch):
+        # Floor of 10 with only 3 incoming rows (baseline 0) -> abort.
+        monkeypatch.setenv('EOL_MIN_SERVER_ROWS', '10')
+        ctx, cursor = _make_ctx()
+        records = [_make_record(machine_name=f'PR0602-WEB0{i}') for i in range(3)]
+        with pytest.raises(RuntimeError, match='(?i)minimum|partial'):
+            sync_eol_software(ctx, records)
+        ctx.conn.commit.assert_not_called()

@@ -14,7 +14,7 @@ public class AuditingApplicationsControllerTests
     private readonly Mock<IAuditingService> _svc = new();
 
     // DefaultHttpContext gives a non-null User so the write actions' actor lookup
-    // (User.Identity?.Name) resolves to null -> "unknown" instead of throwing.
+    // (User.CurrentSam()) resolves to "" instead of throwing.
     private AuditingApplicationsController Controller() => new(_svc.Object)
     {
         ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
@@ -82,7 +82,8 @@ public class AuditingApplicationsControllerTests
         _svc.Setup(s => s.CreateApplicationAsync(It.IsAny<AppCreateRequest>(), It.IsAny<string>()))
             .ThrowsAsync(new ConflictException("duplicate"));
 
-        Assert.IsType<ConflictObjectResult>(await Controller().CreateApplication(new AppCreateRequest { Name = "App" }));
+        // Controllers no longer catch ConflictException; the global handler maps it to 409.
+        await Assert.ThrowsAsync<ConflictException>(() => Controller().CreateApplication(new AppCreateRequest { Name = "App" }));
     }
 
     // ── Patch ────────────────────────────────────────────────────────
@@ -148,7 +149,7 @@ public class AuditingApplicationsControllerTests
     {
         _svc.Setup(s => s.DeleteApplicationAsync(3, It.IsAny<string>()))
             .ThrowsAsync(new ConflictException("open campaign"));
-        Assert.IsType<ConflictObjectResult>(await Controller().DeleteApplication(3));
+        await Assert.ThrowsAsync<ConflictException>(() => Controller().DeleteApplication(3));
     }
 
     [Fact]
@@ -156,7 +157,7 @@ public class AuditingApplicationsControllerTests
     {
         _svc.Setup(s => s.PatchApplicationAsync(5, It.IsAny<AppPatchRequest>(), It.IsAny<string>()))
             .ThrowsAsync(new ConflictException("duplicate name"));
-        Assert.IsType<ConflictObjectResult>(await Controller().UpdateApplication(5, new AppPatchRequest { Name = "Dup" }));
+        await Assert.ThrowsAsync<ConflictException>(() => Controller().UpdateApplication(5, new AppPatchRequest { Name = "Dup" }));
     }
 
     // ── Archive / restore ────────────────────────────────────────────
@@ -180,7 +181,7 @@ public class AuditingApplicationsControllerTests
     {
         _svc.Setup(s => s.ArchiveApplicationAsync(5, It.IsAny<string>()))
             .ThrowsAsync(new ConflictException("open campaign"));
-        Assert.IsType<ConflictObjectResult>(await Controller().ArchiveApplication(5));
+        await Assert.ThrowsAsync<ConflictException>(() => Controller().ArchiveApplication(5));
     }
 
     [Fact]
@@ -232,8 +233,8 @@ public class AuditingApplicationsControllerTests
         _svc.Setup(s => s.AddBindingAsync(1, It.IsAny<BindingCreateRequest>(), It.IsAny<string>()))
             .ThrowsAsync(new ConflictException("dup"));
 
-        var result = await Controller().AddBinding(1, new BindingCreateRequest { GroupDn = "CN=APP-X,DC=contoso,DC=com" });
-        Assert.IsType<ConflictObjectResult>(result);
+        await Assert.ThrowsAsync<ConflictException>(() =>
+            Controller().AddBinding(1, new BindingCreateRequest { GroupDn = "CN=APP-X,DC=contoso,DC=com" }));
     }
 
     [Fact]
@@ -268,14 +269,14 @@ public class AuditingApplicationsControllerTests
         _svc.Setup(s => s.AddNomineeAsync(1, It.IsAny<NomineeCreateRequest>(), It.IsAny<string>()))
             .ThrowsAsync(new ConflictException("dup"));
 
-        var result = await Controller().AddNominee(1, new NomineeCreateRequest { NomineeSam = "sara.bennett" });
-        Assert.IsType<ConflictObjectResult>(result);
+        await Assert.ThrowsAsync<ConflictException>(() =>
+            Controller().AddNominee(1, new NomineeCreateRequest { NomineeSam = "sara.bennett" }));
     }
 
     [Fact]
     public async Task RemoveNominee_returns_Ok_when_removed()
     {
-        _svc.Setup(s => s.RemoveNomineeAsync(1, 9)).ReturnsAsync(true);
+        _svc.Setup(s => s.RemoveNomineeAsync(1, 9, It.IsAny<string>())).ReturnsAsync(true);
         Assert.IsType<OkResult>(await Controller().RemoveNominee(1, 9));
     }
 }

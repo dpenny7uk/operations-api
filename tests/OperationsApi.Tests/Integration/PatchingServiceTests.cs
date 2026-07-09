@@ -264,4 +264,45 @@ public class PatchingServiceTests : IntegrationTestBase
         Assert.True(results.Count >= 12); // 6 onprem + 6 azure from migration seed
         Assert.Contains(results, w => w.PatchGroup == "8a" && w.WindowType == "onprem");
     }
+
+    // ── SearchServersGlobalAsync ─────────────────────────────────────
+
+    // Regression: a server matching multiple known issues must appear ONCE in global
+    // search (not once per matched issue). Before the DISTINCT fix the known-issues
+    // LEFT JOIN multiplied the row per match, duplicating the server and inflating
+    // the per-cycle TotalCount. (The search join is case-sensitive, so the two seeded
+    // issues use exact-case affected_apps to match WEB01's app 'Portal'.)
+    [DockerFact]
+    public async Task SearchGlobal_deduplicates_server_matching_multiple_issues()
+    {
+        await using var conn = new NpgsqlConnection(Db.ConnectionString);
+        await conn.OpenAsync();
+
+        var ids = (await conn.QueryAsync<int>(@"
+            INSERT INTO patching.known_issues
+                (title, application, severity, is_active, applies_to_windows, applies_to_sql,
+                 applies_to_other, affected_apps, affected_services, fix, trigger_description,
+                 category, status, confluence_page_id)
+            VALUES
+                ('Dedup issue A', 'Portal', 'HIGH', TRUE, TRUE, FALSE, FALSE,
+                 ARRAY['Portal'], ARRAY[]::TEXT[], 'x', 'x', 'Windows O/S Patching', 'PUBLISHED', 'dedup-a'),
+                ('Dedup issue B', 'Portal', 'HIGH', TRUE, TRUE, FALSE, FALSE,
+                 ARRAY['Portal'], ARRAY[]::TEXT[], 'x', 'x', 'Windows O/S Patching', 'PUBLISHED', 'dedup-b')
+            RETURNING issue_id")).ToList();
+
+        try
+        {
+            var svc = CreateService();
+            var results = (await svc.SearchServersGlobalAsync("WEB01", 50)).ToList();
+            var web01 = results.SelectMany(r => r.Servers).Where(s => s.ServerName == "WEB01").ToList();
+
+            Assert.Single(web01);                 // deduped, not one row per matched issue
+            Assert.Equal(2, web01[0].IssueCount); // but still reports both matches
+        }
+        finally
+        {
+            await conn.ExecuteAsync(
+                "DELETE FROM patching.known_issues WHERE issue_id = ANY(@ids)", new { ids });
+        }
+    }
 }

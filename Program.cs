@@ -46,6 +46,15 @@ if (string.IsNullOrEmpty(connStringCheck) && !builder.Environment.IsDevelopment(
 // configure a test account in IIS Express or use a mocked auth middleware in a test project.
 var adminRole = config.GetValue<string>("Authentication:AdminRole") ?? "";
 var auditorRole = config.GetValue<string>("Authentication:AuditorRole") ?? "";
+
+// Fail closed: a blank AdminRole would silently degrade the OpsAdmin write policy to
+// "any authenticated user" (see the policy below). Outside Development, refuse to start
+// rather than ship an open write surface - mirrors the connection-string guard above.
+if (string.IsNullOrWhiteSpace(adminRole) && !builder.Environment.IsDevelopment())
+    throw new InvalidOperationException(
+        "Authentication:AdminRole is not configured. Set it in appsettings.json or environment variables. " +
+        "Refusing to start: a blank AdminRole would open every OpsAdmin write endpoint to any authenticated user.");
+
 builder.Services
     .AddAuthentication(NegotiateDefaults.AuthenticationScheme)
     .AddNegotiate();
@@ -182,6 +191,19 @@ app.UseExceptionHandler(error => error.Run(async context =>
 {
     var correlationId = context.TraceIdentifier;
     var ex = context.Features.Get<IExceptionHandlerFeature>()?.Error;
+
+    // Expected client conflict (duplicate row, open campaign, ...) -> 409 with the
+    // exception message. Write actions used to catch this locally in every controller;
+    // the global handler now owns the translation so controllers stay thin. Treated as
+    // an expected client error, so it is not logged as a server fault.
+    if (ex is ConflictException)
+    {
+        context.Response.StatusCode = 409;
+        context.Response.ContentType = "application/json";
+        await context.Response.WriteAsJsonAsync(new { error = ex.Message });
+        return;
+    }
+
     var logger = context.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("ExceptionHandler");
     logger.LogError(ex, "Unhandled exception on {Method} {Path} [CorrelationId={CorrelationId}]",
         context.Request.Method, context.Request.Path, correlationId);

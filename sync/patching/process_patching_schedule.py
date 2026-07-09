@@ -220,13 +220,19 @@ def main():
 
         process_servers(ctx, cycle_id, servers)
 
-        # Update cycle counts
+        # Update cycle counts. process_servers inserts both onprem and azure rows,
+        # so count each server_type from what was actually written rather than using
+        # ctx.stats.processed (the combined total, which inflated servers_onprem with
+        # azure rows and left servers_azure at 0).
         with ctx.conn.cursor() as cur:
             cur.execute("""
                 UPDATE patching.patch_cycles SET
-                    servers_onprem = %s
+                    servers_onprem = (SELECT COUNT(*) FROM patching.patch_schedule
+                                      WHERE cycle_id = %s AND server_type = 'onprem'),
+                    servers_azure  = (SELECT COUNT(*) FROM patching.patch_schedule
+                                      WHERE cycle_id = %s AND server_type = 'azure')
                 WHERE cycle_id = %s
-            """, (ctx.stats.processed, cycle_id))
+            """, (cycle_id, cycle_id, cycle_id))
 
         if not ctx.dry_run:
             ctx.conn.commit()

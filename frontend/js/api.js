@@ -42,8 +42,14 @@ export function hasDemo(key) { return demoWidgets.has(key); }
 const API_TIMEOUT_MS = 15000;
 
 function recordHttpError(path, status) {
-  if (status === 401 || status === 403) {
+  if (status === 401) {
     if (!apiErrors.some(e => e.startsWith('Authentication'))) addApiError('Authentication failed \u2014 check your credentials');
+  } else if (status === 403) {
+    // Authorization failure, NOT authentication: the user is signed in but lacks the
+    // required role (e.g. OpsAdmin on a write). Recorded as a non-blanket, per-action
+    // message so it does NOT match consoleState's ^(Authentication|Network|Request)
+    // blanket regex and wrongly flip the whole console to "API unreachable / demo data".
+    if (!apiErrors.some(e => e.startsWith('Not permitted'))) addApiError('Not permitted \u2014 you lack the required role for that action');
   } else if (status === 429) {
     if (!apiErrors.some(e => e.startsWith('Rate'))) addApiError('Rate limited \u2014 too many requests');
   } else if (status >= 500) {
@@ -110,7 +116,11 @@ async function apiWrite(method, path, body) {
     if (!res.ok) {
       recordHttpError(path, res.status);
       const text = await res.text().catch(() => '');
-      return { ok: false, status: res.status, error: text || `Error ${res.status}` };
+      // Error bodies are JSON { error: "..." } (409 conflicts and 500s alike). Surface
+      // the message; fall back to the raw text for any non-JSON response.
+      let message = text;
+      try { const parsed = JSON.parse(text); if (parsed && parsed.error) message = parsed.error; } catch (_) {}
+      return { ok: false, status: res.status, error: message || `Error ${res.status}` };
     }
     // Parse the success body when present (e.g. a launch result); empty/204 -> null.
     const data = await res.json().catch(() => null);

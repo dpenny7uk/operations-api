@@ -9,8 +9,8 @@ namespace OperationsApi.Controllers;
 /// <summary>
 /// Application access auditing (Surface 09, Governance group). Registers
 /// applications, the AD groups that gate them, and (for nominees-mode apps) the
-/// picked recipients. Reads are open to any authenticated user; writes require
-/// OpsAdmin. Campaign launch + attestation arrive in later slices.
+/// picked recipients. Reads expose access-governance data (owners, nominees), so
+/// they require OpsAuditor; writes require OpsAdmin.
 /// </summary>
 [Authorize]
 [ApiController]
@@ -28,6 +28,7 @@ public class AuditingApplicationsController : ControllerBase
 
     /// <summary>List applications registered for auditing, optionally filtered by name.</summary>
     [HttpGet("applications")]
+    [Authorize(Policy = "OpsAuditor")]
     [ProducesResponseType(200)]
     [ProducesResponseType(400)]
     public async Task<IActionResult> ListApplications([FromQuery] string? q = null)
@@ -41,6 +42,7 @@ public class AuditingApplicationsController : ControllerBase
 
     /// <summary>Get one application with its embedded bindings and nominees.</summary>
     [HttpGet("applications/{id}")]
+    [Authorize(Policy = "OpsAuditor")]
     [ProducesResponseType(200)]
     [ProducesResponseType(404)]
     public async Task<IActionResult> GetApplication(int id)
@@ -63,16 +65,9 @@ public class AuditingApplicationsController : ControllerBase
             ?? ValidateDisplay(req.TechnicalOwnerDisplay, "technical_owner_display");
         if (error != null) return BadRequest(error);
 
-        var actor = User.Identity?.Name ?? "unknown";
-        try
-        {
-            var created = await _svc.CreateApplicationAsync(req, actor);
-            return Created($"/api/auditing/applications/{created.ApplicationId}", created);
-        }
-        catch (ConflictException ex)
-        {
-            return Conflict(ex.Message);
-        }
+        var actor = User.CurrentSam();
+        var created = await _svc.CreateApplicationAsync(req, actor);
+        return Created($"/api/auditing/applications/{created.ApplicationId}", created);
     }
 
     /// <summary>Patch an application's audit config (any subset of fields). Requires OpsAdmin role.</summary>
@@ -89,16 +84,9 @@ public class AuditingApplicationsController : ControllerBase
             ?? ValidateDisplay(req.TechnicalOwnerDisplay, "technical_owner_display");
         if (error != null) return BadRequest(error);
 
-        var actor = User.Identity?.Name ?? "unknown";
-        try
-        {
-            var updated = await _svc.PatchApplicationAsync(id, req, actor);
-            return updated == null ? NotFound() : Ok(updated);
-        }
-        catch (ConflictException ex)
-        {
-            return Conflict(ex.Message);
-        }
+        var actor = User.CurrentSam();
+        var updated = await _svc.PatchApplicationAsync(id, req, actor);
+        return updated == null ? NotFound() : Ok(updated);
     }
 
     /// <summary>Archive (retire) an application. Keeps its config + attestation history but
@@ -110,16 +98,9 @@ public class AuditingApplicationsController : ControllerBase
     [ProducesResponseType(409)]
     public async Task<IActionResult> ArchiveApplication(int id)
     {
-        var actor = User.Identity?.Name ?? "unknown";
-        try
-        {
-            var archived = await _svc.ArchiveApplicationAsync(id, actor);
-            return archived == null ? NotFound() : Ok(archived);
-        }
-        catch (ConflictException ex)
-        {
-            return Conflict(ex.Message);
-        }
+        var actor = User.CurrentSam();
+        var archived = await _svc.ArchiveApplicationAsync(id, actor);
+        return archived == null ? NotFound() : Ok(archived);
     }
 
     /// <summary>Restore an archived application back to active. Requires OpsAdmin role.</summary>
@@ -129,7 +110,7 @@ public class AuditingApplicationsController : ControllerBase
     [ProducesResponseType(404)]
     public async Task<IActionResult> RestoreApplication(int id)
     {
-        var actor = User.Identity?.Name ?? "unknown";
+        var actor = User.CurrentSam();
         var restored = await _svc.RestoreApplicationAsync(id, actor);
         return restored == null ? NotFound() : Ok(restored);
     }
@@ -144,16 +125,9 @@ public class AuditingApplicationsController : ControllerBase
     [ProducesResponseType(409)]
     public async Task<IActionResult> DeleteApplication(int id)
     {
-        var actor = User.Identity?.Name ?? "unknown";
-        try
-        {
-            var removed = await _svc.DeleteApplicationAsync(id, actor);
-            return removed ? Ok() : NotFound();
-        }
-        catch (ConflictException ex)
-        {
-            return Conflict(ex.Message);
-        }
+        var actor = User.CurrentSam();
+        var removed = await _svc.DeleteApplicationAsync(id, actor);
+        return removed ? Ok() : NotFound();
     }
 
     // ── Bindings ─────────────────────────────────────────────────────
@@ -175,18 +149,11 @@ public class AuditingApplicationsController : ControllerBase
         if (req.GroupType?.Length > 20 || InputGuard.ContainsControlChars(req.GroupType))
             return BadRequest("group_type is invalid (max 20 characters).");
 
-        var actor = User.Identity?.Name ?? "unknown";
-        try
-        {
-            var binding = await _svc.AddBindingAsync(id, req, actor);
-            return binding == null
-                ? NotFound()
-                : Created($"/api/auditing/applications/{id}", binding);
-        }
-        catch (ConflictException ex)
-        {
-            return Conflict(ex.Message);
-        }
+        var actor = User.CurrentSam();
+        var binding = await _svc.AddBindingAsync(id, req, actor);
+        return binding == null
+            ? NotFound()
+            : Created($"/api/auditing/applications/{id}", binding);
     }
 
     /// <summary>Remove a group binding from an application. Requires OpsAdmin role.</summary>
@@ -197,16 +164,9 @@ public class AuditingApplicationsController : ControllerBase
     [ProducesResponseType(409)]
     public async Task<IActionResult> RemoveBinding(int id, int bindingId)
     {
-        var actor = User.Identity?.Name ?? "unknown";
-        try
-        {
-            var removed = await _svc.RemoveBindingAsync(id, bindingId, actor);
-            return removed ? Ok() : NotFound();
-        }
-        catch (ConflictException ex)
-        {
-            return Conflict(ex.Message);
-        }
+        var actor = User.CurrentSam();
+        var removed = await _svc.RemoveBindingAsync(id, bindingId, actor);
+        return removed ? Ok() : NotFound();
     }
 
     // ── Nominees ─────────────────────────────────────────────────────
@@ -230,18 +190,11 @@ public class AuditingApplicationsController : ControllerBase
         if (req.RoleNote?.Length > 4000 || InputGuard.ContainsControlCharsExceptWhitespace(req.RoleNote))
             return BadRequest("role_note is invalid (max 4000 characters).");
 
-        var actor = User.Identity?.Name ?? "unknown";
-        try
-        {
-            var nominee = await _svc.AddNomineeAsync(id, req, actor);
-            return nominee == null
-                ? NotFound()
-                : Created($"/api/auditing/applications/{id}", nominee);
-        }
-        catch (ConflictException ex)
-        {
-            return Conflict(ex.Message);
-        }
+        var actor = User.CurrentSam();
+        var nominee = await _svc.AddNomineeAsync(id, req, actor);
+        return nominee == null
+            ? NotFound()
+            : Created($"/api/auditing/applications/{id}", nominee);
     }
 
     /// <summary>Remove a nominee from an application. Requires OpsAdmin role.</summary>
@@ -252,21 +205,14 @@ public class AuditingApplicationsController : ControllerBase
     [ProducesResponseType(409)]
     public async Task<IActionResult> RemoveNominee(int id, int nomineeId)
     {
-        try
-        {
-            var removed = await _svc.RemoveNomineeAsync(id, nomineeId);
-            return removed ? Ok() : NotFound();
-        }
-        catch (ConflictException ex)
-        {
-            return Conflict(ex.Message);
-        }
+        var actor = User.CurrentSam();
+        var removed = await _svc.RemoveNomineeAsync(id, nomineeId, actor);
+        return removed ? Ok() : NotFound();
     }
 
     // Cached AD display name (e.g. "Jay Bishop") — bounded + control-char guarded.
     private static string? ValidateDisplay(string? v, string field)
-        => (v != null && (v.Length > 255 || InputGuard.ContainsControlChars(v)))
-            ? field + " is invalid (max 255 characters)." : null;
+        => InputGuard.InvalidText(v, 255, field);
 
     // Shared application-field validation for create + patch. Returns an error or null.
     private static string? ValidateApp(
@@ -275,14 +221,11 @@ public class AuditingApplicationsController : ControllerBase
     {
         if (nameRequired && string.IsNullOrWhiteSpace(name))
             return "name is required.";
-        if (name != null && (name.Length > 255 || InputGuard.ContainsControlChars(name)))
-            return "name is invalid (max 255 characters).";
-        if (businessOwner != null && (businessOwner.Length > 255 || InputGuard.ContainsControlChars(businessOwner)))
-            return "business_owner is invalid (max 255 characters).";
-        if (technicalOwner != null && (technicalOwner.Length > 255 || InputGuard.ContainsControlChars(technicalOwner)))
-            return "technical_owner is invalid (max 255 characters).";
-        if (supportEmail != null && (supportEmail.Length > 255 || InputGuard.ContainsControlChars(supportEmail)))
-            return "support_email is invalid (max 255 characters).";
+        var textError = InputGuard.InvalidText(name, 255, "name")
+            ?? InputGuard.InvalidText(businessOwner, 255, "business_owner")
+            ?? InputGuard.InvalidText(technicalOwner, 255, "technical_owner")
+            ?? InputGuard.InvalidText(supportEmail, 255, "support_email");
+        if (textError != null) return textError;
         if (!IsValidRoutingMode(routingMode))
             return "audit_routing_mode must be 'line_manager' or 'nominees'.";
         if (frequencyMonths is < 1 or > 120)

@@ -710,14 +710,15 @@
     // next sync runs. Keep Copy (useful) and Snooze (client-side dismiss).
     const actions = h('div.a-actions');
     const idForCopy = (a.meta && a.meta.blast) || a.title;
-    const copyBtn = h('button', { on:{click:() => {
-      try {
-        navigator.clipboard.writeText(idForCopy);
-        copyBtn.textContent = 'Copied';
-        setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1200);
-      } catch {
-        copyBtn.textContent = 'Copy failed';
-      }
+    const copyBtn = h('button', { 'aria-label':'Copy alert id', on:{click:() => {
+      // clipboard.writeText is async: a synchronous try/catch cannot catch its
+      // rejection (and would flash "Copied" before it resolves). Handle the promise,
+      // and guard the missing-API case (non-secure context / older browsers).
+      const done = (ok) => { copyBtn.textContent = ok ? 'Copied' : 'Copy failed';
+                             setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1200); };
+      const write = navigator.clipboard && navigator.clipboard.writeText(idForCopy);
+      if (write && typeof write.then === 'function') write.then(() => done(true)).catch(() => done(false));
+      else done(false);
     }}}, 'Copy');
     actions.appendChild(copyBtn);
 

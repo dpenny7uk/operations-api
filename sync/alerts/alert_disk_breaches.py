@@ -16,30 +16,17 @@ Designed to run independently of the 15-min sync, on a less-frequent schedule
 """
 
 import os
-import re
 import sys
 import logging
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from common import (
+    validate_teams_url,
     setup_logging, create_argument_parser, configure_verbosity,
     validate_env_vars, http_request, get_database_connection
 )
 
 logger = setup_logging('disk_breach_alert')
-
-_TEAMS_WEBHOOK_RE = re.compile(
-    r'^https://[a-zA-Z0-9.-]+\.(webhook\.office\.com|powerplatform\.com)[:/]'
-)
-
-
-def _validate_teams_url(url: str) -> None:
-    if not url.startswith('https://'):
-        raise ValueError(f"TEAMS_WEBHOOK_URL must use HTTPS — got: {url!r}")
-    if not _TEAMS_WEBHOOK_RE.match(url):
-        raise ValueError(
-            f"TEAMS_WEBHOOK_URL must be a webhook.office.com or powerplatform.com URL — got: {url!r}"
-        )
 
 
 COOLDOWN_HOURS = int(os.environ.get('DISK_ALERT_COOLDOWN_HOURS', '24'))
@@ -298,7 +285,7 @@ def main():
 
     validate_env_vars(['TEAMS_WEBHOOK_URL'])
     webhook_url = os.environ['TEAMS_WEBHOOK_URL']
-    _validate_teams_url(webhook_url)
+    validate_teams_url(webhook_url)
 
     logger.info("Cooldown: %dh (set DISK_ALERT_COOLDOWN_HOURS to change)", COOLDOWN_HOURS)
     logger.info("Scope: business_unit = %r, environments = %r, excluding fqdn/name like %r",

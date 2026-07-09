@@ -263,53 +263,48 @@ public class ServerService : BaseService<ServerService>, IServerService
         // carry a BU. When the caller scopes by BU, restrict to entries whose
         // closest fuzzy-matched canonical server is in that BU - keeps the
         // work-list scoped to the operator's estate.
+        //
+        // The closest match is computed ONCE per row via LEFT JOIN LATERAL and
+        // referenced by alias in both SELECT and WHERE. Previously the identical
+        // correlated subquery was inlined twice, so every surviving BU-scoped row
+        // re-ran the (unindexable) trigram scan over all active servers a second time.
         var hasBu = !string.IsNullOrWhiteSpace(businessUnit);
-        var closestMatchSql = hasBu
-            ? $@"(
-                    SELECT s.server_name
-                    FROM {Sql.Tables.Servers} s
-                    WHERE s.is_active
-                      AND s.business_unit = @BusinessUnit
-                      AND similarity(system.normalize_server_name(s.server_name), um.server_name_normalized) > 0.3
-                    ORDER BY similarity(
-                        system.normalize_server_name(s.server_name),
-                        um.server_name_normalized
-                    ) DESC, s.server_name
-                    LIMIT 1
-                )"
-            : $@"(
-                    SELECT s.server_name
-                    FROM {Sql.Tables.Servers} s
-                    WHERE s.is_active
-                      AND similarity(system.normalize_server_name(s.server_name), um.server_name_normalized) > 0.3
-                    ORDER BY similarity(
-                        system.normalize_server_name(s.server_name),
-                        um.server_name_normalized
-                    ) DESC, s.server_name
-                    LIMIT 1
-                )";
+        var buClause = hasBu ? " AND s.business_unit = @BusinessUnit" : "";
+        var closestMatchLateral = $@"
+            LEFT JOIN LATERAL (
+                SELECT s.server_name AS closest_match
+                FROM {Sql.Tables.Servers} s
+                WHERE s.is_active{buClause}
+                  AND similarity(system.normalize_server_name(s.server_name), um.server_name_normalized) > 0.3
+                ORDER BY similarity(
+                    system.normalize_server_name(s.server_name),
+                    um.server_name_normalized
+                ) DESC, s.server_name
+                LIMIT 1
+            ) cm ON TRUE";
 
         var sql = $@"
             SELECT
-                server_name_raw AS ServerNameRaw,
-                server_name_normalized AS ServerNameNormalized,
-                source_system AS SourceSystem,
-                occurrence_count AS OccurrenceCount,
-                first_seen_at AS FirstSeenAt,
-                last_seen_at AS LastSeenAt,
-                {closestMatchSql} AS ClosestMatch
+                um.server_name_raw AS ServerNameRaw,
+                um.server_name_normalized AS ServerNameNormalized,
+                um.source_system AS SourceSystem,
+                um.occurrence_count AS OccurrenceCount,
+                um.first_seen_at AS FirstSeenAt,
+                um.last_seen_at AS LastSeenAt,
+                cm.closest_match AS ClosestMatch
             FROM {Sql.Tables.UnmatchedServers} um
-            WHERE status = 'pending'";
+            {closestMatchLateral}
+            WHERE um.status = 'pending'";
 
         var p = new DynamicParameters();
-        AddExactFilter(ref sql, p, "source_system", "Source", source);
+        AddExactFilter(ref sql, p, "um.source_system", "Source", source);
         if (hasBu)
         {
-            sql += " AND " + closestMatchSql + " IS NOT NULL";
+            sql += " AND cm.closest_match IS NOT NULL";
             p.Add("BusinessUnit", businessUnit);
         }
 
-        sql += " ORDER BY occurrence_count DESC LIMIT @Limit";
+        sql += " ORDER BY um.occurrence_count DESC LIMIT @Limit";
         p.Add("Limit", limit);
 
         return await Db.QueryAsync<UnmatchedServer>(sql, p);

@@ -104,11 +104,20 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
             FROM {Sql.Tables.PatchWindows}
             WHERE scheduled_time IS NOT NULL
             ORDER BY patch_group, window_type;
+
+            SELECT COUNT(DISTINCT ps.server_name)::INT
+            FROM {Sql.Tables.PatchSchedule} ps{buJoin}
+            JOIN {Sql.Tables.KnownIssues} ki ON ki.is_active
+                AND (LOWER(ps.app) = ANY(COALESCE(ki.affected_apps, ARRAY[]::TEXT[])) OR LOWER(ps.service) = ANY(COALESCE(ki.affected_services, ARRAY[]::TEXT[])))
+            WHERE ps.cycle_id = ANY(@CycleIds);
         ", new { CycleIds = cycleIds, BusinessUnit = businessUnit });
 
         var groups = (await multi.ReadAsync<GroupCount>()).ToList();
         var issues = (await multi.ReadAsync<SeverityCount>()).ToList();
         var windows = (await multi.ReadAsync<GroupWindow>()).ToList();
+        // Distinct servers affected by ANY active known issue across these cycles.
+        // Summing IssuesBySeverity would double-count a server hit by >1 severity.
+        var totalAffectedServers = await multi.ReadSingleAsync<int>();
         var first = cycles[0];
 
         // Build per-cycle detail (date + groups for that date)
@@ -144,7 +153,7 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
                 i => i.Severity ?? "Unknown",
                 i => i.ServerCount
             ),
-            TotalIssuesAffectingServers = issues.Sum(i => i.ServerCount),
+            TotalIssuesAffectingServers = totalAffectedServers,
             IsStale = isStale,
             DaysOverdue = isStale ? -(first.DaysUntil ?? 0) : null
         };
@@ -387,8 +396,12 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
 
     public Task<IEnumerable<GlobalServerSearchResult>> SearchServersGlobalAsync(string query, int limit) => RunDbAsync(async () =>
     {
+        // DISTINCT collapses the row multiplication from the known-issues LEFT JOIN:
+        // a server matching N known issues would otherwise appear N times here (and be
+        // counted N times in TotalCount). IssueCount/HasKnownIssue are window functions
+        // over ps.schedule_id, so every duplicate row is identical and DISTINCT is safe.
         var sql = $@"
-            SELECT
+            SELECT DISTINCT
                 pc.cycle_id AS CycleId,
                 pc.cycle_date AS CycleDate,
                 CASE
@@ -471,13 +484,13 @@ public class PatchingService : BaseService<PatchingService>, IPatchingService
         ")
     );
 
-    public Task<bool> UpdateCycleStatusAsync(int cycleId, string status) => RunDbAsync(async () =>
+    public Task<bool> UpdateCycleStatusAsync(int cycleId, string status, string actor) => RunDbAsync(async () =>
     {
         var rows = await Db.ExecuteAsync($@"
             UPDATE {Sql.Tables.PatchCycles}
-            SET status = @Status, updated_at = CURRENT_TIMESTAMP
+            SET status = @Status, updated_at = CURRENT_TIMESTAMP, updated_by = @Actor
             WHERE cycle_id = @CycleId
-        ", new { CycleId = cycleId, Status = status });
+        ", new { CycleId = cycleId, Status = status, Actor = actor });
         return rows > 0;
     });
 }

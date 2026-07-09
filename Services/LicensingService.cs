@@ -32,6 +32,15 @@ public class LicensingService : BaseService<LicensingService>, ILicensingService
         created_at AS CreatedAt,
         updated_at AS UpdatedAt";
 
+    private const string RenewalColumns = @"
+                renewal_id AS RenewalId,
+                licence_id AS LicenceId,
+                cycle_ended AS CycleEnded,
+                renewed_on AS RenewedOn,
+                new_expires AS NewExpires,
+                renewed_by AS RenewedBy,
+                notes AS Notes";
+
     public Task<IEnumerable<LicenceDetail>> ListAsync(string? vendor, string? status, string? search, int limit) => RunDbAsync(async () =>
     {
         var sql = $@"
@@ -60,14 +69,7 @@ public class LicensingService : BaseService<LicensingService>, ILicensingService
         // One grouped query for all renewals (no N+1), then attach by licence_id.
         var ids = licences.Select(l => l.LicenceId).ToArray();
         var renewals = await Db.QueryAsync<Renewal>($@"
-            SELECT
-                renewal_id AS RenewalId,
-                licence_id AS LicenceId,
-                cycle_ended AS CycleEnded,
-                renewed_on AS RenewedOn,
-                new_expires AS NewExpires,
-                renewed_by AS RenewedBy,
-                notes AS Notes
+            SELECT {RenewalColumns}
             FROM {Sql.Tables.Renewals}
             WHERE licence_id = ANY(@Ids)
             ORDER BY renewed_on DESC, renewal_id DESC",
@@ -144,21 +146,11 @@ public class LicensingService : BaseService<LicensingService>, ILicensingService
         return rows == 0 ? null : await LoadDetailAsync(id);
     });
 
-    // The partial unique index idx_licence_active_vpa forbids two active licences
-    // with the same (vendor, product, application_id). Translate that violation
-    // into a domain conflict so the controller returns 409 instead of a 500 - on
-    // both INSERT and an application-changing UPDATE.
-    private static async Task<T> TranslateConflict<T>(Func<Task<T>> op)
-    {
-        try
-        {
-            return await op();
-        }
-        catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.UniqueViolation)
-        {
-            throw new ConflictException("A licence for this vendor, product and application already exists.");
-        }
-    }
+    // The partial unique index idx_licence_active_vpa forbids two active licences with the
+    // same (vendor, product, application_id) - on both INSERT and an application-changing
+    // UPDATE. The shared catch lives in BaseService.TranslateUniqueViolation.
+    private static Task<T> TranslateConflict<T>(Func<Task<T>> op)
+        => TranslateUniqueViolation(op, "A licence for this vendor, product and application already exists.");
 
     public Task<bool> DeleteAsync(int id, string actor) => RunDbAsync(async () =>
         await Db.ExecuteAsync($@"
@@ -220,14 +212,7 @@ public class LicensingService : BaseService<LicensingService>, ILicensingService
         if (detail == null) return null;
 
         var renewals = await Db.QueryAsync<Renewal>($@"
-            SELECT
-                renewal_id AS RenewalId,
-                licence_id AS LicenceId,
-                cycle_ended AS CycleEnded,
-                renewed_on AS RenewedOn,
-                new_expires AS NewExpires,
-                renewed_by AS RenewedBy,
-                notes AS Notes
+            SELECT {RenewalColumns}
             FROM {Sql.Tables.Renewals}
             WHERE licence_id = @Id
             ORDER BY renewed_on DESC, renewal_id DESC",

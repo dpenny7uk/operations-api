@@ -8,7 +8,8 @@ namespace OperationsApi.Controllers;
 
 /// <summary>
 /// Attestation campaigns (Surface 09, Governance group). Reads (list + per-packet
-/// detail) are open to any authenticated user; launch and close require OpsAdmin.
+/// detail) expose access-recertification rosters (PII), so they require OpsAuditor;
+/// launch and close require OpsAdmin.
 /// </summary>
 [Authorize]
 [ApiController]
@@ -27,12 +28,14 @@ public class AuditingCampaignsController : ControllerBase
 
     /// <summary>List campaigns (active first, then most-recently-closed), with progress counts.</summary>
     [HttpGet("campaigns")]
+    [Authorize(Policy = "OpsAuditor")]
     [ProducesResponseType(200)]
     public async Task<IActionResult> ListCampaigns()
         => Ok(await _svc.ListCampaignsAsync());
 
     /// <summary>Get one campaign with its packets (+ subjects), decisions and email log.</summary>
     [HttpGet("campaigns/{id}")]
+    [Authorize(Policy = "OpsAuditor")]
     [ProducesResponseType(200)]
     [ProducesResponseType(404)]
     public async Task<IActionResult> GetCampaign(int id)
@@ -58,17 +61,11 @@ public class AuditingCampaignsController : ControllerBase
         if (req.ApplicationId <= 0)
             return BadRequest("application_id is required.");
 
-        var actor = User.Identity?.Name ?? "unknown";
-        try
-        {
-            var result = await _campaigns.LaunchAsync(req, actor);
-            return Created($"/api/auditing/campaigns/{result.CampaignId}", result);
-        }
-        catch (ConflictException ex)
-        {
-            // Launch-refusal states (no roster, no nominees, unrouteable + no fallback).
-            return Conflict(ex.Message);
-        }
+        var actor = User.CurrentSam();
+        // Launch-refusal states (no roster, no nominees, unrouteable + no fallback)
+        // surface as a ConflictException -> 409 via the global exception handler.
+        var result = await _campaigns.LaunchAsync(req, actor);
+        return Created($"/api/auditing/campaigns/{result.CampaignId}", result);
     }
 
     /// <summary>Manually close a campaign. Requires OpsAdmin role.</summary>
@@ -78,7 +75,7 @@ public class AuditingCampaignsController : ControllerBase
     [ProducesResponseType(404)]
     public async Task<IActionResult> Close(int id)
     {
-        var actor = User.Identity?.Name ?? "unknown";
+        var actor = User.CurrentSam();
         var closed = await _campaigns.CloseAsync(id, actor);
         return closed ? Ok() : NotFound();
     }
@@ -91,16 +88,9 @@ public class AuditingCampaignsController : ControllerBase
     [ProducesResponseType(409)]
     public async Task<IActionResult> Remind(int id)
     {
-        var actor = User.Identity?.Name ?? "unknown";
-        try
-        {
-            var sent = await _campaigns.RemindAsync(id, actor);
-            return Ok(new { sent });
-        }
-        catch (ConflictException ex)
-        {
-            return Conflict(ex.Message);
-        }
+        var actor = User.CurrentSam();
+        var sent = await _campaigns.RemindAsync(id, actor);
+        return Ok(new { sent });
     }
 
     /// <summary>Re-send the attestation link to a single recipient (packet) of an active
@@ -111,15 +101,8 @@ public class AuditingCampaignsController : ControllerBase
     [ProducesResponseType(409)]
     public async Task<IActionResult> RemindPacket(int id, Guid packetId)
     {
-        var actor = User.Identity?.Name ?? "unknown";
-        try
-        {
-            var sent = await _campaigns.RemindPacketAsync(id, packetId, actor);
-            return Ok(new { sent });
-        }
-        catch (ConflictException ex)
-        {
-            return Conflict(ex.Message);
-        }
+        var actor = User.CurrentSam();
+        var sent = await _campaigns.RemindPacketAsync(id, packetId, actor);
+        return Ok(new { sent });
     }
 }

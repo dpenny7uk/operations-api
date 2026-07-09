@@ -185,9 +185,11 @@ public class PatchExclusionServiceTests : IntegrationTestBase
         var held = await conn.QuerySingleAsync<DateOnly>(
             "SELECT held_until FROM patching.patch_exclusions WHERE exclusion_id = @id", new { id });
         Assert.Equal(InDays(45), held);
-        var by = await conn.QuerySingleAsync<string>(
-            "SELECT excluded_by FROM patching.patch_exclusions WHERE exclusion_id = @id", new { id });
-        Assert.Equal("extender", by);
+        // An extend preserves the original excluder and records the editor in updated_by.
+        var attribution = await conn.QuerySingleAsync<(string excluded_by, string? updated_by)>(
+            "SELECT excluded_by, updated_by FROM patching.patch_exclusions WHERE exclusion_id = @id", new { id });
+        Assert.Equal("tester", attribution.excluded_by);
+        Assert.Equal("extender", attribution.updated_by);
     }
 
     [DockerFact]
@@ -217,11 +219,12 @@ public class PatchExclusionServiceTests : IntegrationTestBase
         var ok = await svc.UpdateExclusionAsync(id, InDays(30), null, "updater");
 
         Assert.True(ok);
-        var row = await conn.QuerySingleAsync<(DateOnly held_until, string notes, string excluded_by)>(
-            "SELECT held_until, notes, excluded_by FROM patching.patch_exclusions WHERE exclusion_id = @id", new { id });
+        var row = await conn.QuerySingleAsync<(DateOnly held_until, string notes, string excluded_by, string? updated_by)>(
+            "SELECT held_until, notes, excluded_by, updated_by FROM patching.patch_exclusions WHERE exclusion_id = @id", new { id });
         Assert.Equal(InDays(30), row.held_until);
         Assert.Equal("initial notes", row.notes);  // untouched
-        Assert.Equal("updater", row.excluded_by);
+        Assert.Equal("orig", row.excluded_by);      // original excluder preserved
+        Assert.Equal("updater", row.updated_by);    // editor recorded separately
     }
 
     [DockerFact]

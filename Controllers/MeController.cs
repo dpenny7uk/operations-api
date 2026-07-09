@@ -42,14 +42,17 @@ public class MeController : ControllerBase
             valueType = c.ValueType,
             issuer = c.Issuer,
         });
+        var isAdmin = !string.IsNullOrEmpty(adminRole) && User.IsInRole(adminRole);
         return Ok(new
         {
             username,
             fullName = raw,
             authenticationType = User.Identity?.AuthenticationType,
             isAuthenticated = User.Identity?.IsAuthenticated ?? false,
-            configuredAdminRole = adminRole,
-            isInConfiguredAdminRole = !string.IsNullOrEmpty(adminRole) && User.IsInRole(adminRole),
+            // Only surface the configured admin group name to users already in it, so a
+            // non-privileged caller cannot enumerate the privileged AD group from here.
+            configuredAdminRole = isAdmin ? adminRole : null,
+            isInConfiguredAdminRole = isAdmin,
             claims,
         });
     }
