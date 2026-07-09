@@ -1567,14 +1567,21 @@ function _licenceFallbackDelete(id) {
 }
 
 async function refetchExclusions() {
-  const v = await api('/patching/exclusions?limit=500');
-  if (v) {
-    clearDemo('exclusions');
-    window.EXCLUSIONS = mapExclusions(v);
-    const m = mount();
-    if (window.RERENDER_PAGE && m) window.RERENDER_PAGE(m);
-    if (window.RERENDER_SHELL) window.RERENDER_SHELL();
-  } else {
+  try {
+    const v = await api('/patching/exclusions?limit=500');
+    if (v) {
+      clearDemo('exclusions');
+      window.EXCLUSIONS = mapExclusions(v);
+      const m = mount();
+      if (window.RERENDER_PAGE && m) window.RERENDER_PAGE(m);
+      if (window.RERENDER_SHELL) window.RERENDER_SHELL();
+    } else {
+      markDemo('exclusions');
+    }
+  } catch (e) {
+    // A refresh/re-render hiccup must never strand a caller that awaits this before
+    // navigating away (e.g. the Add Exclusion wizard's success path).
+    console.warn('refetchExclusions failed:', e);
     markDemo('exclusions');
   }
 }

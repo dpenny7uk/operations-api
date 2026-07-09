@@ -2213,7 +2213,12 @@
       const cont = h('button.btn.primary', {
         disabled: !canNext,
         style: canNext ? null : {opacity:'0.4',cursor:'not-allowed'},
-        on:{click:()=>{ if (canNext) { pmState.add.step=3; window.RERENDER_PAGE(mount); }}},
+        on:{click:()=>{
+          // Re-check live state: the "Other" free-text is typed after this render and
+          // toggles the gate in place, so the captured canNext can be stale on first click.
+          const ok = !!pmState.add.reason && (pmState.add.reason !== 'Other' || (pmState.add.otherReason || '').trim().length > 0);
+          if (ok) { pmState.add.step=3; window.RERENDER_PAGE(mount); }
+        }},
       }, 'Next · Hold-until →');
       footer.appendChild(cont);
     }
@@ -2344,6 +2349,8 @@
           notes: pmState.add.notes,
         };
         const reset = () => {
+          // Explicit success feedback, then leave the wizard for the excluded list.
+          toast(isBulk ? servers.length + ' exclusions created' : 'Exclusion created for ' + (first ? first.name : ''));
           pmState.add = { step: 1, serverQuery: '', selectedServers: [], reason: '', otherReason: '', until: '', untilIso: '', notes: '', calOffset: 0, error: null };
           pmState.tab = 'excluded';
           window.RERENDER_PAGE(mount);
@@ -2351,9 +2358,10 @@
         const fail = (msg) => { pmState.add.error = msg; window.RERENDER_PAGE(mount); };
         const act = window.OC_ACTIONS && window.OC_ACTIONS.addExclusion;
         if (act) {
-          act(payload, reset, fail);
+          // act() is async; surface any rejection as an inline error rather than
+          // silently stranding the user on the confirm step.
+          Promise.resolve(act(payload, reset, fail)).catch((e) => fail((e && e.message) || 'Could not create the exclusion.'));
         } else {
-          toast(isBulk ? 'Created '+servers.length+' exclusions (demo)' : 'Exclusion created for '+(first?first.name:'')+' (demo)');
           reset();
         }
       }}}, isBulk ? 'Create '+servers.length+' exclusions' : 'Create exclusion');
@@ -2494,6 +2502,7 @@
             affectedCount: affectedCount,
           };
           const reset = () => {
+            toast('Bulk exclusion created for ' + affectedCount + ' servers');
             pmState.bulk = { scope: 'group', group: 'GROUP0', env: 'Production', reason: '', otherReason: '', until: '', untilIso: '', calOffset: 0, error: null };
             pmState.tab = 'excluded';
             window.RERENDER_PAGE(mount);
@@ -2501,9 +2510,8 @@
           const fail = (msg) => { pmState.bulk.error = msg; window.RERENDER_PAGE(mount); };
           const act = window.OC_ACTIONS && window.OC_ACTIONS.bulkExclude;
           if (act) {
-            act(payload, reset, fail);
+            Promise.resolve(act(payload, reset, fail)).catch((e) => fail((e && e.message) || 'Could not create the bulk exclusion.'));
           } else {
-            toast('Bulk exclusion created for '+affectedCount+' servers (demo)');
             reset();
           }
         }
