@@ -1,5 +1,5 @@
 # operations-api
-Full-stack operations platform — .NET 10 REST API, PostgreSQL schema, and Python/PowerShell data sync pipelines for server inventory, patching schedules, SSL/TLS certificate monitoring, end-of-life software tracking, and disk capacity monitoring. Data collection is estate-wide; Teams alerts are scoped to servers operated by Group Support.
+Full-stack operations platform .NET 10 REST API, PostgreSQL schema, and Python/PowerShell data sync pipelines for server inventory, patching schedules, SSL/TLS certificate monitoring, end-of-life software tracking, and disk capacity monitoring. Data collection is estate-wide; Teams alerts are scoped to servers operated by Group Support.
 
 ## Security Notes
 
