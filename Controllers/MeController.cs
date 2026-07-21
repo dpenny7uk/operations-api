@@ -33,6 +33,7 @@ public class MeController : ControllerBase
     public IActionResult Claims([FromServices] IConfiguration config)
     {
         var adminRole = config.GetValue<string>("Authentication:AdminRole") ?? "";
+        var auditorRole = config.GetValue<string>("Authentication:AuditorRole") ?? "";
         var raw = User.Identity?.Name ?? "unknown";
         var username = User.CurrentSam();
         var claims = User.Claims.Select(c => new
@@ -43,16 +44,20 @@ public class MeController : ControllerBase
             issuer = c.Issuer,
         });
         var isAdmin = !string.IsNullOrEmpty(adminRole) && User.IsInRole(adminRole);
+        // Admins satisfy OpsAuditor too - mirrors the policy in Program.cs.
+        var isAuditor = isAdmin || (!string.IsNullOrEmpty(auditorRole) && User.IsInRole(auditorRole));
         return Ok(new
         {
             username,
             fullName = raw,
             authenticationType = User.Identity?.AuthenticationType,
             isAuthenticated = User.Identity?.IsAuthenticated ?? false,
-            // Only surface the configured admin group name to users already in it, so a
-            // non-privileged caller cannot enumerate the privileged AD group from here.
+            // Only surface the configured group names to users already in them, so a
+            // non-privileged caller cannot enumerate the privileged AD groups from here.
             configuredAdminRole = isAdmin ? adminRole : null,
             isInConfiguredAdminRole = isAdmin,
+            configuredAuditorRole = isAuditor ? auditorRole : null,
+            isInConfiguredAuditorRole = isAuditor,
             claims,
         });
     }

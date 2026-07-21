@@ -323,6 +323,11 @@ stages:
                           exit 1
                       }
 
+                      if ([string]::IsNullOrWhiteSpace($env:OPS_AUDITOR_ROLE)) {
+                          Write-Error "OPS_AUDITOR_ROLE not set — add it to the operations-api-prod variable group (e.g. 'CONTOSO\App_ServiceOps_Auditor'). Without it the OpsAuditor policy opens licensing and auditing reads to every authenticated user."
+                          exit 1
+                      }
+
                       $settings = @{
                           ConnectionStrings = @{
                               OperationsDb = $env:OPS_CONNECTIONSTRING
@@ -330,6 +335,7 @@ stages:
                           Authentication = @{
                               Mode = "Windows"
                               AdminRole = $env:OPS_ADMIN_ROLE
+                              AuditorRole = $env:OPS_AUDITOR_ROLE
                           }
                           Cors = @{
                               AllowedOrigins = $origins
@@ -352,6 +358,7 @@ stages:
                   env:
                     OPS_CONNECTIONSTRING: $(OPS_CONNECTIONSTRING)
                     OPS_ADMIN_ROLE: $(OPS_ADMIN_ROLE)
+                    OPS_AUDITOR_ROLE: $(OPS_AUDITOR_ROLE)
 
                 # ── Deploy frontend ──────────────────────────────────────
                 - task: PowerShell@2

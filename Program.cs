@@ -55,6 +55,15 @@ if (string.IsNullOrWhiteSpace(adminRole) && !builder.Environment.IsDevelopment()
         "Authentication:AdminRole is not configured. Set it in appsettings.json or environment variables. " +
         "Refusing to start: a blank AdminRole would open every OpsAdmin write endpoint to any authenticated user.");
 
+// Same guard for AuditorRole. The OpsAuditor policy gates reads over access-recertification
+// rosters (PII) and commercial licence data, so a blank role is a confidentiality gap, not a
+// convenience - refuse to start rather than fall back to "any authenticated user".
+if (string.IsNullOrWhiteSpace(auditorRole) && !builder.Environment.IsDevelopment())
+    throw new InvalidOperationException(
+        "Authentication:AuditorRole is not configured. Set it in appsettings.json or environment variables. " +
+        "Refusing to start: a blank AuditorRole would open every OpsAuditor read endpoint - auditing rosters " +
+        "and licensing data - to any authenticated user.");
+
 builder.Services
     .AddAuthentication(NegotiateDefaults.AuthenticationScheme)
     .AddNegotiate();
@@ -68,9 +77,9 @@ builder.Services.AddAuthorization(options =>
     else
         options.AddPolicy("OpsAdmin", policy => policy.RequireAuthenticatedUser());
 
-    // OpsAuditor: read-only auditing access. Falls back to "any authenticated" when
-    // no AuditorRole is configured (preserves current open-read behaviour); when set,
-    // it is the auditor role OR the admin role (admins always satisfy it).
+    // OpsAuditor: read-only auditing access - the auditor role OR the admin role
+    // (admins always satisfy it). The "any authenticated" fallback below is reachable
+    // only in Development; outside it, the guard above has already refused to start.
     if (!string.IsNullOrWhiteSpace(auditorRole))
     {
         var auditorRoles = string.IsNullOrWhiteSpace(adminRole) ? new[] { auditorRole } : new[] { auditorRole, adminRole };
